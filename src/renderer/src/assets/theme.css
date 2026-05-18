@@ -1,0 +1,148 @@
+:root,
+[data-theme='dark'] {
+  /* Surfaces */
+  --c-pitch: #08090a;
+  --c-graphite: #0f1011;
+  --c-slate: #161718;
+  --c-charcoal: #23252a;
+  --c-ash: #323334;
+  --c-gunmetal: #383b3f;
+
+  /* Text */
+  --c-porcelain: #f7f8f8;
+  --c-steel: #d0d6e0;
+  --c-storm: #8a8f98;
+  --c-fog: #62666d;
+  --c-alabaster: #e5e5e6;
+
+  /* Accent */
+  --c-lime: #e4f222;
+  --c-lime-text: #08090a;
+  --c-aether: #5e6ad2;
+  --c-emerald: #27a644;
+  --c-forest: #008d2c;
+  --c-red: #eb5757;
+  --c-cyan: #02b8cc;
+  --c-violet: #6366f1;
+  --c-amethyst: #8b5cf6;
+  --c-warning: #fbbf24;
+
+  /* Shadows */
+  --shadow-sm: rgba(0, 0, 0, 0.4) 0px 2px 4px 0px;
+  --shadow-md: rgba(0, 0, 0, 0.2) 0px 0px 12px 0px inset;
+  --shadow-subtle: rgb(35, 37, 42) 0px 0px 0px 1px inset;
+  --shadow-subtle-2: rgba(0, 0, 0, 0.2) 0px 0px 0px 1px;
+  --shadow-subtle-3: rgba(0, 0, 0, 0.01) 0px 5px 2px 0px, rgba(0, 0, 0, 0.04) 0px 3px 2px 0px, rgba(0, 0, 0, 0.07) 0px 1px 1px 0px, rgba(0, 0, 0, 0.08) 0px 0px 1px 0px;
+  --shadow-xl: rgba(8, 9, 10, 0.6) 0px 4px 32px 0px;
+  --shadow-subtle-4: rgba(0, 0, 0, 0.1) 0px 0px 0px 2px;
+  --shadow-subtle-5: rgba(0, 0, 0, 0.33) 0px 0px 0px 1px;
+  --shadow-subtle-6: rgba(255, 255, 255, 0.03) 0px 0px 0px 1px inset, rgba(255, 255, 255, 0.04) 0px 1px 0px 0px inset, rgba(0, 0, 0, 0.6) 0px 0px 0px 1px, rgba(0, 0, 0, 0.1) 0px 4px 4px 0px;
+
+  /* Spacing */
+  --space-unit: 4px;
+  --section-gap: 24px;
+  --card-padding: 12px;
+  --element-gap: 8px;
+
+  /* Radius */
+  --radius-sm: 2px;
+  --radius-md: 6px;
+  --radius-lg: 12px;
+  --radius-pill: 9999px;
+
+  color-scheme: dark;
+}
+
+[data-theme='light'] {
+  --c-pitch: #ffffff;
+  --c-graphite: #f8f9fa;
+  --c-slate: #f1f3f5;
+  --c-charcoal: #e2e4e8;
+  --c-ash: #d0d3d8;
+  --c-gunmetal: #c4c8ce;
+  --c-porcelain: #08090a;
+  --c-steel: #2c3038;
+  --c-storm: #5c6370;
+  --c-fog: #8b919a;
+  --c-alabaster: #3a3f48;
+  --c-lime: #4d7c0f;
+  --c-lime-text: #ffffff;
+  --c-aether: #5e6ad2;
+  --c-emerald: #16a34a;
+  --c-forest: #15803d;
+  --c-red: #dc2626;
+  --c-cyan: #0891b2;
+  --c-violet: #6366f1;
+  --c-amethyst: #8b5cf6;
+  --c-warning: #d97706;
+
+  --shadow-sm: rgba(0, 0, 0, 0.06) 0px 2px 4px 0px;
+  --shadow-md: rgba(0, 0, 0, 0.04) 0px 0px 12px 0px inset;
+  --shadow-subtle: rgba(0, 0, 0, 0.08) 0px 0px 0px 1px inset;
+  --shadow-subtle-2: rgba(0, 0, 0, 0.06) 0px 0px 0px 1px;
+  --shadow-subtle-3: rgba(0, 0, 0, 0.02) 0px 2px 4px 0px;
+  --shadow-xl: rgba(0, 0, 0, 0.1) 0px 4px 32px 0px;
+  --shadow-subtle-4: rgba(0, 0, 0, 0.06) 0px 0px 0px 2px;
+  --shadow-subtle-5: rgba(0, 0, 0, 0.1) 0px 0px 0px 1px;
+  --shadow-subtle-6: rgba(0, 0, 0, 0.04) 0px 0px 0px 1px inset, rgba(0, 0, 0, 0.06) 0px 1px 0px 0px inset;
+
+  --space-unit: 4px;
+  --section-gap: 24px;
+  --card-padding: 12px;
+  --element-gap: 8px;
+
+  --radius-sm: 2px;
+  --radius-md: 6px;
+  --radius-lg: 12px;
+  --radius-pill: 9999px;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --c-pitch: #ffffff;
+    --c-graphite: #f8f9fa;
+    --c-slate: #f1f3f5;
+    --c-charcoal: #e2e4e8;
+    --c-ash: #d0d3d8;
+    --c-gunmetal: #c4c8ce;
+    --c-porcelain: #08090a;
+    --c-steel: #2c3038;
+    --c-storm: #5c6370;
+    --c-fog: #8b919a;
+    --c-alabaster: #3a3f48;
+    --c-lime: #4d7c0f;
+    --c-lime-text: #ffffff;
+    --c-aether: #5e6ad2;
+    --c-emerald: #16a34a;
+    --c-forest: #15803d;
+    --c-red: #dc2626;
+    --c-cyan: #0891b2;
+    --c-violet: #6366f1;
+    --c-amethyst: #8b5cf6;
+    --c-warning: #d97706;
+
+    --shadow-sm: rgba(0, 0, 0, 0.06) 0px 2px 4px 0px;
+    --shadow-md: rgba(0, 0, 0, 0.04) 0px 0px 12px 0px inset;
+    --shadow-subtle: rgba(0, 0, 0, 0.08) 0px 0px 0px 1px inset;
+    --shadow-subtle-2: rgba(0, 0, 0, 0.06) 0px 0px 0px 1px;
+    --shadow-subtle-3: rgba(0, 0, 0, 0.02) 0px 2px 4px 0px;
+    --shadow-xl: rgba(0, 0, 0, 0.1) 0px 4px 32px 0px;
+    --shadow-subtle-4: rgba(0, 0, 0, 0.06) 0px 0px 0px 2px;
+    --shadow-subtle-5: rgba(0, 0, 0, 0.1) 0px 0px 0px 1px;
+    --shadow-subtle-6: rgba(0, 0, 0, 0.04) 0px 0px 0px 1px inset, rgba(0, 0, 0, 0.06) 0px 1px 0px 0px inset;
+
+    --space-unit: 4px;
+    --section-gap: 24px;
+    --card-padding: 12px;
+    --element-gap: 8px;
+
+    --radius-sm: 2px;
+    --radius-md: 6px;
+    --radius-lg: 12px;
+    --radius-pill: 9999px;
+
+    color-scheme: light;
+  }
+}

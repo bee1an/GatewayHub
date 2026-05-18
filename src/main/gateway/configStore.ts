@@ -2,7 +2,11 @@ import { app } from 'electron'
 import { dirname, join } from 'path'
 import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'fs/promises'
 import type { GatewayHubConfig, GatewayHubState, KiroAccountConfig } from './types'
-import { DEFAULT_KIRO_SETTINGS, SQLITE_TOKEN_KEYS, SQLITE_REGISTRATION_KEYS } from './providers/kiro/constants'
+import {
+  DEFAULT_KIRO_SETTINGS,
+  SQLITE_TOKEN_KEYS,
+  SQLITE_REGISTRATION_KEYS
+} from './providers/kiro/constants'
 import { generateApiKey, readJsonFile, sha256Short, writeJsonFile } from './core/utils'
 
 export class GatewayConfigStore {
@@ -24,7 +28,10 @@ export class GatewayConfigStore {
     const configDir = dirname(this.configPath)
     await mkdir(configDir, { recursive: true })
 
-    const configExists = await stat(this.configPath).then(() => true, () => false)
+    const configExists = await stat(this.configPath).then(
+      () => true,
+      () => false
+    )
     if (configExists) return
 
     const oldDir = app.getPath('userData')
@@ -34,12 +41,16 @@ export class GatewayConfigStore {
     try {
       const oldConfig = await readFile(oldConfigPath, 'utf8')
       await writeFile(this.configPath, oldConfig, 'utf8')
-    } catch { /* no old config */ }
+    } catch {
+      /* no old config */
+    }
 
     try {
       const oldState = await readFile(oldStatePath, 'utf8')
       await writeFile(this.statePath, oldState, 'utf8')
-    } catch { /* no old state */ }
+    } catch {
+      /* no old state */
+    }
   }
 
   async loadConfig(): Promise<GatewayHubConfig> {
@@ -167,7 +178,9 @@ export class GatewayConfigStore {
         const account = await extractAccountFromJson(full, `AWS SSO cache ${file}`)
         if (account) candidates.push(account)
       }
-    } catch { /* ignore missing directory */ }
+    } catch {
+      /* ignore missing directory */
+    }
 
     for (const dbPath of [
       join(home, '.local', 'share', 'kiro-cli', 'data.sqlite3'),
@@ -180,7 +193,9 @@ export class GatewayConfigStore {
     return candidates
   }
 
-  async scanKiroAccounts(): Promise<{ candidates: Array<KiroAccountConfig & { existing?: boolean; sourceType?: string }> }> {
+  async scanKiroAccounts(): Promise<{
+    candidates: Array<KiroAccountConfig & { existing?: boolean; sourceType?: string }>
+  }> {
     const external = await this.scanExternalAccounts()
     const existing = await this.readAccountFiles()
     const existingKeys = new Set<string>()
@@ -268,10 +283,14 @@ export class GatewayConfigStore {
         if ((acc.type === 'json' || acc.type === 'sqlite') && acc.path) {
           const sourceData = await readJsonFile<any>(acc.path).catch(() => null)
           if (sourceData) {
-            accountData.refreshToken = accountData.refreshToken || sourceData.refreshToken || sourceData.refresh_token
-            accountData.accessToken = accountData.accessToken || sourceData.accessToken || sourceData.access_token
-            accountData.profileArn = accountData.profileArn || sourceData.profileArn || sourceData.profile_arn
-            accountData.expiresAt = accountData.expiresAt || sourceData.expiresAt || sourceData.expires_at
+            accountData.refreshToken =
+              accountData.refreshToken || sourceData.refreshToken || sourceData.refresh_token
+            accountData.accessToken =
+              accountData.accessToken || sourceData.accessToken || sourceData.access_token
+            accountData.profileArn =
+              accountData.profileArn || sourceData.profileArn || sourceData.profile_arn
+            accountData.expiresAt =
+              accountData.expiresAt || sourceData.expiresAt || sourceData.expires_at
             accountData.clientId = sourceData.clientId || sourceData.client_id
             accountData.clientSecret = sourceData.clientSecret || sourceData.client_secret
             if (sourceData.region && !accountData.region) accountData.region = sourceData.region
@@ -326,7 +345,10 @@ export class GatewayConfigStore {
           ...defaults.providers.kiro,
           ...(input?.providers?.kiro ?? {}),
           routeName: input?.providers?.kiro?.routeName || defaults.providers.kiro.routeName,
-          settings: { ...defaults.providers.kiro.settings, ...(input?.providers?.kiro?.settings ?? {}) }
+          settings: {
+            ...defaults.providers.kiro.settings,
+            ...(input?.providers?.kiro?.settings ?? {})
+          }
         },
         codex: { ...defaults.providers.codex, ...(input?.providers?.codex ?? {}) },
         gemini: { ...defaults.providers.gemini, ...(input?.providers?.gemini ?? {}) }
@@ -353,7 +375,9 @@ export class GatewayConfigStore {
           ...defaults.providers.kiro,
           ...(input?.providers?.kiro ?? {}),
           accounts: input?.providers?.kiro?.accounts ?? {},
-          logs: Array.isArray(input?.providers?.kiro?.logs) ? input.providers.kiro.logs.slice(-300) : []
+          logs: Array.isArray(input?.providers?.kiro?.logs)
+            ? input.providers.kiro.logs.slice(-300)
+            : []
         }
       }
     }
@@ -391,9 +415,14 @@ function stripPath(data: KiroAccountConfig): Omit<KiroAccountConfig, 'path'> {
   return rest
 }
 
-const dynamicImport = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<any>
+const dynamicImport = new Function('specifier', 'return import(specifier)') as (
+  specifier: string
+) => Promise<any>
 
-async function extractAccountFromJson(path: string, label: string): Promise<(KiroAccountConfig & { sourceType: string }) | null> {
+async function extractAccountFromJson(
+  path: string,
+  label: string
+): Promise<(KiroAccountConfig & { sourceType: string }) | null> {
   try {
     const data = await readJsonFile<any>(path)
     const refreshToken = data.refreshToken || data.refresh_token
@@ -402,7 +431,11 @@ async function extractAccountFromJson(path: string, label: string): Promise<(Kir
 
     const profileArn = data.profileArn || data.profile_arn || ''
     const email = normalizeEmail(data.email || data.userInfo?.email)
-    const id = profileArn ? `kiro-profile-${sha256Short(profileArn)}` : refreshToken ? `kiro-refresh-${sha256Short(refreshToken)}` : `kiro-access-${sha256Short(accessToken)}`
+    const id = profileArn
+      ? `kiro-profile-${sha256Short(profileArn)}`
+      : refreshToken
+        ? `kiro-refresh-${sha256Short(refreshToken)}`
+        : `kiro-access-${sha256Short(accessToken)}`
 
     return {
       id,
@@ -422,7 +455,9 @@ async function extractAccountFromJson(path: string, label: string): Promise<(Kir
   }
 }
 
-async function extractAccountFromSqlite(dbPath: string): Promise<(KiroAccountConfig & { sourceType: string }) | null> {
+async function extractAccountFromSqlite(
+  dbPath: string
+): Promise<(KiroAccountConfig & { sourceType: string }) | null> {
   try {
     await stat(dbPath)
   } catch {
@@ -442,7 +477,9 @@ async function extractAccountFromSqlite(dbPath: string): Promise<(KiroAccountCon
       let clientSecret = ''
 
       for (const key of SQLITE_TOKEN_KEYS) {
-        const row = db.prepare('SELECT value FROM auth_kv WHERE key = ?').get(key) as { value?: string } | undefined
+        const row = db.prepare('SELECT value FROM auth_kv WHERE key = ?').get(key) as
+          | { value?: string }
+          | undefined
         if (!row?.value) continue
         const tokenJson = JSON.parse(row.value)
         accessToken = tokenJson.access_token || tokenJson.accessToken || ''
@@ -454,7 +491,9 @@ async function extractAccountFromSqlite(dbPath: string): Promise<(KiroAccountCon
       }
 
       for (const key of SQLITE_REGISTRATION_KEYS) {
-        const row = db.prepare('SELECT value FROM auth_kv WHERE key = ?').get(key) as { value?: string } | undefined
+        const row = db.prepare('SELECT value FROM auth_kv WHERE key = ?').get(key) as
+          | { value?: string }
+          | undefined
         if (!row?.value) continue
         const reg = JSON.parse(row.value)
         clientId = reg.client_id || reg.clientId || ''
@@ -464,16 +503,22 @@ async function extractAccountFromSqlite(dbPath: string): Promise<(KiroAccountCon
       }
 
       try {
-        const row = db.prepare("SELECT value FROM state WHERE key = 'api.codewhisperer.profile'").get() as { value?: string } | undefined
+        const row = db
+          .prepare("SELECT value FROM state WHERE key = 'api.codewhisperer.profile'")
+          .get() as { value?: string } | undefined
         if (row?.value) {
           const profile = JSON.parse(row.value)
           if (profile.arn && !profileArn) profileArn = profile.arn
         }
-      } catch { /* older databases may not have state table */ }
+      } catch {
+        /* older databases may not have state table */
+      }
 
       if (!refreshToken && !accessToken) return null
 
-      const id = profileArn ? `kiro-profile-${sha256Short(profileArn)}` : `kiro-refresh-${sha256Short(refreshToken)}`
+      const id = profileArn
+        ? `kiro-profile-${sha256Short(profileArn)}`
+        : `kiro-refresh-${sha256Short(refreshToken)}`
       return {
         id,
         enabled: true,

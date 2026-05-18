@@ -13,7 +13,12 @@ interface TabGroupProps {
   className?: string
 }
 
-export function TabGroup({ value, onValueChange, items, className }: TabGroupProps): React.JSX.Element {
+export function TabGroup({
+  value,
+  onValueChange,
+  items,
+  className
+}: TabGroupProps): React.JSX.Element {
   return (
     <Tabs.Root value={value} onValueChange={onValueChange} className={className}>
       <Tabs.List className="tab-list mb-4">

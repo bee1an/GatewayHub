@@ -73,6 +73,29 @@ export interface KiroProviderState {
   logs: GatewayLogEntry[]
 }
 
+export type AccountStatus =
+  | 'available'
+  | 'cooling'
+  | 'rate_limited'
+  | 'quota_exceeded'
+  | 'auth_failed'
+  | 'manual_disabled'
+
+export type ResponseKind =
+  | 'success'
+  | 'rate_limit'
+  | 'quota'
+  | 'auth'
+  | 'server_error'
+  | 'network'
+  | 'timeout'
+
+export interface ClassifiedKiroError {
+  kind: ResponseKind
+  cooldownMs: number
+  resetAtIso?: string
+}
+
 export interface AccountRuntimeState {
   failures: number
   lastFailureAt: number
@@ -80,6 +103,11 @@ export interface AccountRuntimeState {
   lastError?: string
   modelsCachedAt: number
   modelIds: string[]
+  status: AccountStatus
+  statusReason?: string
+  statusUpdatedAt: number
+  cooldownUntil?: number
+  lastResponseKind?: ResponseKind
   stats: {
     totalRequests: number
     successfulRequests: number

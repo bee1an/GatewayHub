@@ -8,7 +8,7 @@ const zh = {
     test: '测试',
     refresh: '刷新',
     loading: '加载中...',
-    add: '添加',
+    add: '添加'
   },
   sidebar: {
     dashboard: '仪表盘',
@@ -20,7 +20,7 @@ const zh = {
     running: '运行中',
     soon: '即将',
     toggleLang: '切换语言',
-    toggleTheme: '切换主题',
+    toggleTheme: '切换主题'
   },
   dashboard: {
     title: '仪表盘',
@@ -31,7 +31,7 @@ const zh = {
     successRate: '成功率',
     recentActivity: '最近活动',
     entries: '{{count}} 条记录',
-    noActivity: '暂无活动',
+    noActivity: '暂无活动'
   },
   gateway: {
     routePrefix: '路由前缀：',
@@ -79,6 +79,18 @@ const zh = {
     reset: '重置',
     resetDone: '账号已重置',
     refresh: '刷新',
+    pause: '暂停',
+    resume: '恢复',
+    paused: '账号已暂停',
+    resumed: '账号已恢复',
+    statusAvailable: '可用',
+    statusCooling: '临时不可用',
+    statusRateLimited: '限流中',
+    statusQuotaExceeded: '配额耗尽',
+    statusAuthFailed: '凭证失效',
+    statusManualDisabled: '已暂停',
+    cooldownRemaining: '剩余 {{duration}}',
+    details: '详情',
     subscription: '订阅',
     usage: '用量',
     usageOf: '{{used}} / {{limit}}',
@@ -88,7 +100,7 @@ const zh = {
     refreshInfo: '刷新信息',
     loadingInfo: '加载中...',
     infoError: '加载失败',
-    rateMultiplier: '{{multiplier}}x',
+    rateMultiplier: '{{multiplier}}x'
   },
   logs: {
     title: '日志',
@@ -105,7 +117,7 @@ const zh = {
     level: '级别',
     message: '消息',
     provider: '提供商',
-    account: '账号',
+    account: '账号'
   },
   settings: {
     title: '设置',
@@ -126,7 +138,7 @@ const zh = {
     proxy: 'VPN 代理',
     proxyDesc: '用于 Kiro API 请求的 HTTP/SOCKS5 代理',
     save: '保存',
-    saved: '设置已保存',
+    saved: '设置已保存'
   },
   addAccount: {
     title: '添加 Kiro 账号',
@@ -142,7 +154,7 @@ const zh = {
       token: 'Token',
       json: 'JSON',
       cli: 'CLI 登录',
-      advanced: '高级',
+      advanced: '高级'
     },
     tokenPlaceholder: '粘贴 Kiro refresh token...',
     accessTokenPlaceholder: '粘贴 Kiro access token...',
@@ -166,8 +178,8 @@ const zh = {
     cliFailed: '登录失败（退出码 {{code}}）',
     discoverRunning: '扫描中...',
     discoverResult: '{{skipped}} 个已导入',
-    discoverEmpty: '未发现新凭证',
-  },
+    discoverEmpty: '未发现新凭证'
+  }
 }
 
 export default zh

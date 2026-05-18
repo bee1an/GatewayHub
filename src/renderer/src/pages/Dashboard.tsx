@@ -29,7 +29,8 @@ export default function Dashboard(): React.JSX.Element {
 
   const totalRequests = recentLogs.length
   const errorLogs = recentLogs.filter((l) => l.level === 'error')
-  const successRate = totalRequests > 0 ? Math.round(((totalRequests - errorLogs.length) / totalRequests) * 100) : 100
+  const successRate =
+    totalRequests > 0 ? Math.round(((totalRequests - errorLogs.length) / totalRequests) * 100) : 100
 
   return (
     <div className="flex flex-col gap-6">
@@ -39,20 +40,40 @@ export default function Dashboard(): React.JSX.Element {
       </div>
 
       <div className="grid grid-cols-4 gap-3">
-        <StatCard label={t('dashboard.server')} value={status.server.running ? t('sidebar.running') : t('sidebar.stopped')} accent={status.server.running ? 'emerald' : 'fog'} />
-        <StatCard label={t('dashboard.providers')} value={String(providers.length)} accent="aether" />
-        <StatCard label={t('dashboard.models')} value={String(providers.reduce((sum, p) => sum + p.models.length, 0))} accent="cyan" />
-        <StatCard label={t('dashboard.successRate')} value={`${successRate}%`} accent={successRate >= 90 ? 'emerald' : successRate >= 70 ? 'warning' : 'red'} />
+        <StatCard
+          label={t('dashboard.server')}
+          value={status.server.running ? t('sidebar.running') : t('sidebar.stopped')}
+          accent={status.server.running ? 'emerald' : 'fog'}
+        />
+        <StatCard
+          label={t('dashboard.providers')}
+          value={String(providers.length)}
+          accent="aether"
+        />
+        <StatCard
+          label={t('dashboard.models')}
+          value={String(providers.reduce((sum, p) => sum + p.models.length, 0))}
+          accent="cyan"
+        />
+        <StatCard
+          label={t('dashboard.successRate')}
+          value={`${successRate}%`}
+          accent={successRate >= 90 ? 'emerald' : successRate >= 70 ? 'warning' : 'red'}
+        />
       </div>
 
       <div>
         <div className="flex items-center justify-between mb-3">
           <span className="label">{t('dashboard.recentActivity')}</span>
-          <span className="text-[12px] text-fog">{t('dashboard.entries', { count: recentLogs.length })}</span>
+          <span className="text-[12px] text-fog">
+            {t('dashboard.entries', { count: recentLogs.length })}
+          </span>
         </div>
         <div className="card overflow-hidden">
           {recentLogs.length === 0 ? (
-            <div className="px-4 py-8 text-center text-[13px] text-fog">{t('dashboard.noActivity')}</div>
+            <div className="px-4 py-8 text-center text-[13px] text-fog">
+              {t('dashboard.noActivity')}
+            </div>
           ) : (
             <div className="max-h-[400px] overflow-y-auto">
               {recentLogs.map((log, i) => (
@@ -66,7 +87,15 @@ export default function Dashboard(): React.JSX.Element {
   )
 }
 
-function StatCard({ label, value, accent }: { label: string; value: string; accent: string }): React.JSX.Element {
+function StatCard({
+  label,
+  value,
+  accent
+}: {
+  label: string
+  value: string
+  accent: string
+}): React.JSX.Element {
   return (
     <div className="stat-card-lg">
       <span className="text-[12px] text-fog uppercase tracking-[0.5px]">{label}</span>
@@ -76,8 +105,13 @@ function StatCard({ label, value, accent }: { label: string; value: string; acce
 }
 
 function RequestRow({ log, isNew }: { log: any; isNew: boolean }): React.JSX.Element {
-  const levelColor = log.level === 'error' ? 'bg-red' : log.level === 'warn' ? 'bg-warning' : 'bg-emerald'
-  const time = new Date(log.ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  const levelColor =
+    log.level === 'error' ? 'bg-red' : log.level === 'warn' ? 'bg-warning' : 'bg-emerald'
+  const time = new Date(log.ts).toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  })
 
   return (
     <div className={`log-row ${isNew ? 'animate-slide-up' : ''}`}>

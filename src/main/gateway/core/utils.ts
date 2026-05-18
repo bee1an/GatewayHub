@@ -71,7 +71,10 @@ export function toErrorMessage(error: unknown): string {
   }
 }
 
-export async function parseRequestBody(req: NodeJS.ReadableStream, maxBytes = 25 * 1024 * 1024): Promise<any> {
+export async function parseRequestBody(
+  req: NodeJS.ReadableStream,
+  maxBytes = 25 * 1024 * 1024
+): Promise<any> {
   const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of req) {

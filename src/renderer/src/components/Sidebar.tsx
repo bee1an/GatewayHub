@@ -22,7 +22,7 @@ type ServerInfo = {
 }
 
 const GATEWAY_LOGOS: Record<string, string> = {
-  kiro: kiroIcon,
+  kiro: kiroIcon
 }
 
 const PLACEHOLDER_PROVIDERS = ['codex', 'gemini']
@@ -59,7 +59,10 @@ export default function Sidebar(): React.JSX.Element {
       </div>
 
       <nav className="flex-1 flex flex-col px-2 py-2 gap-0.5">
-        <NavLink to="/dashboard" className={({ isActive }) => isActive ? 'sidebar-item-active' : 'sidebar-item'}>
+        <NavLink
+          to="/dashboard"
+          className={({ isActive }) => (isActive ? 'sidebar-item-active' : 'sidebar-item')}
+        >
           <span className="i-ph-gauge text-[16px]" />
           <span>{t('sidebar.dashboard')}</span>
         </NavLink>
@@ -69,27 +72,40 @@ export default function Sidebar(): React.JSX.Element {
         </div>
 
         {configuredGateways.map((gw) => (
-          <GatewayNavItem key={gw.name} name={gw.name} providerType={gw.providerType} status={gw.status} />
+          <GatewayNavItem
+            key={gw.name}
+            name={gw.name}
+            providerType={gw.providerType}
+            status={gw.status}
+          />
         ))}
 
-        {PLACEHOLDER_PROVIDERS.filter((n) => !configuredGateways.some((g) => g.name === n)).map((name) => (
-          <div key={name} className="sidebar-item opacity-40 cursor-default">
-            <span className="pulse-dot-gray" />
-            <span className="capitalize">{name}</span>
-            <span className="ml-auto text-[12px] text-fog">{t('sidebar.soon')}</span>
-          </div>
-        ))}
+        {PLACEHOLDER_PROVIDERS.filter((n) => !configuredGateways.some((g) => g.name === n)).map(
+          (name) => (
+            <div key={name} className="sidebar-item opacity-40 cursor-default">
+              <span className="pulse-dot-gray" />
+              <span className="capitalize">{name}</span>
+              <span className="ml-auto text-[12px] text-fog">{t('sidebar.soon')}</span>
+            </div>
+          )
+        )}
 
         <div className="mt-3 mb-1 px-3">
           <span className="label">{t('sidebar.system')}</span>
         </div>
 
-        <NavLink to="/logs" className={({ isActive }) => isActive ? 'sidebar-item-active' : 'sidebar-item'}>
+        <NavLink
+          to="/logs"
+          className={({ isActive }) => (isActive ? 'sidebar-item-active' : 'sidebar-item')}
+        >
           <span className="i-ph-list-bullets text-[16px]" />
           <span>{t('sidebar.logs')}</span>
         </NavLink>
 
-        <NavLink to="/settings" className={({ isActive }) => isActive ? 'sidebar-item-active' : 'sidebar-item'}>
+        <NavLink
+          to="/settings"
+          className={({ isActive }) => (isActive ? 'sidebar-item-active' : 'sidebar-item')}
+        >
           <span className="i-ph-gear text-[16px]" />
           <span>{t('sidebar.settings')}</span>
         </NavLink>
@@ -98,7 +114,9 @@ export default function Sidebar(): React.JSX.Element {
       <div className="shrink-0 px-2 py-2 border-t border-charcoal flex items-center justify-between">
         <div className="flex items-center gap-2 px-2">
           <span className={server.running ? 'pulse-dot-green' : 'pulse-dot-gray'} />
-          <span className="text-[12px] text-fog">{server.running ? t('sidebar.running') : t('sidebar.stopped')}</span>
+          <span className="text-[12px] text-fog">
+            {server.running ? t('sidebar.running') : t('sidebar.stopped')}
+          </span>
         </div>
         <div className="flex items-center gap-1">
           <TooltipWrapper content={t('sidebar.toggleLang')}>
@@ -117,14 +135,27 @@ export default function Sidebar(): React.JSX.Element {
   )
 }
 
-function GatewayNavItem({ name, providerType, status }: { name: string; providerType: string; status: string }): React.JSX.Element {
-  const dotClass = status === 'ready' || status === 'running' ? 'pulse-dot-green' : status === 'error' ? 'pulse-dot-red' : 'pulse-dot-gray'
+function GatewayNavItem({
+  name,
+  providerType,
+  status
+}: {
+  name: string
+  providerType: string
+  status: string
+}): React.JSX.Element {
+  const dotClass =
+    status === 'ready' || status === 'running'
+      ? 'pulse-dot-green'
+      : status === 'error'
+        ? 'pulse-dot-red'
+        : 'pulse-dot-gray'
   const logo = GATEWAY_LOGOS[providerType]
 
   return (
     <NavLink
       to={`/gateway/${name}`}
-      className={({ isActive }) => isActive ? 'sidebar-item-active' : 'sidebar-item'}
+      className={({ isActive }) => (isActive ? 'sidebar-item-active' : 'sidebar-item')}
     >
       {logo ? (
         <img src={logo} alt={name} className="w-4 h-4 rounded-[2px] object-contain" />

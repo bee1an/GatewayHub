@@ -6,12 +6,18 @@ interface ToggleFilterProps {
   items: { value: string; label: string }[]
 }
 
-export function ToggleFilter({ value, onValueChange, items }: ToggleFilterProps): React.JSX.Element {
+export function ToggleFilter({
+  value,
+  onValueChange,
+  items
+}: ToggleFilterProps): React.JSX.Element {
   return (
     <ToggleGroup.Root
       type="single"
       value={value}
-      onValueChange={(v) => { if (v) onValueChange(v) }}
+      onValueChange={(v) => {
+        if (v) onValueChange(v)
+      }}
       className="flex items-center rounded-[6px] bg-graphite p-0.5 gap-0.5 shadow-[var(--shadow-subtle)]"
     >
       {items.map((item) => (

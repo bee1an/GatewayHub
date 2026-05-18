@@ -57,7 +57,9 @@ app.whenReady().then(() => {
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
   registerGatewayIpc()
-  gatewayHubService.initialize().catch((error) => console.error('GatewayHub initialization failed:', error))
+  gatewayHubService
+    .initialize()
+    .catch((error) => console.error('GatewayHub initialization failed:', error))
 
   createWindow()
 

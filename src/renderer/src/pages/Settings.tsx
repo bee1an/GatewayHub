@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { usePolling } from '../hooks/usePolling'
 import { Button } from '../components/ui/Button'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
-import { useToast } from '../components/ui/Toast'
+import { useToast } from '../components/ui/ToastContext'
 
 type GatewayStatus = {
   server: { running: boolean; url: string; host: string; port: number; apiKey: string }
@@ -207,11 +207,7 @@ export default function Settings(): React.JSX.Element {
               className="input-base flex-1 font-mono"
               disabled={!proxyLoaded}
             />
-            <Button
-              variant="primary"
-              disabled={busy || !proxyLoaded}
-              onClick={saveProxy}
-            >
+            <Button variant="primary" disabled={busy || !proxyLoaded} onClick={saveProxy}>
               {t('settings.save')}
             </Button>
           </div>
@@ -231,7 +227,7 @@ export default function Settings(): React.JSX.Element {
               items={[
                 { value: 'curl', label: 'curl' },
                 { value: 'fetch', label: 'fetch' },
-                { value: 'python', label: 'python' },
+                { value: 'python', label: 'python' }
               ]}
             />
             <Button onClick={() => copy(snippet, 'snippet')}>

@@ -8,7 +8,7 @@ const en = {
     test: 'Test',
     refresh: 'Refresh',
     loading: 'Loading...',
-    add: 'Add',
+    add: 'Add'
   },
   sidebar: {
     dashboard: 'Dashboard',
@@ -20,7 +20,7 @@ const en = {
     running: 'Running',
     soon: 'soon',
     toggleLang: 'Toggle language',
-    toggleTheme: 'Toggle theme',
+    toggleTheme: 'Toggle theme'
   },
   dashboard: {
     title: 'Dashboard',
@@ -31,7 +31,7 @@ const en = {
     successRate: 'Success Rate',
     recentActivity: 'Recent Activity',
     entries: '{{count}} entries',
-    noActivity: 'No activity yet',
+    noActivity: 'No activity yet'
   },
   gateway: {
     routePrefix: 'Route prefix:',
@@ -79,6 +79,18 @@ const en = {
     reset: 'Reset',
     resetDone: 'Account reset',
     refresh: 'Refresh',
+    pause: 'Pause',
+    resume: 'Resume',
+    paused: 'Account paused',
+    resumed: 'Account resumed',
+    statusAvailable: 'Available',
+    statusCooling: 'Cooling',
+    statusRateLimited: 'Rate limited',
+    statusQuotaExceeded: 'Quota exceeded',
+    statusAuthFailed: 'Auth failed',
+    statusManualDisabled: 'Paused',
+    cooldownRemaining: '{{duration}} left',
+    details: 'Details',
     subscription: 'Subscription',
     usage: 'Usage',
     usageOf: '{{used}} / {{limit}}',
@@ -88,7 +100,7 @@ const en = {
     refreshInfo: 'Refresh Info',
     loadingInfo: 'Loading...',
     infoError: 'Failed to load',
-    rateMultiplier: '{{multiplier}}x',
+    rateMultiplier: '{{multiplier}}x'
   },
   logs: {
     title: 'Logs',
@@ -105,7 +117,7 @@ const en = {
     level: 'Level',
     message: 'Message',
     provider: 'Provider',
-    account: 'Account',
+    account: 'Account'
   },
   settings: {
     title: 'Settings',
@@ -126,7 +138,7 @@ const en = {
     proxy: 'VPN Proxy',
     proxyDesc: 'HTTP/SOCKS5 proxy for Kiro API requests',
     save: 'Save',
-    saved: 'Settings saved',
+    saved: 'Settings saved'
   },
   addAccount: {
     title: 'Add Kiro Account',
@@ -142,7 +154,7 @@ const en = {
       token: 'Token',
       json: 'JSON',
       cli: 'CLI Login',
-      advanced: 'Advanced',
+      advanced: 'Advanced'
     },
     tokenPlaceholder: 'Paste your Kiro refresh token here...',
     accessTokenPlaceholder: 'Paste your Kiro access token here...',
@@ -166,8 +178,8 @@ const en = {
     cliFailed: 'Login failed (exit code {{code}})',
     discoverRunning: 'Scanning...',
     discoverResult: '{{skipped}} already imported',
-    discoverEmpty: 'No new credentials found',
-  },
+    discoverEmpty: 'No new credentials found'
+  }
 }
 
 export default en

@@ -1,8 +1,16 @@
 import { spawn, execFileSync, type ChildProcess } from 'child_process'
-import { mkdirSync, mkdtempSync, writeFileSync, chmodSync, rmSync, existsSync } from 'fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  writeFileSync,
+  chmodSync,
+  rmSync,
+  existsSync,
+  readdirSync
+} from 'fs'
 import { stat } from 'fs/promises'
 import { join } from 'path'
-import { tmpdir } from 'os'
+import { homedir, tmpdir } from 'os'
 import { BrowserWindow } from 'electron'
 import { SQLITE_TOKEN_KEYS, SQLITE_REGISTRATION_KEYS } from './constants'
 import type { KiroAccountConfig } from '../../types'
@@ -32,11 +40,27 @@ interface LoginSession {
   process: ChildProcess
   tempProfileDir: string
   fakeBinDir: string
+  macosKeychain?: MacosKeychainState
   cancelled: boolean
   output: string
 }
 
 let activeSession: LoginSession | null = null
+
+interface MacosKeychainState {
+  tempKeychainPath: string
+  previousDefaultKeychain?: string
+  previousSearchList: string[]
+}
+
+type CliLoginOutputEvent =
+  | { type: 'stdout' | 'stderr'; text: string }
+  | { type: 'exit'; code: number | null; imported?: boolean; error?: string }
+  | { type: 'error'; message: string }
+
+const dynamicImport = new Function('specifier', 'return import(specifier)') as (
+  specifier: string
+) => Promise<unknown>
 
 const MACOS_SANDBOX_PROFILE = `(version 1)
 (allow default)
@@ -86,25 +110,23 @@ export function loginWithKiroCli(options?: { cliPath?: string }): void {
   mkdirSync(tempState, { recursive: true })
   mkdirSync(tempCache, { recursive: true })
 
-  if (process.platform === 'darwin') {
-    const keychainDir = join(profileDir, 'Library', 'Keychains')
-    mkdirSync(keychainDir, { recursive: true })
-    const keychainPath = join(keychainDir, 'login.keychain-db')
-    try {
-      execFileSync('/usr/bin/security', ['create-keychain', '-p', '', keychainPath], { stdio: 'ignore' })
-      execFileSync('/usr/bin/security', ['unlock-keychain', '-p', '', keychainPath], { stdio: 'ignore' })
-      execFileSync('/usr/bin/security', ['list-keychains', '-d', 'user', '-s', keychainPath], { stdio: 'ignore' })
-      execFileSync('/usr/bin/security', ['default-keychain', '-d', 'user', '-s', keychainPath], { stdio: 'ignore' })
-    } catch {
-      /* keychain creation failed; CLI may still prompt but flow can continue */
-    }
-  }
+  const macosKeychain = setupTemporaryMacosKeychain(profileDir)
 
   const binDir = mkdtempSync(join(tmpdir(), 'gatewayhub-noopen-'))
   const fakeOpener = join(binDir, 'gatewayhub-noopen')
   writeFileSync(fakeOpener, '#!/bin/sh\nprintf "%s\\n" "$*" >&2\nexit 1\n')
   chmodSync(fakeOpener, 0o755)
-  for (const name of ['open', 'xdg-open', 'gio', 'gnome-open', 'kde-open', 'wslview', 'cygstart', 'start', 'osascript']) {
+  for (const name of [
+    'open',
+    'xdg-open',
+    'gio',
+    'gnome-open',
+    'kde-open',
+    'wslview',
+    'cygstart',
+    'start',
+    'osascript'
+  ]) {
     const p = join(binDir, name)
     writeFileSync(p, `#!/bin/sh\nexec "${fakeOpener}" "$@"\n`)
     chmodSync(p, 0o755)
@@ -133,12 +155,13 @@ export function loginWithKiroCli(options?: { cliPath?: string }): void {
     process: child,
     tempProfileDir: profileDir,
     fakeBinDir: binDir,
+    macosKeychain,
     cancelled: false,
     output: ''
   }
   activeSession = session
 
-  const send = (data: any) => {
+  const send = (data: CliLoginOutputEvent): void => {
     const win = BrowserWindow.getAllWindows()[0]
     if (win) win.webContents.send('gateway:cliLoginOutput', data)
   }
@@ -160,26 +183,34 @@ export function loginWithKiroCli(options?: { cliPath?: string }): void {
     cleanupDir(session.fakeBinDir)
 
     if (session.cancelled) {
+      restoreMacosKeychain(session.macosKeychain)
       cleanupDir(session.tempProfileDir)
       return
     }
 
     const alreadyLoggedIn = /already logged in/i.test(session.output)
     if (code === 0 || alreadyLoggedIn) {
-      const result = extractAccountFromProfile(session.tempProfileDir)
+      const result = await extractAccountFromProfile(session.tempProfileDir)
+      restoreMacosKeychain(session.macosKeychain)
       cleanupDir(session.tempProfileDir)
 
       if (result.success && result.account && onAccountImported) {
         try {
           await onAccountImported(result.account)
           send({ type: 'exit', code: 0, imported: true })
-        } catch (err: any) {
-          send({ type: 'exit', code: 0, imported: false, error: err?.message || 'Import failed' })
+        } catch (err: unknown) {
+          send({
+            type: 'exit',
+            code: 0,
+            imported: false,
+            error: errorMessage(err) || 'Import failed'
+          })
         }
       } else {
         send({ type: 'exit', code: 0, imported: false, error: result.error || 'No import handler' })
       }
     } else {
+      restoreMacosKeychain(session.macosKeychain)
       cleanupDir(session.tempProfileDir)
       send({ type: 'exit', code })
     }
@@ -188,6 +219,7 @@ export function loginWithKiroCli(options?: { cliPath?: string }): void {
   child.on('error', (err) => {
     if (activeSession === session) activeSession = null
     cleanupDir(session.fakeBinDir)
+    restoreMacosKeychain(session.macosKeychain)
     cleanupDir(session.tempProfileDir)
     if (!session.cancelled) {
       send({ type: 'error', message: err.message })
@@ -204,7 +236,7 @@ export function cancelKiroCliLogin(): boolean {
   return true
 }
 
-function extractAccountFromProfile(profileDir: string): CliLoginResult {
+async function extractAccountFromProfile(profileDir: string): Promise<CliLoginResult> {
   const candidates = [
     join(profileDir, 'Library', 'Application Support', 'kiro-cli', 'data.sqlite3'),
     join(profileDir, '.local', 'share', 'kiro-cli', 'data.sqlite3')
@@ -214,7 +246,7 @@ function extractAccountFromProfile(profileDir: string): CliLoginResult {
     if (!existsSync(dbPath)) continue
 
     try {
-      const sqlite = require('node:sqlite')
+      const sqlite = (await dynamicImport('node:sqlite')) as typeof import('node:sqlite')
       const db = new sqlite.DatabaseSync(dbPath)
       try {
         let refreshToken = ''
@@ -226,7 +258,9 @@ function extractAccountFromProfile(profileDir: string): CliLoginResult {
         let clientSecret = ''
 
         for (const key of SQLITE_TOKEN_KEYS) {
-          const row = db.prepare('SELECT value FROM auth_kv WHERE key = ?').get(key) as { value?: string } | undefined
+          const row = db.prepare('SELECT value FROM auth_kv WHERE key = ?').get(key) as
+            | { value?: string }
+            | undefined
           if (!row?.value) continue
           const tokenJson = JSON.parse(row.value)
           accessToken = tokenJson.access_token || tokenJson.accessToken || ''
@@ -238,7 +272,9 @@ function extractAccountFromProfile(profileDir: string): CliLoginResult {
         }
 
         for (const key of SQLITE_REGISTRATION_KEYS) {
-          const row = db.prepare('SELECT value FROM auth_kv WHERE key = ?').get(key) as { value?: string } | undefined
+          const row = db.prepare('SELECT value FROM auth_kv WHERE key = ?').get(key) as
+            | { value?: string }
+            | undefined
           if (!row?.value) continue
           const reg = JSON.parse(row.value)
           clientId = reg.client_id || reg.clientId || ''
@@ -248,7 +284,9 @@ function extractAccountFromProfile(profileDir: string): CliLoginResult {
         }
 
         try {
-          const row = db.prepare("SELECT value FROM state WHERE key = 'api.codewhisperer.profile'").get() as { value?: string } | undefined
+          const row = db
+            .prepare("SELECT value FROM state WHERE key = 'api.codewhisperer.profile'")
+            .get() as { value?: string } | undefined
           if (row?.value) {
             const profile = JSON.parse(row.value)
             if (profile.arn && !profileArn) profileArn = profile.arn
@@ -282,12 +320,142 @@ function extractAccountFromProfile(profileDir: string): CliLoginResult {
       } finally {
         db.close()
       }
-    } catch (err: any) {
-      return { success: false, error: `Failed to parse SQLite: ${err?.message || err}` }
+    } catch (err: unknown) {
+      return { success: false, error: `Failed to parse SQLite: ${errorMessage(err)}` }
     }
   }
 
   return { success: false, error: 'No kiro-cli database found in temp profile' }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function setupTemporaryMacosKeychain(profileDir: string): MacosKeychainState | undefined {
+  if (process.platform !== 'darwin') return undefined
+
+  const keychainDir = join(profileDir, 'Library', 'Keychains')
+  mkdirSync(keychainDir, { recursive: true })
+  const keychainPath = join(keychainDir, 'login.keychain-db')
+  const previousDefaultKeychain = readDefaultUserKeychain()
+  const previousSearchList = readUserKeychainList()
+
+  try {
+    execFileSync('/usr/bin/security', ['create-keychain', '-p', '', keychainPath], {
+      stdio: 'ignore'
+    })
+    execFileSync('/usr/bin/security', ['unlock-keychain', '-p', '', keychainPath], {
+      stdio: 'ignore'
+    })
+    execFileSync(
+      '/usr/bin/security',
+      [
+        'list-keychains',
+        '-d',
+        'user',
+        '-s',
+        keychainPath,
+        ...existingKeychains(previousSearchList)
+      ],
+      { stdio: 'ignore' }
+    )
+    execFileSync('/usr/bin/security', ['default-keychain', '-d', 'user', '-s', keychainPath], {
+      stdio: 'ignore'
+    })
+    return { tempKeychainPath: keychainPath, previousDefaultKeychain, previousSearchList }
+  } catch {
+    restoreMacosKeychain({
+      tempKeychainPath: keychainPath,
+      previousDefaultKeychain,
+      previousSearchList
+    })
+    return undefined
+  }
+}
+
+function restoreMacosKeychain(state?: MacosKeychainState): void {
+  if (!state || process.platform !== 'darwin') return
+
+  const searchList = existingKeychains(
+    state.previousSearchList.filter((path) => path !== state.tempKeychainPath)
+  )
+  const defaultKeychain = pickRestorableDefaultKeychain(state.previousDefaultKeychain, searchList)
+  if (defaultKeychain && !searchList.includes(defaultKeychain)) searchList.unshift(defaultKeychain)
+
+  try {
+    if (searchList.length) {
+      execFileSync('/usr/bin/security', ['list-keychains', '-d', 'user', '-s', ...searchList], {
+        stdio: 'ignore'
+      })
+    }
+    if (defaultKeychain) {
+      execFileSync('/usr/bin/security', ['default-keychain', '-d', 'user', '-s', defaultKeychain], {
+        stdio: 'ignore'
+      })
+    }
+  } catch {
+    /* best effort restore */
+  }
+}
+
+function readDefaultUserKeychain(): string | undefined {
+  try {
+    return normalizeSecurityPath(
+      execFileSync('/usr/bin/security', ['default-keychain', '-d', 'user'], { encoding: 'utf8' })
+    )
+  } catch {
+    return undefined
+  }
+}
+
+function readUserKeychainList(): string[] {
+  try {
+    return execFileSync('/usr/bin/security', ['list-keychains', '-d', 'user'], { encoding: 'utf8' })
+      .split(/\r?\n/)
+      .map(normalizeSecurityPath)
+      .filter(Boolean)
+  } catch {
+    return []
+  }
+}
+
+function normalizeSecurityPath(value: string): string {
+  return value.trim().replace(/^"|"$/g, '')
+}
+
+function existingKeychains(paths: string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const path of paths) {
+    if (!path || seen.has(path) || !existsSync(path)) continue
+    seen.add(path)
+    result.push(path)
+  }
+  return result
+}
+
+function pickRestorableDefaultKeychain(
+  previousDefault: string | undefined,
+  searchList: string[]
+): string | undefined {
+  if (previousDefault && existsSync(previousDefault)) return previousDefault
+  return searchList[0] || findFallbackLoginKeychain()
+}
+
+function findFallbackLoginKeychain(): string | undefined {
+  const dir = join(homedir(), 'Library', 'Keychains')
+  const standard = join(dir, 'login.keychain-db')
+  if (existsSync(standard)) return standard
+
+  try {
+    const fallback = readdirSync(dir)
+      .filter((name) => /^login.*\.keychain-db$/.test(name))
+      .sort()[0]
+    return fallback ? join(dir, fallback) : undefined
+  } catch {
+    return undefined
+  }
 }
 
 function buildSpawnArgs(cliPath: string): [string, string[]] {

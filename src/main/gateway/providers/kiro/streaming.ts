@@ -42,7 +42,10 @@ export class AwsEventStreamParser {
 
   finish(): KiroEvent[] {
     if (this.currentToolCall) this.finalizeToolCall()
-    return dedupeToolCalls(this.toolCalls).map((toolUse) => ({ type: 'tool_use' as const, toolUse }))
+    return dedupeToolCalls(this.toolCalls).map((toolUse) => ({
+      type: 'tool_use' as const,
+      toolUse
+    }))
   }
 
   private findNextJson(): { pos: number; type: string } | undefined {
@@ -84,7 +87,8 @@ export class AwsEventStreamParser {
       return undefined
     }
     if (type === 'tool_input') {
-      if (this.currentToolCall) this.currentToolCall.function.arguments += stringifyToolInput(data.input)
+      if (this.currentToolCall)
+        this.currentToolCall.function.arguments += stringifyToolInput(data.input)
       return undefined
     }
     if (type === 'tool_stop') {
@@ -92,7 +96,8 @@ export class AwsEventStreamParser {
       return undefined
     }
     if (type === 'usage') return { type: 'usage', usage: data.usage }
-    if (type === 'context_usage') return { type: 'context_usage', usage: data.contextUsagePercentage }
+    if (type === 'context_usage')
+      return { type: 'context_usage', usage: data.contextUsagePercentage }
     return undefined
   }
 
@@ -119,12 +124,14 @@ export async function* parseKiroStream(
 
   const first = await readWithTimeout(reader, firstTokenTimeoutSeconds * 1000)
   if (first.done) return
-  for (const event of parser.feed(first.value)) for (const processed of thinking.process(event)) yield processed
+  for (const event of parser.feed(first.value))
+    for (const processed of thinking.process(event)) yield processed
 
   while (true) {
     const next = await reader.read()
     if (next.done) break
-    for (const event of parser.feed(next.value)) for (const processed of thinking.process(event)) yield processed
+    for (const event of parser.feed(next.value))
+      for (const processed of thinking.process(event)) yield processed
   }
   for (const event of thinking.finish()) yield event
   for (const event of parser.finish()) yield event
@@ -136,7 +143,10 @@ async function readWithTimeout(reader: ReadableStreamDefaultReader<Uint8Array>, 
     return await Promise.race([
       reader.read(),
       new Promise<ReadableStreamReadResult<Uint8Array>>((_, reject) => {
-        timer = setTimeout(() => reject(new FirstTokenTimeoutError(`No Kiro token within ${timeoutMs / 1000}s`)), timeoutMs)
+        timer = setTimeout(
+          () => reject(new FirstTokenTimeoutError(`No Kiro token within ${timeoutMs / 1000}s`)),
+          timeoutMs
+        )
       })
     ])
   } finally {
@@ -181,14 +191,18 @@ class ThinkingTagParser {
 
   finish(): KiroEvent[] {
     if (!this.carry) return []
-    const out = this.inThinking ? { type: 'thinking' as const, thinking: this.carry } : { type: 'content' as const, content: this.carry }
+    const out = this.inThinking
+      ? { type: 'thinking' as const, thinking: this.carry }
+      : { type: 'content' as const, content: this.carry }
     this.carry = ''
     return [out]
   }
 }
 
-
-export async function collectKiroStream(body: ReadableStream<Uint8Array>, firstTokenTimeoutSeconds: number) {
+export async function collectKiroStream(
+  body: ReadableStream<Uint8Array>,
+  firstTokenTimeoutSeconds: number
+) {
   let content = ''
   let thinking = ''
   const toolCalls: any[] = []
@@ -216,11 +230,35 @@ export async function* openAiSseFromKiro(
   for await (const event of parseKiroStream(body, firstTokenTimeoutSeconds)) {
     if (event.type === 'content' && event.content) {
       content += event.content
-      yield sseData({ id, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta: { ...(first ? { role: 'assistant' } : {}), content: event.content }, finish_reason: null }] })
+      yield sseData({
+        id,
+        object: 'chat.completion.chunk',
+        created,
+        model,
+        choices: [
+          {
+            index: 0,
+            delta: { ...(first ? { role: 'assistant' } : {}), content: event.content },
+            finish_reason: null
+          }
+        ]
+      })
       first = false
     } else if (event.type === 'thinking' && event.thinking) {
       thinking += event.thinking
-      yield sseData({ id, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta: { ...(first ? { role: 'assistant' } : {}), reasoning_content: event.thinking }, finish_reason: null }] })
+      yield sseData({
+        id,
+        object: 'chat.completion.chunk',
+        created,
+        model,
+        choices: [
+          {
+            index: 0,
+            delta: { ...(first ? { role: 'assistant' } : {}), reasoning_content: event.thinking },
+            finish_reason: null
+          }
+        ]
+      })
       first = false
     } else if (event.type === 'tool_use' && event.toolUse) {
       toolCalls.push(event.toolUse)
@@ -232,15 +270,33 @@ export async function* openAiSseFromKiro(
       ...(first ? { role: 'assistant' } : {}),
       tool_calls: toolCalls.map((tool, index) => ({ ...tool, index }))
     }
-    yield sseData({ id, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta, finish_reason: null }] })
+    yield sseData({
+      id,
+      object: 'chat.completion.chunk',
+      created,
+      model,
+      choices: [{ index: 0, delta, finish_reason: null }]
+    })
     first = false
   }
   const usage = openAiUsageFromBodies(requestBody, content + thinking)
-  yield sseData({ id, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta: {}, finish_reason: toolCalls.length ? 'tool_calls' : 'stop' }], usage })
+  yield sseData({
+    id,
+    object: 'chat.completion.chunk',
+    created,
+    model,
+    choices: [{ index: 0, delta: {}, finish_reason: toolCalls.length ? 'tool_calls' : 'stop' }],
+    usage
+  })
   yield 'data: [DONE]\n\n'
 }
 
-export async function openAiJsonFromKiro(body: ReadableStream<Uint8Array>, model: string, requestBody: any, firstTokenTimeoutSeconds: number) {
+export async function openAiJsonFromKiro(
+  body: ReadableStream<Uint8Array>,
+  model: string,
+  requestBody: any,
+  firstTokenTimeoutSeconds: number
+) {
   const result = await collectKiroStream(body, firstTokenTimeoutSeconds)
   const message: any = { role: 'assistant', content: result.content }
   if (result.thinking) message.reasoning_content = result.thinking
@@ -250,24 +306,53 @@ export async function openAiJsonFromKiro(body: ReadableStream<Uint8Array>, model
     object: 'chat.completion',
     created: Math.floor(Date.now() / 1000),
     model,
-    choices: [{ index: 0, message, finish_reason: result.toolCalls.length ? 'tool_calls' : 'stop' }],
+    choices: [
+      { index: 0, message, finish_reason: result.toolCalls.length ? 'tool_calls' : 'stop' }
+    ],
     usage: openAiUsageFromBodies(requestBody, result.content + result.thinking)
   }
 }
 
-export async function* anthropicSseFromKiro(body: ReadableStream<Uint8Array>, model: string, firstTokenTimeoutSeconds: number): AsyncGenerator<string> {
+export async function* anthropicSseFromKiro(
+  body: ReadableStream<Uint8Array>,
+  model: string,
+  firstTokenTimeoutSeconds: number
+): AsyncGenerator<string> {
   const id = `msg_${randomUUID().replace(/-/g, '')}`
-  yield sseEvent('message_start', { type: 'message_start', message: { id, type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } } })
+  yield sseEvent('message_start', {
+    type: 'message_start',
+    message: {
+      id,
+      type: 'message',
+      role: 'assistant',
+      model,
+      content: [],
+      stop_reason: null,
+      stop_sequence: null,
+      usage: { input_tokens: 0, output_tokens: 0 }
+    }
+  })
   let index = 0
   let openText = false
   const toolCalls: any[] = []
   for await (const event of parseKiroStream(body, firstTokenTimeoutSeconds)) {
-    if ((event.type === 'content' && event.content) || (event.type === 'thinking' && event.thinking)) {
+    if (
+      (event.type === 'content' && event.content) ||
+      (event.type === 'thinking' && event.thinking)
+    ) {
       if (!openText) {
-        yield sseEvent('content_block_start', { type: 'content_block_start', index, content_block: { type: 'text', text: '' } })
+        yield sseEvent('content_block_start', {
+          type: 'content_block_start',
+          index,
+          content_block: { type: 'text', text: '' }
+        })
         openText = true
       }
-      yield sseEvent('content_block_delta', { type: 'content_block_delta', index, delta: { type: 'text_delta', text: event.content ?? event.thinking ?? '' } })
+      yield sseEvent('content_block_delta', {
+        type: 'content_block_delta',
+        index,
+        delta: { type: 'text_delta', text: event.content ?? event.thinking ?? '' }
+      })
     } else if (event.type === 'tool_use' && event.toolUse) toolCalls.push(event.toolUse)
   }
   if (openText) {
@@ -276,20 +361,43 @@ export async function* anthropicSseFromKiro(body: ReadableStream<Uint8Array>, mo
   }
   for (const tool of toolCalls) {
     const input = safeJson(tool.function?.arguments)
-    yield sseEvent('content_block_start', { type: 'content_block_start', index, content_block: { type: 'tool_use', id: tool.id, name: tool.function?.name || tool.name, input } })
+    yield sseEvent('content_block_start', {
+      type: 'content_block_start',
+      index,
+      content_block: {
+        type: 'tool_use',
+        id: tool.id,
+        name: tool.function?.name || tool.name,
+        input
+      }
+    })
     yield sseEvent('content_block_stop', { type: 'content_block_stop', index })
     index += 1
   }
-  yield sseEvent('message_delta', { type: 'message_delta', delta: { stop_reason: toolCalls.length ? 'tool_use' : 'end_turn', stop_sequence: null }, usage: { output_tokens: 0 } })
+  yield sseEvent('message_delta', {
+    type: 'message_delta',
+    delta: { stop_reason: toolCalls.length ? 'tool_use' : 'end_turn', stop_sequence: null },
+    usage: { output_tokens: 0 }
+  })
   yield sseEvent('message_stop', { type: 'message_stop' })
 }
 
-export async function anthropicJsonFromKiro(body: ReadableStream<Uint8Array>, model: string, firstTokenTimeoutSeconds: number) {
+export async function anthropicJsonFromKiro(
+  body: ReadableStream<Uint8Array>,
+  model: string,
+  firstTokenTimeoutSeconds: number
+) {
   const result = await collectKiroStream(body, firstTokenTimeoutSeconds)
   const content: any[] = []
   if (result.thinking) content.push({ type: 'thinking', thinking: result.thinking })
   if (result.content) content.push({ type: 'text', text: result.content })
-  for (const tool of result.toolCalls) content.push({ type: 'tool_use', id: tool.id, name: tool.function?.name || tool.name, input: safeJson(tool.function?.arguments) })
+  for (const tool of result.toolCalls)
+    content.push({
+      type: 'tool_use',
+      id: tool.id,
+      name: tool.function?.name || tool.name,
+      input: safeJson(tool.function?.arguments)
+    })
   return {
     id: `msg_${randomUUID().replace(/-/g, '')}`,
     type: 'message',
@@ -298,7 +406,10 @@ export async function anthropicJsonFromKiro(body: ReadableStream<Uint8Array>, mo
     content,
     stop_reason: result.toolCalls.length ? 'tool_use' : 'end_turn',
     stop_sequence: null,
-    usage: { input_tokens: 0, output_tokens: Math.ceil((result.content.length + result.thinking.length) / 4) }
+    usage: {
+      input_tokens: 0,
+      output_tokens: Math.ceil((result.content.length + result.thinking.length) / 4)
+    }
   }
 }
 

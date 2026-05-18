@@ -33,7 +33,8 @@ export class GatewayLogger {
       accountId: meta?.accountId
     }
     this.entries.push(entry)
-    if (this.entries.length > this.maxEntries) this.entries.splice(0, this.entries.length - this.maxEntries)
+    if (this.entries.length > this.maxEntries)
+      this.entries.splice(0, this.entries.length - this.maxEntries)
 
     const prefix = `[GatewayHub]${entry.provider ? `[${entry.provider}]` : ''}${entry.accountId ? `[${entry.accountId}]` : ''}`
     const line = `${prefix} ${message}`

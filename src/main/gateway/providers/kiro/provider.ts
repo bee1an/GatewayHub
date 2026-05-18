@@ -1,5 +1,7 @@
 import type {
+  AccountStatus,
   AccountTestResult,
+  ClassifiedKiroError,
   GatewayRequestContext,
   GatewayResponse,
   KiroAccountConfig,
@@ -41,7 +43,12 @@ export class KiroProvider implements ProviderAdapter {
   }
 
   async listModels(): Promise<ProviderModel[]> {
-    return this.pool.listModels().map((id) => ({ id, provider: 'kiro', ownedBy: 'kiro', description: 'Model via Kiro GatewayHub provider' }))
+    return this.pool.listModels().map((id) => ({
+      id,
+      provider: 'kiro',
+      ownedBy: 'kiro',
+      description: 'Model via Kiro GatewayHub provider'
+    }))
   }
 
   async chatCompletions(body: any, _context: GatewayRequestContext): Promise<GatewayResponse> {
@@ -79,7 +86,13 @@ export class KiroProvider implements ProviderAdapter {
   }
 
   async countTokens(body: any): Promise<GatewayResponse> {
-    return jsonResponse(200, { input_tokens: estimateTokens({ messages: body.messages, system: body.system, tools: body.tools }) })
+    return jsonResponse(200, {
+      input_tokens: estimateTokens({
+        messages: body.messages,
+        system: body.system,
+        tools: body.tools
+      })
+    })
   }
 
   async testAccount(accountId: string): Promise<AccountTestResult> {
@@ -92,6 +105,10 @@ export class KiroProvider implements ProviderAdapter {
 
   async resetAccount(accountId: string): Promise<void> {
     return this.pool.resetAccount(accountId)
+  }
+
+  async setAccountStatus(accountId: string, status: AccountStatus, reason?: string): Promise<void> {
+    return this.pool.setAccountStatus(accountId, status, reason)
   }
 
   async getStatus(): Promise<ProviderStatus & { accounts: any[] }> {
@@ -107,7 +124,12 @@ export class KiroProvider implements ProviderAdapter {
       models: account.state.modelIds,
       stats: account.state.stats,
       authType: account.auth?.authType,
-      expiresAt: account.auth?.expiresAtIso
+      expiresAt: account.auth?.expiresAtIso,
+      status: account.state.status,
+      statusReason: account.state.statusReason,
+      statusUpdatedAt: account.state.statusUpdatedAt,
+      cooldownUntil: account.state.cooldownUntil,
+      lastResponseKind: account.state.lastResponseKind
     }))
     return {
       name: 'kiro',
@@ -121,7 +143,12 @@ export class KiroProvider implements ProviderAdapter {
     }
   }
 
-  private async nonStreamWithFailover(format: 'openai' | 'anthropic', model: string, kiroModel: string, body: any): Promise<any> {
+  private async nonStreamWithFailover(
+    format: 'openai' | 'anthropic',
+    model: string,
+    kiroModel: string,
+    body: any
+  ): Promise<any> {
     const excluded = new Set<string>()
     let lastError: unknown
     for (let attempt = 0; attempt < Math.max(1, this.pool.listAccounts().length); attempt++) {
@@ -133,20 +160,34 @@ export class KiroProvider implements ProviderAdapter {
         if (!response.body) throw new Error('Kiro response body is empty')
         const result =
           format === 'openai'
-            ? await openAiJsonFromKiro(response.body, model, body, this.config.settings.firstTokenTimeoutSeconds)
-            : await anthropicJsonFromKiro(response.body, model, this.config.settings.firstTokenTimeoutSeconds)
+            ? await openAiJsonFromKiro(
+                response.body,
+                model,
+                body,
+                this.config.settings.firstTokenTimeoutSeconds
+              )
+            : await anthropicJsonFromKiro(
+                response.body,
+                model,
+                this.config.settings.firstTokenTimeoutSeconds
+              )
         await this.pool.reportSuccess(account)
         return result
       } catch (error) {
         lastError = error
-        await this.pool.reportFailure(account, error)
+        await this.pool.reportFailure(account, error, classifyKiroError(error))
         excluded.add(account.config.id)
       }
     }
     throw new Error(`Kiro request failed: ${toErrorMessage(lastError ?? 'No available accounts')}`)
   }
 
-  private async *streamWithFailover(format: 'openai' | 'anthropic', model: string, kiroModel: string, body: any): AsyncGenerator<string> {
+  private async *streamWithFailover(
+    format: 'openai' | 'anthropic',
+    model: string,
+    kiroModel: string,
+    body: any
+  ): AsyncGenerator<string> {
     const excluded = new Set<string>()
     let lastError: unknown
     for (let attempt = 0; attempt < Math.max(1, this.pool.listAccounts().length); attempt++) {
@@ -156,13 +197,24 @@ export class KiroProvider implements ProviderAdapter {
         const payload = this.buildPayload(format, body, model, account)
         const response = await this.callKiro(account, payload)
         if (!response.body) throw new Error('Kiro response body is empty')
-        if (format === 'openai') yield* openAiSseFromKiro(response.body, model, body, this.config.settings.firstTokenTimeoutSeconds)
-        else yield* anthropicSseFromKiro(response.body, model, this.config.settings.firstTokenTimeoutSeconds)
+        if (format === 'openai')
+          yield* openAiSseFromKiro(
+            response.body,
+            model,
+            body,
+            this.config.settings.firstTokenTimeoutSeconds
+          )
+        else
+          yield* anthropicSseFromKiro(
+            response.body,
+            model,
+            this.config.settings.firstTokenTimeoutSeconds
+          )
         await this.pool.reportSuccess(account)
         return
       } catch (error) {
         lastError = error
-        await this.pool.reportFailure(account, error)
+        await this.pool.reportFailure(account, error, classifyKiroError(error))
         excluded.add(account.config.id)
         if (!(error instanceof FirstTokenTimeoutError)) break
       }
@@ -177,7 +229,12 @@ export class KiroProvider implements ProviderAdapter {
     }
   }
 
-  private buildPayload(format: 'openai' | 'anthropic', body: any, model: string, account: KiroAccountRuntime): any {
+  private buildPayload(
+    format: 'openai' | 'anthropic',
+    body: any,
+    model: string,
+    account: KiroAccountRuntime
+  ): any {
     const profileArn = account.auth?.profileArn || account.config.profileArn || ''
     return format === 'openai'
       ? buildKiroPayloadFromOpenAI(body, model, profileArn)
@@ -232,4 +289,49 @@ function sseHeaders(): Record<string, string> {
     'cache-control': 'no-cache, no-transform',
     connection: 'keep-alive'
   }
+}
+
+export function classifyKiroError(error: unknown): ClassifiedKiroError {
+  const raw = error instanceof Error ? error.message : String(error)
+  const msg = raw.toLowerCase()
+  const statusMatch = msg.match(/kiro http (\d{3})/)
+  const status = statusMatch ? Number(statusMatch[1]) : 0
+
+  // 凭证类问题：refresh/access token 缺失或刷新失败
+  if (
+    msg.includes('refresh token is missing') ||
+    msg.includes('access token expired') ||
+    msg.includes('access token is invalid') ||
+    msg.includes('please add a new access token') ||
+    msg.includes('token refresh failed') ||
+    msg.includes('failed to obtain kiro access token')
+  ) {
+    return { kind: 'auth', cooldownMs: 0 }
+  }
+  if (status === 401 || status === 403) return { kind: 'auth', cooldownMs: 0 }
+
+  if (status === 429) {
+    if (/monthly|quota|usage limit|overage cap|monthly limit|throttling/.test(msg)) {
+      return { kind: 'quota', cooldownMs: 60 * 60_000 }
+    }
+    return { kind: 'rate_limit', cooldownMs: 60_000 }
+  }
+
+  if (status >= 500 && status < 600) return { kind: 'server_error', cooldownMs: 30_000 }
+
+  if (msg.includes('first token timeout') || msg.includes('timeout')) {
+    return { kind: 'timeout', cooldownMs: 30_000 }
+  }
+
+  if (
+    msg.includes('fetch failed') ||
+    msg.includes('econnrefused') ||
+    msg.includes('econnreset') ||
+    msg.includes('enotfound') ||
+    msg.includes('network')
+  ) {
+    return { kind: 'network', cooldownMs: 15_000 }
+  }
+
+  return { kind: 'server_error', cooldownMs: 30_000 }
 }

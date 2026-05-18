@@ -5,11 +5,23 @@ import { usePolling } from '../hooks/usePolling'
 import { ToggleFilter } from '../components/ui/ToggleFilter'
 import { Button } from '../components/ui/Button'
 
-type LogEntry = { ts: number; level: string; message: string; provider?: string; accountId?: string }
+type LogEntry = {
+  ts: number
+  level: string
+  message: string
+  provider?: string
+  accountId?: string
+}
 
 type GatewayStatus = {
   server: { running: boolean }
-  providers: Array<{ name: string; enabled: boolean; configured: boolean; status: string; models: string[] }>
+  providers: Array<{
+    name: string
+    enabled: boolean
+    configured: boolean
+    status: string
+    models: string[]
+  }>
   logs: LogEntry[]
 }
 
@@ -17,14 +29,14 @@ const LEVEL_COLORS: Record<string, string> = {
   error: 'bg-red',
   warn: 'bg-warning',
   info: 'bg-emerald',
-  debug: 'bg-fog',
+  debug: 'bg-fog'
 }
 
 const TIME_RANGES = [
   { value: 'all', label: 'All' },
   { value: '5m', label: '5m' },
   { value: '15m', label: '15m' },
-  { value: '1h', label: '1h' },
+  { value: '1h', label: '1h' }
 ]
 
 function getTimeThreshold(range: string): number {
@@ -44,7 +56,10 @@ export default function Logs(): React.JSX.Element {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null)
   const [live, setLive] = useState(true)
 
-  const { data: status } = usePolling<GatewayStatus>(() => window.api.gateway.status(), live ? 2000 : 0)
+  const { data: status } = usePolling<GatewayStatus>(
+    () => window.api.gateway.status(),
+    live ? 2000 : 0
+  )
   const parentRef = useRef<HTMLDivElement>(null)
 
   const logs = useMemo(() => {
@@ -52,21 +67,30 @@ export default function Logs(): React.JSX.Element {
     const threshold = getTimeThreshold(timeRange)
     const searchLower = search.toLowerCase()
 
-    return [...raw]
-      .reverse()
-      .filter((l) => {
-        if (filter !== 'all' && l.level !== filter) return false
-        if (threshold > 0 && l.ts < threshold) return false
-        if (searchLower && !l.message.toLowerCase().includes(searchLower) && !(l.provider ?? '').toLowerCase().includes(searchLower) && !(l.accountId ?? '').toLowerCase().includes(searchLower)) return false
-        return true
-      })
+    return [...raw].reverse().filter((l) => {
+      if (filter !== 'all' && l.level !== filter) return false
+      if (threshold > 0 && l.ts < threshold) return false
+      if (
+        searchLower &&
+        !l.message.toLowerCase().includes(searchLower) &&
+        !(l.provider ?? '').toLowerCase().includes(searchLower) &&
+        !(l.accountId ?? '').toLowerCase().includes(searchLower)
+      )
+        return false
+      return true
+    })
   }, [status?.logs, filter, search, timeRange])
 
+  // TanStack Virtual intentionally returns imperative helpers; safe for this non-memoized page.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: logs.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: useCallback((index: number) => index === expandedIndex ? 120 : 36, [expandedIndex]),
-    overscan: 20,
+    estimateSize: useCallback(
+      (index: number) => (index === expandedIndex ? 120 : 36),
+      [expandedIndex]
+    ),
+    overscan: 20
   })
 
   return (
@@ -74,11 +98,10 @@ export default function Logs(): React.JSX.Element {
       <div className="flex items-center justify-between shrink-0">
         <h1 className="section-title">{t('logs.title')}</h1>
         <div className="flex items-center gap-2">
-          <Button
-            onClick={() => setLive(!live)}
-            variant={live ? 'ghost' : 'default'}
-          >
-            <span className={`w-1.5 h-1.5 rounded-full ${live ? 'bg-emerald animate-pulse-green' : 'bg-fog'}`} />
+          <Button onClick={() => setLive(!live)} variant={live ? 'ghost' : 'default'}>
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${live ? 'bg-emerald animate-pulse-green' : 'bg-fog'}`}
+            />
             {live ? t('logs.live') : t('logs.paused')}
           </Button>
         </div>
@@ -99,15 +122,13 @@ export default function Logs(): React.JSX.Element {
             { value: 'all', label: t('logs.all') },
             { value: 'info', label: t('logs.info') },
             { value: 'warn', label: t('logs.warn') },
-            { value: 'error', label: t('logs.error') },
+            { value: 'error', label: t('logs.error') }
           ]}
         />
-        <ToggleFilter
-          value={timeRange}
-          onValueChange={setTimeRange}
-          items={TIME_RANGES}
-        />
-        <span className="ml-auto text-[12px] text-fog">{t('logs.entries', { count: logs.length })}</span>
+        <ToggleFilter value={timeRange} onValueChange={setTimeRange} items={TIME_RANGES} />
+        <span className="ml-auto text-[12px] text-fog">
+          {t('logs.entries', { count: logs.length })}
+        </span>
       </div>
 
       <div ref={parentRef} className="card flex-1 overflow-y-auto min-h-0">
@@ -116,7 +137,13 @@ export default function Logs(): React.JSX.Element {
             {t('logs.noMatch')}
           </div>
         ) : (
-          <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative', width: '100%' }}>
+          <div
+            style={{
+              height: `${virtualizer.getTotalSize()}px`,
+              position: 'relative',
+              width: '100%'
+            }}
+          >
             {virtualizer.getVirtualItems().map((virtualRow) => {
               const log = logs[virtualRow.index]
               const isExpanded = expandedIndex === virtualRow.index
@@ -125,7 +152,13 @@ export default function Logs(): React.JSX.Element {
                   key={virtualRow.key}
                   data-index={virtualRow.index}
                   ref={virtualizer.measureElement}
-                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${virtualRow.start}px)` }}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualRow.start}px)`
+                  }}
                 >
                   <LogRow
                     log={log}
@@ -142,10 +175,22 @@ export default function Logs(): React.JSX.Element {
   )
 }
 
-function LogRow({ log, expanded, onClick }: { log: LogEntry; expanded: boolean; onClick: () => void }): React.JSX.Element {
+function LogRow({
+  log,
+  expanded,
+  onClick
+}: {
+  log: LogEntry
+  expanded: boolean
+  onClick: () => void
+}): React.JSX.Element {
   const { t } = useTranslation()
   const levelColor = LEVEL_COLORS[log.level] ?? 'bg-fog'
-  const time = new Date(log.ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  const time = new Date(log.ts).toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  })
 
   return (
     <div
@@ -154,10 +199,14 @@ function LogRow({ log, expanded, onClick }: { log: LogEntry; expanded: boolean; 
     >
       <div className="flex items-center gap-3 px-3 py-2 border-b border-charcoal/50">
         <span className={`w-0.5 self-stretch min-h-[16px] rounded-full ${levelColor}`} />
-        <time className="shrink-0 text-[12px] font-mono text-fog w-[60px] tabular-nums">{time}</time>
-        <span className={`shrink-0 w-10 text-[12px] font-[510] ${
-          log.level === 'error' ? 'text-red' : log.level === 'warn' ? 'text-warning' : 'text-fog'
-        }`}>
+        <time className="shrink-0 text-[12px] font-mono text-fog w-[60px] tabular-nums">
+          {time}
+        </time>
+        <span
+          className={`shrink-0 w-10 text-[12px] font-[510] ${
+            log.level === 'error' ? 'text-red' : log.level === 'warn' ? 'text-warning' : 'text-fog'
+          }`}
+        >
           {log.level}
         </span>
         <p className="text-[12px] text-steel truncate flex-1">{log.message}</p>
@@ -168,19 +217,25 @@ function LogRow({ log, expanded, onClick }: { log: LogEntry; expanded: boolean; 
         <div className="px-4 py-3 border-b border-charcoal/50 animate-slide-down">
           <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[12px]">
             <span className="text-fog">{t('logs.time')}</span>
-            <span className="font-mono text-steel">{new Date(log.ts).toLocaleString()}.{String(log.ts % 1000).padStart(3, '0')}</span>
+            <span className="font-mono text-steel">
+              {new Date(log.ts).toLocaleString()}.{String(log.ts % 1000).padStart(3, '0')}
+            </span>
             <span className="text-fog">{t('logs.level')}</span>
             <span className="text-steel">{log.level}</span>
             <span className="text-fog">{t('logs.message')}</span>
             <span className="text-steel break-all">{log.message}</span>
-            {log.provider && <>
-              <span className="text-fog">{t('logs.provider')}</span>
-              <span className="text-steel">{log.provider}</span>
-            </>}
-            {log.accountId && <>
-              <span className="text-fog">{t('logs.account')}</span>
-              <span className="font-mono text-steel">{log.accountId}</span>
-            </>}
+            {log.provider && (
+              <>
+                <span className="text-fog">{t('logs.provider')}</span>
+                <span className="text-steel">{log.provider}</span>
+              </>
+            )}
+            {log.accountId && (
+              <>
+                <span className="text-fog">{t('logs.account')}</span>
+                <span className="font-mono text-steel">{log.accountId}</span>
+              </>
+            )}
           </div>
         </div>
       )}

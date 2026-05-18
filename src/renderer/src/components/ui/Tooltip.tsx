@@ -6,13 +6,15 @@ interface TooltipWrapperProps {
   side?: 'top' | 'right' | 'bottom' | 'left'
 }
 
-export function TooltipWrapper({ content, children, side = 'bottom' }: TooltipWrapperProps): React.JSX.Element {
+export function TooltipWrapper({
+  content,
+  children,
+  side = 'bottom'
+}: TooltipWrapperProps): React.JSX.Element {
   return (
     <Tooltip.Provider delayDuration={300}>
       <Tooltip.Root>
-        <Tooltip.Trigger asChild>
-          {children}
-        </Tooltip.Trigger>
+        <Tooltip.Trigger asChild>{children}</Tooltip.Trigger>
         <Tooltip.Portal>
           <Tooltip.Content
             side={side}

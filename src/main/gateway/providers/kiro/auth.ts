@@ -3,13 +3,14 @@ import { readFile, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import { mkdir } from 'fs/promises'
 import type { KiroAccountConfig, KiroProviderSettings } from '../../types'
+import { apiUrl, awsSsoOidcUrl, kiroRefreshUrl, runtimeUrl } from './constants'
 import {
-  apiUrl,
-  awsSsoOidcUrl,
-  kiroRefreshUrl,
-  runtimeUrl
-} from './constants'
-import { expandHome, machineFingerprint, parseIsoDate, readJsonFile, toErrorMessage } from '../../core/utils'
+  expandHome,
+  machineFingerprint,
+  parseIsoDate,
+  readJsonFile,
+  toErrorMessage
+} from '../../core/utils'
 
 export type KiroAuthType = 'kiro_desktop' | 'aws_sso_oidc'
 
@@ -162,8 +163,25 @@ export class KiroAuthManager {
 
   private async loadKiroProfile(): Promise<void> {
     const candidates = [
-      join(process.env.HOME || process.env.USERPROFILE || '', 'Library', 'Application Support', 'Kiro', 'User', 'globalStorage', 'kiro.kiroagent', 'profile.json'),
-      join(process.env.HOME || process.env.USERPROFILE || '', '.config', 'Kiro', 'User', 'globalStorage', 'kiro.kiroagent', 'profile.json')
+      join(
+        process.env.HOME || process.env.USERPROFILE || '',
+        'Library',
+        'Application Support',
+        'Kiro',
+        'User',
+        'globalStorage',
+        'kiro.kiroagent',
+        'profile.json'
+      ),
+      join(
+        process.env.HOME || process.env.USERPROFILE || '',
+        '.config',
+        'Kiro',
+        'User',
+        'globalStorage',
+        'kiro.kiroagent',
+        'profile.json'
+      )
     ]
     for (const path of candidates) {
       try {
@@ -209,18 +227,24 @@ export class KiroAuthManager {
       },
       this.settings.vpnProxyUrl
     )
-    if (!response.ok) throw new Error(`Kiro Desktop token refresh failed: HTTP ${response.status} ${await safeText(response)}`)
+    if (!response.ok)
+      throw new Error(
+        `Kiro Desktop token refresh failed: HTTP ${response.status} ${await safeText(response)}`
+      )
     const data = await response.json()
     this.accessToken = data.accessToken || data.access_token || ''
     this.refreshToken = data.refreshToken || data.refresh_token || this.refreshToken
     this.profileArnValue = data.profileArn || data.profile_arn || this.profileArnValue
-    this.expiresAt = new Date(Date.now() + Math.max(60, Number(data.expiresIn || data.expires_in || 3600) - 60) * 1000)
+    this.expiresAt = new Date(
+      Date.now() + Math.max(60, Number(data.expiresIn || data.expires_in || 3600) - 60) * 1000
+    )
     await this.persistCredentials()
   }
 
   private async refreshAwsSsoOidc(): Promise<void> {
     if (!this.refreshToken) throw new Error('AWS SSO refresh token is missing')
-    if (!this.clientId || !this.clientSecret) throw new Error('AWS SSO clientId/clientSecret are missing')
+    if (!this.clientId || !this.clientSecret)
+      throw new Error('AWS SSO clientId/clientSecret are missing')
     const response = await kiroFetch(
       awsSsoOidcUrl(this.ssoRegion || 'us-east-1'),
       {
@@ -235,7 +259,10 @@ export class KiroAuthManager {
       },
       this.settings.vpnProxyUrl
     )
-    if (!response.ok) throw new Error(`AWS SSO token refresh failed: HTTP ${response.status} ${await safeText(response)}`)
+    if (!response.ok)
+      throw new Error(
+        `AWS SSO token refresh failed: HTTP ${response.status} ${await safeText(response)}`
+      )
     const data = await response.json()
     this.accessToken = data.accessToken || ''
     this.refreshToken = data.refreshToken || this.refreshToken
@@ -261,10 +288,16 @@ export class KiroAuthManager {
   }
 }
 
-export async function kiroFetch(url: string, init: RequestInit, proxyUrl?: string): Promise<Response> {
+export async function kiroFetch(
+  url: string,
+  init: RequestInit,
+  proxyUrl?: string
+): Promise<Response> {
   if (!proxyUrl) return fetch(url, init)
   try {
-    const dynamicImport = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<any>
+    const dynamicImport = new Function('specifier', 'return import(specifier)') as (
+      specifier: string
+    ) => Promise<any>
     const undici = await dynamicImport('undici')
     const proxy = proxyUrl.includes('://') ? proxyUrl : `http://${proxyUrl}`
     const dispatcher = new undici.ProxyAgent(proxy)
@@ -287,7 +320,9 @@ async function readJsonCredentials(path: string): Promise<any> {
     return await readJsonFile<any>(path)
   } catch (error: any) {
     if (error?.code === 'ENOENT') {
-      throw new Error(`Kiro credentials file not found: ${path}. Please log in again or remove this stale account.`)
+      throw new Error(
+        `Kiro credentials file not found: ${path}. Please log in again or remove this stale account.`
+      )
     }
     throw error
   }

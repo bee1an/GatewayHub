@@ -39,7 +39,9 @@ export class GatewayServer {
     if (!this.server) return
     const server = this.server
     this.server = undefined
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve()))
+    )
     this.logger.info('Gateway server stopped')
   }
 
@@ -68,36 +70,57 @@ export class GatewayServer {
       }
 
       if (!this.verifyApiKey(req)) {
-        return this.writeJson(res, 401, { error: { message: 'Invalid or missing API key', type: 'authentication_error' } })
+        return this.writeJson(res, 401, {
+          error: { message: 'Invalid or missing API key', type: 'authentication_error' }
+        })
       }
 
       if (req.method === 'GET' && url.pathname === '/v1/models') {
         const models = await this.registry.listModels()
         return this.writeJson(res, 200, {
           object: 'list',
-          data: models.map((model) => ({ id: model.id, object: 'model', created: 0, owned_by: model.ownedBy || model.provider, description: model.description }))
+          data: models.map((model) => ({
+            id: model.id,
+            object: 'model',
+            created: 0,
+            owned_by: model.ownedBy || model.provider,
+            description: model.description
+          }))
         })
       }
 
       if (req.method === 'POST' && url.pathname === '/v1/chat/completions') {
         const body = await parseRequestBody(req)
-        return this.writeGatewayResponse(res, await this.registry.chatCompletions(body, { requestId: rid, apiFormat: 'openai' }))
+        return this.writeGatewayResponse(
+          res,
+          await this.registry.chatCompletions(body, { requestId: rid, apiFormat: 'openai' })
+        )
       }
 
       if (req.method === 'POST' && url.pathname === '/v1/messages') {
         const body = await parseRequestBody(req)
-        return this.writeGatewayResponse(res, await this.registry.messages(body, { requestId: rid, apiFormat: 'anthropic' }))
+        return this.writeGatewayResponse(
+          res,
+          await this.registry.messages(body, { requestId: rid, apiFormat: 'anthropic' })
+        )
       }
 
       if (req.method === 'POST' && url.pathname === '/v1/messages/count_tokens') {
         const body = await parseRequestBody(req)
-        return this.writeGatewayResponse(res, await this.registry.countTokens(body, { requestId: rid, apiFormat: 'anthropic' }))
+        return this.writeGatewayResponse(
+          res,
+          await this.registry.countTokens(body, { requestId: rid, apiFormat: 'anthropic' })
+        )
       }
 
-      return this.writeJson(res, 404, { error: { message: `Not found: ${url.pathname}`, type: 'not_found' } })
+      return this.writeJson(res, 404, {
+        error: { message: `Not found: ${url.pathname}`, type: 'not_found' }
+      })
     } catch (error) {
       this.logger.error(`HTTP request failed: ${toErrorMessage(error)}`)
-      return this.writeJson(res, 500, { error: { message: toErrorMessage(error), type: 'gateway_error' } })
+      return this.writeJson(res, 500, {
+        error: { message: toErrorMessage(error), type: 'gateway_error' }
+      })
     }
   }
 
@@ -109,7 +132,10 @@ export class GatewayServer {
     return auth === `Bearer ${expected}` || xApiKey === expected
   }
 
-  private async writeGatewayResponse(res: ServerResponse, response: GatewayResponse): Promise<void> {
+  private async writeGatewayResponse(
+    res: ServerResponse,
+    response: GatewayResponse
+  ): Promise<void> {
     const headers = response.headers ?? { 'content-type': 'application/json; charset=utf-8' }
     res.writeHead(response.status, headers)
     if (response.stream) {
@@ -129,6 +155,9 @@ export class GatewayServer {
 
 function setCors(res: ServerResponse): void {
   res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Headers', 'authorization,x-api-key,anthropic-version,content-type')
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'authorization,x-api-key,anthropic-version,content-type'
+  )
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
 }

@@ -1,4 +1,5 @@
 import type {
+  AccountStatus,
   AccountTestResult,
   GatewayHubConfig,
   GatewayHubState,
@@ -190,6 +191,17 @@ export class GatewayHubService {
     return this.getStatus()
   }
 
+  async setKiroAccountStatus(
+    accountId: string,
+    status: AccountStatus,
+    reason?: string
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.registry!.setAccountStatus('kiro', accountId, status, reason)
+    await this.persistStateSoon()
+    return this.getStatus()
+  }
+
   async updateKiroSettings(settings: Partial<Record<string, any>>): Promise<GatewayStatusSnapshot> {
     await this.ensureReady()
     Object.assign(this.config!.providers.kiro.settings, settings)
@@ -200,7 +212,10 @@ export class GatewayHubService {
 
   async updateKiroRouteName(routeName: string): Promise<GatewayStatusSnapshot> {
     await this.ensureReady()
-    const name = routeName.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '')
+    const name = routeName
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '')
     if (!name) throw new Error('Invalid route name')
     const reserved = new Set(['codex', 'gemini', 'v1', 'health', 'api'])
     if (reserved.has(name)) throw new Error(`Route name "${name}" is reserved`)

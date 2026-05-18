@@ -22,7 +22,7 @@ export function ConfirmDialog({
   cancelLabel = '取消',
   variant = 'danger',
   onConfirm,
-  loading,
+  loading
 }: ConfirmDialogProps): React.JSX.Element {
   return (
     <AlertDialog.Root open={open} onOpenChange={onOpenChange}>
@@ -30,13 +30,17 @@ export function ConfirmDialog({
         <AlertDialog.Overlay className="modal-overlay" />
         <AlertDialog.Content className="modal-content" style={{ width: '400px' }}>
           <AlertDialog.Title className="section-title">{title}</AlertDialog.Title>
-          <AlertDialog.Description className="text-[13px] text-storm mt-2">{description}</AlertDialog.Description>
+          <AlertDialog.Description className="text-[13px] text-storm mt-2">
+            {description}
+          </AlertDialog.Description>
           <div className="flex justify-end gap-2 mt-5">
             <AlertDialog.Cancel asChild>
               <Button>{cancelLabel}</Button>
             </AlertDialog.Cancel>
             <AlertDialog.Action asChild>
-              <Button variant={variant} loading={loading} onClick={onConfirm}>{confirmLabel}</Button>
+              <Button variant={variant} loading={loading} onClick={onConfirm}>
+                {confirmLabel}
+              </Button>
             </AlertDialog.Action>
           </div>
         </AlertDialog.Content>

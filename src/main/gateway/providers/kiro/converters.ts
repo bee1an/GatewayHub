@@ -54,12 +54,15 @@ function buildKiroPayload(input: {
   if (!messages.length) throw new Error('No messages to send')
   messages = ensureFirstUser(ensureAlternating(messages))
 
-  const fullSystem = [input.system, thinkingSystemPrompt(input.thinking)].filter(Boolean).join('\n\n')
+  const fullSystem = [input.system, thinkingSystemPrompt(input.thinking)]
+    .filter(Boolean)
+    .join('\n\n')
   const historyMessages = messages.slice(0, -1)
   const current = messages[messages.length - 1]
 
   if (fullSystem) {
-    if (historyMessages[0]?.role === 'user') historyMessages[0].content = `${fullSystem}\n\n${extractText(historyMessages[0].content)}`
+    if (historyMessages[0]?.role === 'user')
+      historyMessages[0].content = `${fullSystem}\n\n${extractText(historyMessages[0].content)}`
     else current.content = `${fullSystem}\n\n${extractText(current.content)}`
   }
 
@@ -70,7 +73,8 @@ function buildKiroPayload(input: {
     currentContent = 'Continue'
   }
 
-  if (input.thinking?.enabled && current.role === 'user') currentContent = injectThinkingTags(currentContent, input.thinking.budget)
+  if (input.thinking?.enabled && current.role === 'user')
+    currentContent = injectThinkingTags(currentContent, input.thinking.budget)
 
   const userInputMessage: any = {
     content: currentContent,
@@ -113,12 +117,20 @@ function openAiMessagesToUnified(messages: any[]): { system: string; messages: U
       continue
     }
     if (msg.role === 'tool') {
-      pendingToolResults.push({ tool_use_id: msg.tool_call_id || '', content: extractText(msg.content) || '(empty result)' })
+      pendingToolResults.push({
+        tool_use_id: msg.tool_call_id || '',
+        content: extractText(msg.content) || '(empty result)'
+      })
       pendingImages.push(...extractImages(msg.content))
       continue
     }
     if (pendingToolResults.length) {
-      result.push({ role: 'user', content: '', toolResults: pendingToolResults, images: pendingImages })
+      result.push({
+        role: 'user',
+        content: '',
+        toolResults: pendingToolResults,
+        images: pendingImages
+      })
       pendingToolResults = []
       pendingImages = []
     }
@@ -131,7 +143,13 @@ function openAiMessagesToUnified(messages: any[]): { system: string; messages: U
     })
   }
 
-  if (pendingToolResults.length) result.push({ role: 'user', content: '', toolResults: pendingToolResults, images: pendingImages })
+  if (pendingToolResults.length)
+    result.push({
+      role: 'user',
+      content: '',
+      toolResults: pendingToolResults,
+      images: pendingImages
+    })
   return { system: system.filter(Boolean).join('\n'), messages: result }
 }
 
@@ -186,7 +204,9 @@ function toKiroHistoryMessage(message: UnifiedMessage, model: string): any {
     modelId: model,
     origin: 'AI_EDITOR'
   }
-  const images = imagesToKiro(message.images?.length ? message.images : extractImages(message.content))
+  const images = imagesToKiro(
+    message.images?.length ? message.images : extractImages(message.content)
+  )
   if (images.length) userInputMessage.images = images
   const toolResults = toolResultsToKiro(message.toolResults ?? extractToolResults(message.content))
   if (toolResults.length) userInputMessage.userInputMessageContext = { toolResults }
@@ -194,7 +214,10 @@ function toKiroHistoryMessage(message: UnifiedMessage, model: string): any {
 }
 
 function normalizeMessages(messages: UnifiedMessage[]): UnifiedMessage[] {
-  return messages.map((message) => ({ ...message, role: message.role === 'assistant' ? 'assistant' : 'user' }))
+  return messages.map((message) => ({
+    ...message,
+    role: message.role === 'assistant' ? 'assistant' : 'user'
+  }))
 }
 
 function ensureFirstUser(messages: UnifiedMessage[]): UnifiedMessage[] {
@@ -241,7 +264,8 @@ function extractImages(content: any): Array<{ media_type: string; data: string }
       const parsed = parseDataUrl(url)
       if (parsed) images.push(parsed)
     } else if (part?.type === 'image') {
-      if (part.source?.type === 'base64' && part.source?.data) images.push({ media_type: part.source.media_type || 'image/jpeg', data: part.source.data })
+      if (part.source?.type === 'base64' && part.source?.data)
+        images.push({ media_type: part.source.media_type || 'image/jpeg', data: part.source.data })
       if (part.source?.type === 'url') {
         // Kiro runtime expects inline images. URL images are intentionally skipped.
       }
@@ -262,14 +286,20 @@ function extractToolResults(content: any): any[] {
   if (!Array.isArray(content)) return []
   return content
     .filter((part) => part?.type === 'tool_result')
-    .map((part) => ({ tool_use_id: part.tool_use_id || '', content: extractText(part.content) || '(empty result)' }))
+    .map((part) => ({
+      tool_use_id: part.tool_use_id || '',
+      content: extractText(part.content) || '(empty result)'
+    }))
 }
 
 function extractToolUses(content: any): any[] {
   if (!Array.isArray(content)) return []
   return content
     .filter((part) => part?.type === 'tool_use')
-    .map((part) => ({ id: part.id || randomUUID(), function: { name: part.name || '', arguments: JSON.stringify(part.input ?? {}) } }))
+    .map((part) => ({
+      id: part.id || randomUUID(),
+      function: { name: part.name || '', arguments: JSON.stringify(part.input ?? {}) }
+    }))
 }
 
 function normalizeOpenAiToolCalls(toolCalls: any): any[] {
@@ -313,7 +343,11 @@ function imagesToKiro(images: Array<{ media_type: string; data: string }>): any[
     .filter((image) => image.data)
     .map((image) => ({
       format: (image.media_type || 'image/jpeg').split('/').pop() || 'jpeg',
-      source: { bytes: image.data.startsWith('data:') ? image.data.slice(image.data.indexOf(',') + 1) : image.data }
+      source: {
+        bytes: image.data.startsWith('data:')
+          ? image.data.slice(image.data.indexOf(',') + 1)
+          : image.data
+      }
     }))
 }
 

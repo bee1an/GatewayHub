@@ -9,11 +9,11 @@ const browserLang = navigator.language.startsWith('zh') ? 'zh' : 'en'
 i18n.use(initReactI18next).init({
   resources: {
     en: { translation: en },
-    zh: { translation: zh },
+    zh: { translation: zh }
   },
   lng: savedLang || browserLang,
   fallbackLng: 'en',
-  interpolation: { escapeValue: false },
+  interpolation: { escapeValue: false }
 })
 
 export function changeLanguage(lang: string): void {

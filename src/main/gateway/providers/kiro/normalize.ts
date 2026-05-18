@@ -51,7 +51,7 @@ export function normalizeImportedAccount(input: RawImportedAccount): NormalizedA
     clientId: input.clientId || input.client_id || undefined,
     clientSecret: input.clientSecret || input.client_secret || undefined,
     label: input.label || undefined,
-    email: input.email || undefined,
+    email: input.email || undefined
   }
 }
 
@@ -61,7 +61,11 @@ export async function resolveRefreshTokenAccount(
 ): Promise<NormalizedAccount> {
   if (!account.refreshToken) return account
 
-  const needsRefresh = !account.accessToken || !account.expiresAt || !account.profileArn || isExpired(account.expiresAt)
+  const needsRefresh =
+    !account.accessToken ||
+    !account.expiresAt ||
+    !account.profileArn ||
+    isExpired(account.expiresAt)
   if (!needsRefresh) return account
 
   const response = await kiroFetch(
@@ -69,7 +73,7 @@ export async function resolveRefreshTokenAccount(
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken: account.refreshToken }),
+      body: JSON.stringify({ refreshToken: account.refreshToken })
     },
     vpnProxyUrl
   )
@@ -85,7 +89,9 @@ export async function resolveRefreshTokenAccount(
     refreshToken: data.refreshToken || data.refresh_token || account.refreshToken,
     accessToken: data.accessToken || data.access_token || account.accessToken,
     profileArn: data.profileArn || data.profile_arn || account.profileArn,
-    expiresAt: new Date(Date.now() + Math.max(60, Number(data.expiresIn || data.expires_in || 3600) - 60) * 1000).toISOString(),
+    expiresAt: new Date(
+      Date.now() + Math.max(60, Number(data.expiresIn || data.expires_in || 3600) - 60) * 1000
+    ).toISOString()
   }
 }
 
@@ -103,7 +109,7 @@ export function buildKiroAccountConfig(account: NormalizedAccount): KiroAccountC
       clientId: account.clientId,
       clientSecret: account.clientSecret,
       region: account.region,
-      apiRegion: account.apiRegion,
+      apiRegion: account.apiRegion
     }
   }
 
@@ -123,7 +129,7 @@ export function buildKiroAccountConfig(account: NormalizedAccount): KiroAccountC
     clientId: account.clientId,
     clientSecret: account.clientSecret,
     region: account.region,
-    apiRegion: account.apiRegion,
+    apiRegion: account.apiRegion
   }
 }
 

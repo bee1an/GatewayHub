@@ -5,8 +5,18 @@ import { Button } from '../components/ui/Button'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { useToast } from '../components/ui/ToastContext'
 
+type ApiKeyEntry = {
+  id: string
+  key: string
+  name: string
+  createdAt: number
+  lastUsedAt?: number
+  expiresAt?: number
+  scopes?: string[]
+}
+
 type GatewayStatus = {
-  server: { running: boolean; url: string; host: string; port: number; apiKey: string }
+  server: { running: boolean; url: string; host: string; port: number; apiKeys: ApiKeyEntry[] }
   configPath: string
   statePath: string
   providers: Array<{
@@ -23,9 +33,9 @@ type SnippetFormat = 'curl' | 'fetch' | 'python'
 
 function buildSnippet(status: GatewayStatus, format: SnippetFormat): string {
   const url = `${status.server.url}/v1/chat/completions`
-  const key = status.server.apiKey
+  const key = status.server.apiKeys[0]?.key ?? ''
   const body =
-    '{"model":"kiro/claude-sonnet-4.5","messages":[{"role":"user","content":"hello"}],"stream":true}'
+    '{"model":"kiro/claude-sonnet-4-5","messages":[{"role":"user","content":"hello"}],"stream":true}'
 
   if (format === 'curl') {
     return `curl ${url} \\
@@ -66,16 +76,21 @@ export default function Settings(): React.JSX.Element {
     5000
   )
   const [busy, setBusy] = useState(false)
-  const [showKey, setShowKey] = useState(false)
   const [copied, setCopied] = useState('')
   const [snippetFormat, setSnippetFormat] = useState<SnippetFormat>('curl')
   const [proxyUrl, setProxyUrl] = useState('')
   const [proxyLoaded, setProxyLoaded] = useState(false)
+  const [autoStart, setAutoStart] = useState(false)
+  const [autoStartLoaded, setAutoStartLoaded] = useState(false)
 
   useEffect(() => {
     window.api.gateway.getKiroSettings().then((s: any) => {
       setProxyUrl(s?.vpnProxyUrl || '')
       setProxyLoaded(true)
+    })
+    window.api.gateway.getAutoStart().then((v) => {
+      setAutoStart(v)
+      setAutoStartLoaded(true)
     })
   }, [])
 
@@ -108,49 +123,20 @@ export default function Settings(): React.JSX.Element {
   const snippet = status ? buildSnippet(status, snippetFormat) : ''
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <div>
         <h1 className="section-title">{t('settings.title')}</h1>
         <p className="section-desc">{t('settings.desc')}</p>
       </div>
 
       <div className="card">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-charcoal">
-          <div className="flex items-center gap-3">
-            <span className={status?.server.running ? 'pulse-dot-green' : 'pulse-dot-gray'} />
-            <div>
-              <h2 className="text-[13px] font-[510] text-porcelain">{t('settings.serverTitle')}</h2>
-              <span className="text-[12px] text-fog">
-                {status?.server.running ? t('settings.running') : t('settings.stoppedStatus')}
-              </span>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant="primary"
-              disabled={busy || status?.server.running}
-              onClick={() => run(() => window.api.gateway.start(), t('settings.started'))}
-            >
-              {t('common.start')}
-            </Button>
-            <Button
-              disabled={busy || !status?.server.running}
-              onClick={() => run(() => window.api.gateway.stop(), t('settings.stopped'))}
-            >
-              {t('common.stop')}
-            </Button>
-          </div>
+        <div className="px-3.5 py-2 border-b border-charcoal/60">
+          <h2 className="text-[13px] font-medium text-porcelain">{t('settings.connection')}</h2>
         </div>
-      </div>
-
-      <div className="card">
-        <div className="px-4 py-3 border-b border-charcoal">
-          <h2 className="text-[13px] font-[510] text-porcelain">{t('settings.connection')}</h2>
-        </div>
-        <div className="px-4 py-3">
-          <div className="grid grid-cols-[80px_1fr_auto] gap-x-4 gap-y-3 text-[12px] items-center">
-            <span className="text-fog font-[510]">{t('settings.url')}</span>
-            <span className="text-storm font-mono">{status?.server.url ?? '—'}</span>
+        <div className="px-3.5 py-2.5">
+          <div className="grid grid-cols-[72px_1fr_auto] gap-x-3 gap-y-2 text-[12px] items-center">
+            <span className="text-fog font-medium">{t('settings.url')}</span>
+            <span className="text-storm font-mono truncate">{status?.server.url ?? '—'}</span>
             <Button
               variant="ghost"
               size="sm"
@@ -159,46 +145,53 @@ export default function Settings(): React.JSX.Element {
             >
               {copied === 'url' ? t('common.copied') : t('common.copy')}
             </Button>
-
-            <span className="text-fog font-[510]">{t('settings.apiKey')}</span>
-            <span
-              className="text-storm font-mono break-all cursor-pointer"
-              onClick={() => setShowKey(!showKey)}
-            >
-              {showKey ? status?.server.apiKey : '••••••••••••••••'}
+            <span className="text-fog font-medium">{t('settings.config')}</span>
+            <span className="text-storm font-mono truncate col-span-2" title={status?.configPath}>
+              {status?.configPath ?? '—'}
             </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="!px-2 !py-0.5"
-              onClick={() => copy(status?.server.apiKey ?? '', 'key')}
+            <span className="text-fog font-medium">{t('settings.state')}</span>
+            <span className="text-storm font-mono truncate col-span-2" title={status?.statePath}>
+              {status?.statePath ?? '—'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="flex items-center justify-between px-3.5 py-2.5">
+          <div>
+            <h2 className="text-[13px] font-medium text-porcelain">{t('settings.autoStart')}</h2>
+            <p className="text-[12px] text-fog mt-0.5">{t('settings.autoStartDesc')}</p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={autoStart}
+            disabled={!autoStartLoaded}
+            className="outline-none focus-visible:ring-1 focus-visible:ring-accent/40 disabled:opacity-40"
+            onClick={() => {
+              const next = !autoStart
+              setAutoStart(next)
+              window.api.gateway.setAutoStart(next)
+            }}
+          >
+            <div
+              className={`relative w-8 h-[18px] rounded-full transition-colors duration-200 ${autoStart ? 'bg-emerald' : 'bg-charcoal border border-ash/60'}`}
             >
-              {copied === 'key' ? t('common.copied') : t('common.copy')}
-            </Button>
-          </div>
+              <div
+                className={`absolute top-[3px] w-3 h-3 rounded-full transition-[left,background-color] duration-200 shadow-sm ${autoStart ? 'left-[17px] bg-white' : 'left-[3px] bg-fog'}`}
+              />
+            </div>
+          </button>
         </div>
       </div>
 
       <div className="card">
-        <div className="px-4 py-3 border-b border-charcoal">
-          <h2 className="text-[13px] font-[510] text-porcelain">{t('settings.paths')}</h2>
-        </div>
-        <div className="px-4 py-3">
-          <div className="grid grid-cols-[80px_1fr] gap-x-4 gap-y-2 text-[12px]">
-            <span className="text-fog font-[510]">{t('settings.config')}</span>
-            <span className="text-storm font-mono break-all">{status?.configPath ?? '—'}</span>
-            <span className="text-fog font-[510]">{t('settings.state')}</span>
-            <span className="text-storm font-mono break-all">{status?.statePath ?? '—'}</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="px-4 py-3 border-b border-charcoal">
-          <h2 className="text-[13px] font-[510] text-porcelain">{t('settings.proxy')}</h2>
+        <div className="px-3.5 py-2 border-b border-charcoal/60">
+          <h2 className="text-[13px] font-medium text-porcelain">{t('settings.proxy')}</h2>
           <p className="text-[12px] text-fog mt-0.5">{t('settings.proxyDesc')}</p>
         </div>
-        <div className="px-4 py-3">
+        <div className="px-3.5 py-2.5">
           <div className="flex items-center gap-3">
             <input
               value={proxyUrl}
@@ -215,12 +208,12 @@ export default function Settings(): React.JSX.Element {
       </div>
 
       <div className="card">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-charcoal">
+        <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-charcoal/60">
           <div>
-            <h2 className="text-[13px] font-[510] text-porcelain">{t('settings.quickTest')}</h2>
+            <h2 className="text-[13px] font-medium text-porcelain">{t('settings.quickTest')}</h2>
             <p className="text-[12px] text-fog mt-0.5">{t('settings.quickTestDesc')}</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <SegmentedControl
               value={snippetFormat}
               onValueChange={(v) => setSnippetFormat(v as SnippetFormat)}
@@ -235,8 +228,8 @@ export default function Settings(): React.JSX.Element {
             </Button>
           </div>
         </div>
-        <div className="p-4">
-          <pre className="p-3 rounded-[var(--radius-md)] bg-pitch border border-charcoal text-[12px] font-mono text-storm overflow-x-auto whitespace-pre-wrap leading-relaxed">
+        <div className="p-3">
+          <pre className="p-3 pl-4 rounded-[var(--radius-md)] bg-pitch border border-charcoal/60 border-l-[3px] border-l-charcoal/40 text-[12px] font-mono text-storm overflow-x-auto whitespace-pre-wrap leading-[1.65] shadow-[inset_0_1px_3px_rgba(0,0,0,0.2)]">
             {snippet}
           </pre>
         </div>

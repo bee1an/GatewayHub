@@ -18,7 +18,7 @@ const TYPE_CONFIG: Record<
   success: {
     color: 'text-emerald',
     accent: 'bg-emerald',
-    progress: 'bg-emerald/30',
+    progress: 'bg-[color-mix(in_srgb,var(--c-emerald)_30%,transparent)]',
     iconPath: (
       <>
         <circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.5" />
@@ -35,7 +35,7 @@ const TYPE_CONFIG: Record<
   error: {
     color: 'text-red',
     accent: 'bg-red',
-    progress: 'bg-red/30',
+    progress: 'bg-[color-mix(in_srgb,var(--c-red)_30%,transparent)]',
     iconPath: (
       <>
         <circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.5" />
@@ -46,7 +46,7 @@ const TYPE_CONFIG: Record<
   info: {
     color: 'text-cyan',
     accent: 'bg-cyan',
-    progress: 'bg-cyan/30',
+    progress: 'bg-[color-mix(in_srgb,var(--c-cyan)_30%,transparent)]',
     iconPath: (
       <>
         <circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.5" />
@@ -113,7 +113,7 @@ export function ToastProvider({ children }: { children: ReactNode }): React.JSX.
               role="status"
               aria-live={item.type === 'error' ? 'assertive' : 'polite'}
               onClick={() => dismiss(item.id)}
-              className="pointer-events-auto relative overflow-hidden min-w-[280px] max-w-[380px] rounded-[var(--radius-md)] bg-graphite/95 backdrop-blur-md border border-charcoal shadow-[rgba(0,0,0,0.4)_0px_8px_24px_0px,rgba(0,0,0,0.2)_0px_2px_8px_0px] px-3.5 py-3"
+              className="pointer-events-auto relative overflow-hidden min-w-[280px] max-w-[380px] rounded-[var(--radius-md)] bg-[color-mix(in_srgb,var(--c-graphite)_95%,transparent)] backdrop-blur-md border border-charcoal shadow-[rgba(0,0,0,0.4)_0px_8px_24px_0px,rgba(0,0,0,0.2)_0px_2px_8px_0px] px-3.5 py-3"
               style={{
                 animation:
                   item.phase === 'exiting'
@@ -132,7 +132,7 @@ export function ToastProvider({ children }: { children: ReactNode }): React.JSX.
                 >
                   {cfg.iconPath}
                 </svg>
-                <span className="text-[13px] font-[510] text-porcelain">{item.message}</span>
+                <span className="text-[13px] font-medium text-porcelain">{item.message}</span>
               </div>
               <div
                 className="absolute bottom-0 left-0 right-0 h-[2px] overflow-hidden"

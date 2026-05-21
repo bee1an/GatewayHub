@@ -69,6 +69,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           <span className={`i-svg-spinners:ring-resize ${spinner} shrink-0`} />
         ) : icon ? (
           <span className="shrink-0 flex items-center justify-center">{icon}</span>
+        ) : iconOnly && children ? (
+          children
         ) : null}
         {!iconOnly && children && <span className={loading ? 'opacity-70' : ''}>{children}</span>}
       </button>

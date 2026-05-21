@@ -1,4 +1,5 @@
 import * as Dialog from '@radix-ui/react-dialog'
+import { useTranslation } from 'react-i18next'
 
 interface ModalProps {
   open: boolean
@@ -17,6 +18,8 @@ export function Modal({
   showClose = true,
   children
 }: ModalProps): React.JSX.Element {
+  const { t } = useTranslation()
+
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -25,7 +28,10 @@ export function Modal({
           <div className="flex items-center justify-between mb-4">
             <Dialog.Title className="section-title">{title}</Dialog.Title>
             {showClose && (
-              <Dialog.Close className="text-fog hover:text-porcelain transition-colors p-1 rounded-[var(--radius-sm)] hover:bg-charcoal">
+              <Dialog.Close
+                aria-label={t('common.close') || 'Close'}
+                className="text-fog hover:text-porcelain transition-colors p-1 rounded-[var(--radius-sm)] hover:bg-charcoal outline-none focus-visible:ring-1 focus-visible:ring-accent/60 focus-visible:ring-offset-1 focus-visible:ring-offset-pitch"
+              >
                 <svg
                   width="14"
                   height="14"

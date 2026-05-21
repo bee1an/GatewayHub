@@ -27,6 +27,8 @@ const api = {
       ipcRenderer.invoke('gateway:updateKiroSettings', settings),
     updateKiroRouteName: (routeName: string) =>
       ipcRenderer.invoke('gateway:updateKiroRouteName', routeName),
+    updateProviderRouteName: (providerType: string, routeName: string) =>
+      ipcRenderer.invoke('gateway:updateProviderRouteName', providerType, routeName),
     addKiroRefreshToken: (text: string) => ipcRenderer.invoke('gateway:addKiroRefreshToken', text),
     addKiroAccessToken: (text: string) => ipcRenderer.invoke('gateway:addKiroAccessToken', text),
     importKiroJson: (text: string) => ipcRenderer.invoke('gateway:importKiroJson', text),
@@ -34,6 +36,28 @@ const api = {
     loginWithKiroCli: (options?: { cliPath?: string }) =>
       ipcRenderer.invoke('gateway:loginWithKiroCli', options),
     cancelKiroCliLogin: () => ipcRenderer.invoke('gateway:cancelKiroCliLogin'),
+    getModelMappings: () => ipcRenderer.invoke('gateway:getModelMappings'),
+    updateModelMappings: (mappings: any) =>
+      ipcRenderer.invoke('gateway:updateModelMappings', mappings),
+    generateApiKey: (options: { name: string; expiresAt?: number; scopes?: string[] }) =>
+      ipcRenderer.invoke('gateway:generateApiKey', options),
+    revokeApiKey: (id: string) => ipcRenderer.invoke('gateway:revokeApiKey', id),
+    updateApiKey: (
+      id: string,
+      updates: { name?: string; expiresAt?: number | null; scopes?: string[] | null }
+    ) => ipcRenderer.invoke('gateway:updateApiKey', id, updates),
+    updateProviderDisplayName: (providerType: string, displayName: string) =>
+      ipcRenderer.invoke('gateway:updateProviderDisplayName', providerType, displayName),
+    getAutoStart: () => ipcRenderer.invoke('gateway:getAutoStart'),
+    setAutoStart: (enabled: boolean) => ipcRenderer.invoke('gateway:setAutoStart', enabled),
+    clearLogs: () => ipcRenderer.invoke('gateway:clearLogs'),
+    getLogs: (options?: {
+      category?: string
+      requestId?: string
+      level?: string
+      limit?: number
+    }) => ipcRenderer.invoke('gateway:getLogs', options),
+    exportLogs: (format: 'json' | 'ndjson') => ipcRenderer.invoke('gateway:exportLogs', format),
     onCliLoginOutput: (cb: (data: any) => void) => {
       ipcRenderer.on('gateway:cliLoginOutput', (_e, data) => cb(data))
       return () => {

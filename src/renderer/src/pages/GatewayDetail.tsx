@@ -10,6 +10,8 @@ import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { TooltipWrapper } from '../components/ui/Tooltip'
 import { useToast } from '../components/ui/ToastContext'
 
+type AccountFilter = 'all' | 'available' | 'problematic'
+
 type Provider = {
   name: string
   providerType: string
@@ -67,7 +69,7 @@ type AccountInfo = {
 }
 
 type GatewayStatus = {
-  server: { running: boolean; url: string; host: string; port: number; apiKey: string }
+  server: { running: boolean; url: string; host: string; port: number; apiKeys: any[] }
   configPath: string
   statePath: string
   providers: Provider[]
@@ -99,14 +101,43 @@ export default function GatewayDetail(): React.JSX.Element {
   const [busy, setBusy] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [accountInfoMap, setAccountInfoMap] = useState(accountInfoCache)
+  const [routeNameDraft, setRouteNameDraft] = useState<{ name: string; value: string } | null>(null)
   const [editingRouteName, setEditingRouteName] = useState(false)
-  const [routeNameDraft, setRouteNameDraft] = useState('')
   const [removeTarget, setRemoveTarget] = useState<{ id: string; label: string } | null>(null)
+  const [filter, setFilter] = useState<AccountFilter>('all')
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  const draftValue =
+    routeNameDraft && routeNameDraft.name === name ? routeNameDraft.value : (name ?? '')
 
   const gateway = useMemo(() => status?.providers.find((p) => p.name === name), [status, name])
   const accounts = useMemo<Account[]>(() => gateway?.accounts ?? [], [gateway?.accounts])
   const isKiro = gateway?.providerType === 'kiro'
   const accountIdsKey = useMemo(() => accounts.map((a) => a.id).join(','), [accounts])
+
+  const filteredAccounts = useMemo(() => {
+    let list = accounts
+    if (filter === 'available') {
+      list = list.filter((a) => a.enabled && (a.status === 'available' || !a.status))
+    } else if (filter === 'problematic') {
+      list = list.filter(
+        (a) =>
+          !a.enabled || (a.status && a.status !== 'available' && a.status !== 'manual_disabled')
+      )
+    }
+    return list
+  }, [accounts, filter])
+
+  const accountStats = useMemo(() => {
+    const healthy = accounts.filter(
+      (a) => a.enabled && (a.status === 'available' || !a.status)
+    ).length
+    const problematic = accounts.filter(
+      (a) => a.enabled && a.status && a.status !== 'available' && a.status !== 'manual_disabled'
+    ).length
+    const totalReqs = accounts.reduce((s, a) => s + (a.stats?.totalRequests ?? 0), 0)
+    return { healthy, problematic, totalReqs, total: accounts.length }
+  }, [accounts])
 
   const fetchAccountInfo = useCallback(async (accountId: string) => {
     setAccountInfoMap((prev) => ({ ...prev, [accountId]: { ...prev[accountId], loading: true } }))
@@ -159,105 +190,218 @@ export default function GatewayDetail(): React.JSX.Element {
 
   if (!gateway) {
     return (
-      <div className="flex items-center justify-center h-64 text-storm text-[13px]">
-        {status ? t('gateway.notFound', { name }) : t('common.loading')}
+      <div className="space-y-5 animate-fade-in">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="h-[20px] w-[100px] rounded bg-charcoal/80 animate-pulse" />
+            <div className="h-[18px] w-[50px] rounded bg-charcoal/50 animate-pulse" />
+          </div>
+          <div className="h-[30px] w-[90px] rounded bg-charcoal/60 animate-pulse" />
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="card px-3 py-2.5 flex flex-col gap-2">
+              <div className="h-[12px] w-[60px] rounded bg-charcoal/60 animate-pulse" />
+              <div className="h-[18px] w-[36px] rounded bg-charcoal/80 animate-pulse" />
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div
+              key={i}
+              className="card px-2.5 py-2 flex flex-col gap-2 border-l-[2.5px] border-l-charcoal"
+            >
+              <div className="flex items-center gap-2">
+                <div className="w-[6px] h-[6px] rounded-full bg-charcoal" />
+                <div className="h-[14px] w-[120px] rounded bg-charcoal/70 animate-pulse" />
+              </div>
+              <div className="h-[4px] w-full rounded-full bg-charcoal/40 animate-pulse" />
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          {editingRouteName ? (
-            <form
-              className="flex items-center gap-1.5"
-              onSubmit={async (e) => {
-                e.preventDefault()
-                const val = routeNameDraft
-                  .trim()
-                  .toLowerCase()
-                  .replace(/[^a-z0-9_-]/g, '')
-                if (val && val !== name) {
-                  await run(() => window.api.gateway.updateKiroRouteName(val), t('settings.saved'))
-                  window.location.hash = `#/gateway/${val}`
-                }
-                setEditingRouteName(false)
+    <div className="space-y-5 animate-fade-in">
+      <div className="flex items-center gap-2">
+        <h1 className="text-[17px] font-[590] text-porcelain capitalize tracking-[-0.15px]">
+          {name}
+        </h1>
+        {editingRouteName ? (
+          <form
+            className="flex items-center gap-1.5"
+            onSubmit={async (e) => {
+              e.preventDefault()
+              const val = draftValue
+                .trim()
+                .toLowerCase()
+                .replace(/[^a-z0-9_-]/g, '')
+              if (val && val !== name && gateway?.providerType) {
+                await run(
+                  () => window.api.gateway.updateProviderRouteName(gateway.providerType, val),
+                  t('settings.saved')
+                )
+                window.location.hash = `#/gateway/${val}`
+              }
+              setEditingRouteName(false)
+            }}
+          >
+            <input
+              autoFocus
+              value={draftValue}
+              onChange={(e) => setRouteNameDraft({ name: name ?? '', value: e.target.value })}
+              onBlur={() => setEditingRouteName(false)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setEditingRouteName(false)
               }}
+              placeholder={name}
+              autoComplete="off"
+              aria-label={t('gateway.editRouteName')}
+              className="input-base font-mono !py-0.5 !px-1.5 !text-[12px] w-28"
+            />
+            <Button
+              type="submit"
+              size="sm"
+              variant="primary"
+              disabled={
+                busy ||
+                !draftValue.trim() ||
+                draftValue.trim().toLowerCase() === (name || '').toLowerCase()
+              }
+              onMouseDown={(e) => e.preventDefault()}
             >
-              <input
-                autoFocus
-                className="input-base text-[15px] font-[590] w-32 !py-0.5 !px-1.5"
-                value={routeNameDraft}
-                onChange={(e) => setRouteNameDraft(e.target.value)}
-                onBlur={() => setEditingRouteName(false)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') setEditingRouteName(false)
-                }}
-              />
-            </form>
-          ) : (
-            <h1
-              className="text-[17px] font-[590] text-porcelain capitalize tracking-[-0.15px] cursor-pointer hover:text-storm"
-              onClick={() => {
-                if (isKiro) {
-                  setRouteNameDraft(name || '')
-                  setEditingRouteName(true)
-                }
-              }}
-              title={isKiro ? t('gateway.routePrefix') : undefined}
-            >
-              {name}
-            </h1>
-          )}
-          <StatusBadge status={gateway.status} />
-        </div>
-        <div className="flex gap-2">
-          {isKiro && (
-            <Button variant="primary" onClick={() => setDialogOpen(true)}>
-              {t('gateway.addAccount')}
+              {t('settings.save')}
             </Button>
-          )}
-        </div>
+          </form>
+        ) : (
+          <TooltipWrapper content={t('gateway.editRouteName')}>
+            <button
+              type="button"
+              onClick={() => {
+                setRouteNameDraft({ name: name ?? '', value: name ?? '' })
+                setEditingRouteName(true)
+              }}
+              className="inline-flex items-center justify-center w-6 h-6 rounded-[var(--radius-sm)] text-fog hover:text-storm hover:bg-[color-mix(in_srgb,var(--c-charcoal)_60%,transparent)] transition-colors"
+              aria-label={t('gateway.editRouteName')}
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M4 20h4l10-10-4-4L4 16v4z"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinejoin="round"
+                />
+                <path d="M14 6l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+            </button>
+          </TooltipWrapper>
+        )}
       </div>
 
       {accounts.length === 0 ? (
-        <div className="card px-4 py-10 text-center text-fog text-[13px]">
-          {t('gateway.noAccounts')}
+        <div className="card px-4 py-10 flex flex-col items-center gap-2">
+          <span className="i-ph-users-three text-[28px] text-charcoal" aria-hidden="true" />
+          <span className="text-fog text-[13px]">{t('gateway.noAccounts')}</span>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
-          {accounts.map((acc) => (
-            <AccountCard
-              key={acc.id}
-              account={acc}
-              info={accountInfoMap[acc.id]}
-              busy={busy}
-              onToggle={() =>
-                run(
-                  () => window.api.gateway.toggleKiroAccount(acc.id, !acc.enabled),
-                  acc.enabled ? t('gateway.disabled') : t('gateway.enabled')
-                )
-              }
-              onRemove={() => setRemoveTarget({ id: acc.id, label: acc.label || acc.id })}
-              onReset={() =>
-                run(() => window.api.gateway.resetKiroAccount(acc.id), t('gateway.resetDone'))
-              }
-              onPauseToggle={() => {
-                const isPaused = acc.status === 'manual_disabled'
-                return run(
-                  () =>
-                    window.api.gateway.setKiroAccountStatus(
-                      acc.id,
-                      isPaused ? 'available' : 'manual_disabled'
-                    ),
-                  isPaused ? t('gateway.resumed') : t('gateway.paused')
-                )
-              }}
-              onRefreshInfo={() => fetchAccountInfo(acc.id)}
+        <>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="card px-3 py-2 flex flex-col gap-1">
+              <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
+                {t('gateway.healthy')}
+              </span>
+              <span className="text-[17px] font-[650] text-emerald tabular-nums leading-none">
+                {accountStats.healthy}{' '}
+                <span className="text-[12px] text-fog font-normal">/ {accountStats.total}</span>
+              </span>
+            </div>
+            <div className="card px-3 py-2 flex flex-col gap-1">
+              <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
+                {t('gateway.requests')}
+              </span>
+              <span className="text-[17px] font-[650] text-porcelain tabular-nums leading-none">
+                {accountStats.totalReqs}
+              </span>
+            </div>
+            <div className="card px-3 py-2 flex flex-col gap-1">
+              <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
+                {t('gateway.successRate')}
+              </span>
+              <span
+                className={`text-[17px] font-[650] tabular-nums leading-none ${accountStats.problematic > 0 ? 'text-warning' : 'text-emerald'}`}
+              >
+                {accountStats.totalReqs > 0
+                  ? `${Math.round((accounts.reduce((s, a) => s + (a.stats?.successfulRequests ?? 0), 0) / accountStats.totalReqs) * 100)}%`
+                  : '100%'}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <SegmentedControl
+              value={filter}
+              onValueChange={(v) => setFilter(v as AccountFilter)}
+              items={[
+                { value: 'all', label: `${t('logs.all')} (${accounts.length})` },
+                {
+                  value: 'available',
+                  label: `${t('gateway.statusAvailable')} (${accountStats.healthy})`
+                },
+                { value: 'problematic', label: `${t('logs.error')} (${accountStats.problematic})` }
+              ]}
             />
-          ))}
-        </div>
+            {isKiro && (
+              <Button size="sm" variant="primary" onClick={() => setDialogOpen(true)}>
+                {t('gateway.addAccount')}
+              </Button>
+            )}
+          </div>
+
+          <div className="card overflow-hidden">
+            {filteredAccounts.map((acc, i) => (
+              <AccountRow
+                key={acc.id}
+                account={acc}
+                info={accountInfoMap[acc.id]}
+                busy={busy}
+                expanded={expandedId === acc.id}
+                onToggleExpand={() => setExpandedId(expandedId === acc.id ? null : acc.id)}
+                last={i === filteredAccounts.length - 1}
+                onToggle={() =>
+                  run(
+                    () => window.api.gateway.toggleKiroAccount(acc.id, !acc.enabled),
+                    acc.enabled ? t('gateway.disabled') : t('gateway.enabled')
+                  )
+                }
+                onRemove={() => setRemoveTarget({ id: acc.id, label: acc.label || acc.id })}
+                onReset={() =>
+                  run(() => window.api.gateway.resetKiroAccount(acc.id), t('gateway.resetDone'))
+                }
+                onPauseToggle={() => {
+                  const isPaused = acc.status === 'manual_disabled'
+                  return run(
+                    () =>
+                      window.api.gateway.setKiroAccountStatus(
+                        acc.id,
+                        isPaused ? 'available' : 'manual_disabled'
+                      ),
+                    isPaused ? t('gateway.resumed') : t('gateway.paused')
+                  )
+                }}
+                onRefreshInfo={() => fetchAccountInfo(acc.id)}
+              />
+            ))}
+          </div>
+        </>
       )}
 
       {isKiro && (
@@ -294,10 +438,13 @@ export default function GatewayDetail(): React.JSX.Element {
   )
 }
 
-function AccountCard({
+function AccountRow({
   account: acc,
   info,
   busy,
+  expanded,
+  onToggleExpand,
+  last,
   onToggle,
   onRemove,
   onReset,
@@ -307,6 +454,9 @@ function AccountCard({
   account: Account
   info?: { data?: AccountInfo; loading: boolean; error?: string }
   busy: boolean
+  expanded: boolean
+  onToggleExpand: () => void
+  last: boolean
   onToggle: () => void
   onRemove: () => void
   onReset: () => void
@@ -314,11 +464,9 @@ function AccountCard({
   onRefreshInfo: () => void
 }): React.JSX.Element {
   const { t } = useTranslation()
-  const [detailsExpanded, setDetailsExpanded] = useState(false)
   const [modelsExpanded, setModelsExpanded] = useState(false)
   const status: AccountStatus = acc.status ?? 'available'
   const isPaused = status === 'manual_disabled'
-  const isOffline = !acc.enabled || status !== 'available'
   const statusVisual = getStatusVisual(status)
   const now = useNow()
   const dotClass = !acc.enabled ? 'pulse-dot-gray' : statusVisual.dotClass
@@ -332,201 +480,296 @@ function AccountCard({
   const expiryUrgent = expiresIn !== null && expiresIn < 24 * 3600_000
 
   const usagePercent = accountInfo?.usage
-    ? Math.min(
-        100,
-        Math.round((accountInfo.usage.used / Math.max(1, accountInfo.usage.limit)) * 100)
-      )
+    ? Math.round((accountInfo.usage.used / Math.max(1, accountInfo.usage.limit)) * 100)
     : null
   const hasOverage = (accountInfo?.usage?.overages ?? 0) > 0
 
   const cooldownRemaining =
     acc.cooldownUntil && acc.cooldownUntil > now ? acc.cooldownUntil - now : null
-  const statusTooltip = [
-    acc.statusReason,
-    cooldownRemaining
-      ? t('gateway.cooldownRemaining', { duration: formatDuration(cooldownRemaining) })
-      : ''
-  ]
-    .filter(Boolean)
-    .join(' · ')
 
-  const hasDetails =
-    Boolean(accountInfo?.usage?.resetDate) ||
-    Boolean(expiresAt) ||
-    rate !== null ||
-    hasOverage ||
-    Boolean(accountInfo?.models?.length)
+  const borderColor = (() => {
+    if (!acc.enabled) return 'border-l-fog/40'
+    switch (status) {
+      case 'available':
+        return 'border-l-emerald'
+      case 'cooling':
+      case 'rate_limited':
+        return 'border-l-warning'
+      case 'quota_exceeded':
+      case 'auth_failed':
+        return 'border-l-red'
+      case 'manual_disabled':
+      default:
+        return 'border-l-fog/30'
+    }
+  })()
 
   return (
-    <div className={`card px-3 py-2 relative overflow-hidden ${!acc.enabled ? 'opacity-60' : ''}`}>
-      {acc.enabled && isOffline && (
-        <div className="absolute inset-0 bg-pitch/40 pointer-events-none" />
-      )}
-
-      <div className="relative space-y-2">
-        {/* 行 1：身份 + 状态 + 操作 */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className={dotClass} />
-            <span className="text-[13px] font-[510] text-porcelain truncate">
-              {accountInfo?.email || acc.label || acc.id}
+    <div
+      className={`border-l-[2.5px] ${borderColor} ${!last ? 'border-b border-b-charcoal/30' : ''} ${!acc.enabled ? 'opacity-50' : ''} transition-colors duration-75 ${expanded ? 'bg-[color-mix(in_srgb,var(--c-slate)_50%,transparent)]' : ''}`}
+    >
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onToggleExpand}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onToggleExpand()
+          }
+        }}
+        className={`flex items-center gap-2 px-3 py-2 cursor-pointer select-none ${expanded ? '' : 'hover:bg-[color-mix(in_srgb,var(--c-slate)_30%,transparent)]'}`}
+      >
+        <span className={dotClass} />
+        <span className="text-[13px] font-medium text-porcelain truncate min-w-0 flex-1">
+          {accountInfo?.email || acc.label || acc.id}
+        </span>
+        {accountInfo?.subscription &&
+          accountInfo.subscription.type !== 'unknown' &&
+          accountInfo.subscription.title &&
+          !/^[\s—–-]+$/.test(accountInfo.subscription.title) && (
+            <span className="tag text-[10px] !px-1.5 !py-0 text-lime bg-lime/10 border border-lime/20 shrink-0">
+              {accountInfo.subscription.title}
             </span>
-            {accountInfo?.subscription && accountInfo.subscription.type !== 'unknown' && (
-              <span className="tag text-[12px] !px-1 !py-0 text-lime">
-                {accountInfo.subscription.title}
-              </span>
-            )}
-            <TooltipWrapper content={statusTooltip || t(`gateway.${statusVisual.i18nKey}`)}>
-              <span className={`${statusVisual.badgeClass} !px-1 !py-0`}>
-                {t(`gateway.${statusVisual.i18nKey}`)}
-                {cooldownRemaining && (
-                  <span className="ml-1 font-mono">{formatDuration(cooldownRemaining)}</span>
-                )}
-              </span>
+          )}
+        <span className={`${statusVisual.badgeClass} !px-1.5 !py-0 shrink-0 text-[10px]`}>
+          {t(`gateway.${statusVisual.i18nKey}`)}
+          {cooldownRemaining && (
+            <span className="ml-0.5 font-mono tabular-nums opacity-90">
+              ({formatDuration(cooldownRemaining)})
+            </span>
+          )}
+        </span>
+        {usagePercent !== null && usagePercent > 80 && (
+          <TooltipWrapper
+            content={`${t('gateway.usage')}: ${accountInfo!.usage.used}/${accountInfo!.usage.limit}`}
+          >
+            <span
+              className={`text-[10px] font-mono tabular-nums shrink-0 ${hasOverage ? 'text-red' : 'text-warning'}`}
+            >
+              {usagePercent}%
+            </span>
+          </TooltipWrapper>
+        )}
+        {total > 0 && (
+          <TooltipWrapper
+            content={`${t('gateway.requests')}: ${total} (${t('gateway.success')}: ${success})`}
+          >
+            <span className="text-[11px] text-fog font-mono tabular-nums shrink-0 flex items-center gap-0.5">
+              <span className="i-ph-arrow-up-right text-[10px]" aria-hidden="true" />
+              {total}
+            </span>
+          </TooltipWrapper>
+        )}
+        {(() => {
+          const errMsg = info?.error || accountInfo?.error || acc.lastError
+          if (!errMsg) return null
+          return (
+            <TooltipWrapper content={errMsg}>
+              <span
+                className="i-ph-warning-circle-fill text-red text-[13px] shrink-0 cursor-help"
+                aria-hidden="true"
+              />
             </TooltipWrapper>
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <TooltipWrapper content={t('gateway.refresh')}>
+          )
+        })()}
+        <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+          <TooltipWrapper content={t('gateway.refresh')}>
+            <Button
+              variant="ghost"
+              size="xs"
+              iconOnly
+              onClick={onRefreshInfo}
+              disabled={info?.loading}
+              aria-label={t('gateway.refresh')}
+              className="!h-6 !w-6"
+            >
+              <span
+                aria-hidden="true"
+                className={`text-[12px] text-storm ${info?.loading ? 'i-svg-spinners:ring-resize' : 'i-ph-arrows-clockwise'}`}
+              />
+            </Button>
+          </TooltipWrapper>
+          {acc.failures > 0 && (
+            <TooltipWrapper content={t('gateway.reset')}>
               <Button
                 variant="ghost"
                 size="xs"
                 iconOnly
-                onClick={onRefreshInfo}
-                disabled={info?.loading}
+                disabled={busy}
+                onClick={onReset}
+                aria-label={t('gateway.reset')}
+                className="!h-6 !w-6"
               >
-                ↻
+                <span
+                  aria-hidden="true"
+                  className="i-ph-arrow-counter-clockwise text-[12px] text-storm"
+                />
               </Button>
             </TooltipWrapper>
-            {acc.failures > 0 && (
-              <Button size="xs" disabled={busy} onClick={onReset}>
-                {t('gateway.reset')}
+          )}
+          {acc.enabled && (
+            <TooltipWrapper content={isPaused ? t('gateway.resume') : t('gateway.pause')}>
+              <Button
+                variant="ghost"
+                size="xs"
+                iconOnly
+                disabled={busy}
+                onClick={onPauseToggle}
+                aria-label={isPaused ? t('gateway.resume') : t('gateway.pause')}
+                className="!h-6 !w-6"
+              >
+                <span
+                  aria-hidden="true"
+                  className={`text-[12px] text-storm ${isPaused ? 'i-ph-play' : 'i-ph-pause'}`}
+                />
               </Button>
-            )}
-            {acc.enabled && (
-              <Button size="xs" disabled={busy} onClick={onPauseToggle}>
-                {isPaused ? t('gateway.resume') : t('gateway.pause')}
-              </Button>
-            )}
-            <Button size="xs" disabled={busy} onClick={onToggle}>
-              {acc.enabled ? t('gateway.disable') : t('gateway.enable')}
-            </Button>
-            <Button variant="danger" size="xs" disabled={busy} onClick={onRemove}>
-              {t('gateway.remove')}
-            </Button>
-          </div>
-        </div>
-
-        {/* 行 2：用量进度条（如有） */}
-        {accountInfo?.usage && (
-          <div className="flex items-center gap-2 text-[12px]">
-            <div className="flex-1 h-1 rounded-full bg-charcoal overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${hasOverage ? 'bg-red' : usagePercent! > 80 ? 'bg-warning' : 'bg-emerald'}`}
-                style={{ width: `${Math.min(usagePercent!, 100)}%` }}
-              />
-            </div>
-            <span className={`font-mono shrink-0 ${hasOverage ? 'text-red' : 'text-storm'}`}>
-              {accountInfo.usage.used}/{accountInfo.usage.limit}
-            </span>
-          </div>
-        )}
-
-        {/* 行 3：异常状态提示常显 */}
-        {info?.loading && !accountInfo && (
-          <span className="text-[12px] text-fog block">{t('gateway.loadingInfo')}</span>
-        )}
-        {(info?.error || accountInfo?.error) && (
-          <p
-            className="text-[12px] text-red truncate"
-            title={info?.error || accountInfo?.error}
-          >
-            {info?.error || accountInfo?.error}
-          </p>
-        )}
-        {acc.lastError && (
-          <p className="text-[12px] text-red truncate" title={acc.lastError}>
-            {acc.lastError}
-          </p>
-        )}
-
-        {/* 行 4：折叠的详情区 */}
-        {hasDetails && (
-          <div>
-            <button
-              className="text-[12px] text-fog hover:text-storm flex items-center gap-1"
-              onClick={() => setDetailsExpanded(!detailsExpanded)}
+            </TooltipWrapper>
+          )}
+          <TooltipWrapper content={acc.enabled ? t('gateway.disable') : t('gateway.enable')}>
+            <Button
+              variant="ghost"
+              size="xs"
+              iconOnly
+              disabled={busy}
+              onClick={onToggle}
+              aria-label={acc.enabled ? t('gateway.disable') : t('gateway.enable')}
+              className="!h-6 !w-6"
             >
-              <span>{detailsExpanded ? '▾' : '▸'}</span>
-              <span>{t('gateway.details')}</span>
-            </button>
-            {detailsExpanded && (
-              <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
-                {rate !== null && (
-                  <>
-                    <dt className="text-fog">{t('gateway.successRate')}</dt>
-                    <dd className={`font-mono ${statusVisual.rateColorClass}`}>
-                      {rate}% ({success}/{total})
-                    </dd>
-                  </>
-                )}
-                {accountInfo?.usage?.resetDate && (
-                  <>
-                    <dt className="text-fog">{t('gateway.resetDate')}</dt>
-                    <dd className="font-mono text-storm">
-                      {formatResetDate(accountInfo.usage.resetDate)}
-                    </dd>
-                  </>
-                )}
-                {expiresAt && (
-                  <>
-                    <dt className="text-fog">{t('gateway.expires')}</dt>
-                    <dd className={`font-mono ${expiryUrgent ? 'text-red' : 'text-storm'}`}>
-                      {formatDuration(expiresIn!)}
-                    </dd>
-                  </>
-                )}
-                {hasOverage && accountInfo?.usage && (
-                  <>
-                    <dt className="text-fog">{t('gateway.overages')}</dt>
-                    <dd className="font-mono text-red">
-                      +{accountInfo.usage.overages} (${accountInfo.usage.overageCharges.toFixed(2)})
-                    </dd>
-                  </>
-                )}
-                {accountInfo?.models && accountInfo.models.length > 0 && (
-                  <>
-                    <dt className="text-fog">{t('gateway.models')}</dt>
-                    <dd>
-                      <button
-                        className="text-storm hover:text-porcelain inline-flex items-center gap-1"
-                        onClick={() => setModelsExpanded(!modelsExpanded)}
-                      >
-                        <span>{accountInfo.models.length}</span>
-                        <span>{modelsExpanded ? '▾' : '▸'}</span>
-                      </button>
-                      {modelsExpanded && (
-                        <div className="flex flex-wrap gap-0.5 mt-1">
-                          {accountInfo.models.map((m) => (
-                            <span
-                              key={m.modelId}
-                              className="tag text-[12px] font-mono !px-1 !py-0"
-                            >
-                              {m.modelName || m.modelId}
-                              {m.rateMultiplier > 1 && (
-                                <span className="ml-0.5 text-warning">{m.rateMultiplier}x</span>
-                              )}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </dd>
-                  </>
-                )}
-              </dl>
+              <span
+                aria-hidden="true"
+                className={`text-[12px] text-storm ${acc.enabled ? 'i-ph-power' : 'i-ph-power text-emerald'}`}
+              />
+            </Button>
+          </TooltipWrapper>
+          <TooltipWrapper content={t('gateway.remove')}>
+            <Button
+              variant="ghost"
+              size="xs"
+              iconOnly
+              disabled={busy}
+              onClick={onRemove}
+              aria-label={t('gateway.remove')}
+              className="!h-6 !w-6"
+            >
+              <span
+                aria-hidden="true"
+                className="i-ph-trash text-[12px] text-storm hover:text-red"
+              />
+            </Button>
+          </TooltipWrapper>
+        </div>
+        <span
+          className={`i-ph-caret-down text-[11px] text-fog shrink-0 transition-transform duration-150 ${expanded ? 'rotate-180' : ''}`}
+          aria-hidden="true"
+        />
+      </div>
+
+      {expanded && (
+        <div className="px-3 pb-3 pt-1 animate-slide-down space-y-3">
+          {accountInfo?.usage && (
+            <div className="flex items-center gap-2 text-[11px]">
+              <div
+                role="progressbar"
+                aria-valuenow={accountInfo.usage.used}
+                aria-valuemin={0}
+                aria-valuemax={accountInfo.usage.limit}
+                aria-label={t('gateway.usage')}
+                className="flex-1 h-1.5 rounded-full bg-charcoal/50 overflow-hidden"
+              >
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    hasOverage ? 'bg-red' : usagePercent! > 80 ? 'bg-warning' : 'bg-emerald'
+                  }`}
+                  style={{ width: `${Math.min(usagePercent!, 100)}%` }}
+                />
+              </div>
+              <span
+                className={`font-mono tabular-nums font-medium shrink-0 ${hasOverage ? 'text-red' : 'text-storm'}`}
+              >
+                {accountInfo.usage.used}/{accountInfo.usage.limit}
+              </span>
+            </div>
+          )}
+
+          <div className="text-[11px] flex flex-wrap gap-x-5 gap-y-1">
+            {rate !== null && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-fog">{t('gateway.successRate')}</span>
+                <span
+                  className={`font-mono tabular-nums font-medium ${statusVisual.rateColorClass}`}
+                >
+                  {rate}%
+                </span>
+              </div>
+            )}
+            {accountInfo?.usage?.resetDate && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-fog">{t('gateway.resetDate')}</span>
+                <span className="font-mono tabular-nums text-storm">
+                  {formatResetDate(accountInfo.usage.resetDate)}
+                </span>
+              </div>
+            )}
+            {expiresAt && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-fog">{t('gateway.expires')}</span>
+                <span
+                  className={`font-mono tabular-nums ${expiryUrgent ? 'text-red' : 'text-storm'}`}
+                >
+                  {formatDuration(expiresIn!)}
+                </span>
+              </div>
+            )}
+            {hasOverage && accountInfo?.usage && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-fog">{t('gateway.overages')}</span>
+                <span className="font-mono tabular-nums text-red">
+                  +{accountInfo.usage.overages} (${accountInfo.usage.overageCharges.toFixed(2)})
+                </span>
+              </div>
             )}
           </div>
-        )}
-      </div>
+
+          {accountInfo?.models && accountInfo.models.length > 0 && (
+            <div>
+              <button
+                className="text-[11px] text-fog hover:text-storm inline-flex items-center gap-1 font-medium transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setModelsExpanded(!modelsExpanded)
+                }}
+              >
+                <span className="text-[9px]" aria-hidden="true">
+                  {modelsExpanded ? '▼' : '▶'}
+                </span>
+                {t('gateway.models')} ({accountInfo.models.length})
+              </button>
+              {modelsExpanded && (
+                <div className="flex flex-wrap gap-1 mt-1.5 animate-slide-down">
+                  {accountInfo.models.map((m) => (
+                    <span
+                      key={m.modelId}
+                      className="tag text-[10px] font-mono !px-1.5 !py-0 bg-charcoal/40 text-storm"
+                    >
+                      {m.modelName || m.modelId}
+                      {m.rateMultiplier > 1 && (
+                        <span className="ml-0.5 text-warning font-semibold">
+                          {m.rateMultiplier}x
+                        </span>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {info?.loading && !accountInfo && (
+            <span className="text-[11px] text-fog">{t('gateway.loadingInfo')}…</span>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -924,7 +1167,7 @@ function AddAccountDialog({
                       {scanResult.candidates.map((c) => (
                         <label
                           key={c.id}
-                          className={`flex items-center gap-2 px-2 py-1.5 rounded-[var(--radius-sm)] ${c.existing ? 'opacity-40 cursor-not-allowed' : 'hover:bg-slate/30 cursor-pointer'}`}
+                          className={`flex items-center gap-2 px-2 py-1.5 rounded-[var(--radius-sm)] ${c.existing ? 'opacity-40' : 'hover:bg-[color-mix(in_srgb,var(--c-slate)_30%,transparent)]'}`}
                         >
                           <input
                             type="checkbox"
@@ -936,7 +1179,7 @@ function AddAccountDialog({
                               else next.delete(c.id)
                               setSelectedIds(next)
                             }}
-                            className="accent-lime"
+                            className="custom-checkbox"
                           />
                           <div className="min-w-0 flex-1">
                             <p className="text-[12px] text-porcelain truncate">
@@ -980,21 +1223,6 @@ function AddAccountDialog({
         ]}
       />
     </Modal>
-  )
-}
-
-function StatusBadge({ status }: { status: string }): React.JSX.Element {
-  const color =
-    status === 'ready' || status === 'running'
-      ? 'text-emerald'
-      : status === 'error'
-        ? 'text-red'
-        : 'text-fog'
-  return (
-    <span className={`badge ${color}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${color.replace('text-', 'bg-')}`} />
-      {status}
-    </span>
   )
 }
 

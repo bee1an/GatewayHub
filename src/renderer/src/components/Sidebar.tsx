@@ -10,6 +10,7 @@ import kiroIcon from '../assets/kiro-icon.svg'
 type ProviderStatus = {
   name: string
   providerType: string
+  displayName?: string
   enabled: boolean
   configured: boolean
   status: string
@@ -75,6 +76,7 @@ export default function Sidebar(): React.JSX.Element {
           <GatewayNavItem
             key={gw.name}
             name={gw.name}
+            displayName={gw.displayName}
             providerType={gw.providerType}
             status={gw.status}
           />
@@ -82,10 +84,18 @@ export default function Sidebar(): React.JSX.Element {
 
         {PLACEHOLDER_PROVIDERS.filter((n) => !configuredGateways.some((g) => g.name === n)).map(
           (name) => (
-            <div key={name} className="sidebar-item opacity-40 cursor-default">
-              <span className="pulse-dot-gray" />
-              <span className="capitalize">{name}</span>
-              <span className="ml-auto text-[12px] text-fog">{t('sidebar.soon')}</span>
+            <div
+              key={name}
+              aria-hidden="true"
+              className="sidebar-item opacity-35 placeholder-loading-pattern border border-dashed border-charcoal/20 relative overflow-hidden"
+            >
+              <div className="w-4 h-4 flex items-center justify-center shrink-0">
+                <span className="pulse-dot-gray !w-1.5 !h-1.5" />
+              </div>
+              <span className="capitalize ml-0.5">{name}</span>
+              <span className="ml-auto text-[10px] font-medium text-fog tracking-wider uppercase">
+                {t('sidebar.soon')}
+              </span>
             </div>
           )
         )}
@@ -103,6 +113,22 @@ export default function Sidebar(): React.JSX.Element {
         </NavLink>
 
         <NavLink
+          to="/api-keys"
+          className={({ isActive }) => (isActive ? 'sidebar-item-active' : 'sidebar-item')}
+        >
+          <span className="i-ph-key text-[16px]" />
+          <span>{t('sidebar.apiKeys')}</span>
+        </NavLink>
+
+        <NavLink
+          to="/model-mappings"
+          className={({ isActive }) => (isActive ? 'sidebar-item-active' : 'sidebar-item')}
+        >
+          <span className="i-ph-arrows-left-right text-[16px]" />
+          <span>{t('sidebar.modelMappings')}</span>
+        </NavLink>
+
+        <NavLink
           to="/settings"
           className={({ isActive }) => (isActive ? 'sidebar-item-active' : 'sidebar-item')}
         >
@@ -112,21 +138,61 @@ export default function Sidebar(): React.JSX.Element {
       </nav>
 
       <div className="shrink-0 px-2 py-2 border-t border-charcoal flex items-center justify-between">
-        <div className="flex items-center gap-2 px-2">
-          <span className={server.running ? 'pulse-dot-green' : 'pulse-dot-gray'} />
-          <span className="text-[12px] text-fog">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={server.running}
+          aria-label={server.running ? t('sidebar.running') : t('sidebar.stopped')}
+          className="flex items-center gap-2 px-2 py-0.5 outline-none focus-visible:ring-1 focus-visible:ring-accent/40"
+          onClick={() => {
+            if (server.running) {
+              window.api.gateway.stop().then(refresh)
+            } else {
+              window.api.gateway.start().then(refresh)
+            }
+          }}
+        >
+          <div
+            className={`relative w-7 h-4 rounded-full transition-colors duration-200 ${server.running ? 'bg-emerald' : 'bg-charcoal border border-ash/60'}`}
+          >
+            <div
+              className={`absolute top-0.5 w-3 h-3 rounded-full transition-[left,background-color] duration-200 shadow-sm ${server.running ? 'left-3.5 bg-white' : 'left-0.5 bg-fog'}`}
+            />
+          </div>
+          <span
+            className={`text-[12px] font-medium ${server.running ? 'text-emerald' : 'text-fog'}`}
+          >
             {server.running ? t('sidebar.running') : t('sidebar.stopped')}
           </span>
-        </div>
-        <div className="flex items-center gap-1">
+        </button>
+        <div className="flex items-center gap-0.5">
           <TooltipWrapper content={t('sidebar.toggleLang')}>
-            <Button variant="ghost" size="xs" onClick={toggleLang} aria-label="Toggle language">
-              {i18n.language === 'zh' ? 'EN' : '中'}
+            <Button
+              variant="ghost"
+              size="xs"
+              iconOnly
+              onClick={toggleLang}
+              aria-label="Toggle language"
+            >
+              <span
+                className="i-ph-translate text-[14px] text-storm hover:text-porcelain"
+                aria-hidden="true"
+              />
             </Button>
           </TooltipWrapper>
           <TooltipWrapper content={t('sidebar.toggleTheme')}>
             <Button variant="ghost" size="xs" iconOnly onClick={toggle} aria-label="Toggle theme">
-              {theme === 'dark' ? '☀' : '●'}
+              {theme === 'dark' ? (
+                <span
+                  className="i-ph-sun-dim text-[14px] text-storm hover:text-porcelain"
+                  aria-hidden="true"
+                />
+              ) : (
+                <span
+                  className="i-ph-moon-stars text-[14px] text-storm hover:text-porcelain"
+                  aria-hidden="true"
+                />
+              )}
             </Button>
           </TooltipWrapper>
         </div>
@@ -137,10 +203,12 @@ export default function Sidebar(): React.JSX.Element {
 
 function GatewayNavItem({
   name,
+  displayName,
   providerType,
   status
 }: {
   name: string
+  displayName?: string
   providerType: string
   status: string
 }): React.JSX.Element {
@@ -151,19 +219,32 @@ function GatewayNavItem({
         ? 'pulse-dot-red'
         : 'pulse-dot-gray'
   const logo = GATEWAY_LOGOS[providerType]
+  const label = displayName || providerType
 
   return (
     <NavLink
       to={`/gateway/${name}`}
       className={({ isActive }) => (isActive ? 'sidebar-item-active' : 'sidebar-item')}
     >
-      {logo ? (
-        <img src={logo} alt={name} className="w-4 h-4 rounded-[2px] object-contain" />
-      ) : (
-        <span className={dotClass} />
+      <div className="w-4 h-4 flex items-center justify-center shrink-0">
+        {logo ? (
+          <img
+            src={logo}
+            alt={label}
+            width="14"
+            height="14"
+            className="w-3.5 h-3.5 rounded-[2.5px] object-contain"
+          />
+        ) : (
+          <span className={`${dotClass} !w-1.5 !h-1.5`} aria-hidden="true" />
+        )}
+      </div>
+      <span className="capitalize ml-0.5">{label}</span>
+      {logo && (
+        <div className="ml-auto w-4 h-4 flex items-center justify-center shrink-0">
+          <span className={`${dotClass} !w-1.5 !h-1.5`} aria-hidden="true" />
+        </div>
       )}
-      <span className="capitalize">{name}</span>
-      {logo && <span className={`ml-auto ${dotClass}`} />}
     </NavLink>
   )
 }

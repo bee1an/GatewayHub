@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Local multi-provider AI gateway hub with Kiro account pool",
   "main": "./out/main/index.js",
+  "bin": {
+    "gatewayhub": "./out/main/cli.js"
+  },
   "author": "GatewayHub",
   "homepage": "https://github.com/jwadow/kiro-gateway",
   "scripts": {
@@ -13,8 +16,10 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
+    "cli": "node out/main/cli.js",
+    "test": "vitest run",
     "build": "npm run typecheck && electron-vite build",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "electron-builder install-app-deps && simple-git-hooks",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
@@ -30,16 +35,21 @@
     "@radix-ui/react-toggle-group": "^1.1.11",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tanstack/react-virtual": "^3.13.24",
+    "cac": "^7.0.0",
     "electron-updater": "^6.8.3",
     "i18next": "^26.2.0",
+    "picocolors": "^1.1.1",
+    "proper-lockfile": "^4.1.2",
     "react-i18next": "^17.0.8"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.1.0",
     "@electron-toolkit/tsconfig": "^2.0.0",
+    "@iconify-json/ph": "^1.2.2",
     "@iconify-json/svg-spinners": "^1.2.4",
     "@types/node": "^25.8.0",
+    "@types/proper-lockfile": "^4.1.4",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@typescript/native-preview": "7.0.0-dev.20260515.1",
@@ -56,8 +66,13 @@
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-router-dom": "^7.15.1",
+    "simple-git-hooks": "^2.13.1",
     "unocss": "^66.6.8",
-    "vite": "^8.0.13"
+    "vite": "^8.0.13",
+    "vitest": "^4.1.7"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "pnpm run typecheck && pnpm run lint"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

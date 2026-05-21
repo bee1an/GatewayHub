@@ -49,5 +49,3 @@ publish:
   provider: github
   owner: bee1an
   repo: GatewayHub
-electronDownload:
-  mirror: https://npmmirror.com/mirrors/electron/

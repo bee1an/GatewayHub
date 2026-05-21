@@ -11,6 +11,13 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 asarUnpack:
   - resources/**
+extraResources:
+  - from: out/main/cli.js
+    to: cli/gatewayhub.js
+  - from: out/main/chunks/**
+    to: cli/chunks/
+  - from: build/cli-launcher.sh
+    to: cli/gatewayhub
 win:
   executableName: GatewayHub
 nsis:

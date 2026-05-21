@@ -4,7 +4,21 @@ import react from '@vitejs/plugin-react'
 import UnoCSS from 'unocss/vite'
 
 export default defineConfig({
-  main: {},
+  main: {
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve('src/main/index.ts'),
+          cli: resolve('src/cli/index.ts')
+        },
+        output: {
+          format: 'cjs',
+          entryFileNames: '[name].js',
+          banner: (chunk) => (chunk.name === 'cli' ? '#!/usr/bin/env node' : '')
+        }
+      }
+    }
+  },
   preload: {},
   renderer: {
     resolve: {

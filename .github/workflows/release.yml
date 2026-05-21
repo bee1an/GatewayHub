@@ -16,6 +16,8 @@ permissions:
 
 env:
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+  ELECTRON_MIRROR: ''
+  ELECTRON_BUILDER_BINARIES_MIRROR: ''
 
 jobs:
   validate:

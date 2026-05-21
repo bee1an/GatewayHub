@@ -1,17 +1,23 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http'
-import type { GatewayHubConfig, GatewayResponse } from './types'
+import type { ApiKeyEntry, GatewayHubConfig, GatewayResponse } from './types'
 import { GatewayLogger } from './core/logger'
 import { parseRequestBody, requestId, toErrorMessage } from './core/utils'
+import { wrapStreamForTracing, type RequestTrace } from './core/requestTracer'
 import { ProviderRegistry } from './providerRegistry'
 
 export class GatewayServer {
   private server?: Server
+  onApiKeyUsed?: (id: string) => void
 
   constructor(
-    private readonly config: GatewayHubConfig,
+    private config: GatewayHubConfig,
     private readonly registry: ProviderRegistry,
     private readonly logger: GatewayLogger
   ) {}
+
+  updateConfig(config: GatewayHubConfig): void {
+    this.config = config
+  }
 
   get running(): boolean {
     return Boolean(this.server?.listening)
@@ -32,7 +38,7 @@ export class GatewayServer {
         resolve()
       })
     })
-    this.logger.info(`Gateway server listening on ${this.url}`)
+    this.logger.info(`Gateway server listening on ${this.url}`, { category: 'system' })
   }
 
   async stop(): Promise<void> {
@@ -42,7 +48,7 @@ export class GatewayServer {
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve()))
     )
-    this.logger.info('Gateway server stopped')
+    this.logger.info('Gateway server stopped', { category: 'system' })
   }
 
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -55,6 +61,8 @@ export class GatewayServer {
 
     const url = new URL(req.url || '/', this.url)
     const rid = requestId()
+    const startedAt = Date.now()
+
     try {
       if (req.method === 'GET' && url.pathname === '/health') {
         return this.writeJson(res, 200, {
@@ -70,66 +78,193 @@ export class GatewayServer {
       }
 
       if (!this.verifyApiKey(req)) {
+        this.logger.warn('Authentication failed: invalid or missing API key', {
+          requestId: rid,
+          category: 'auth',
+          statusCode: 401
+        })
         return this.writeJson(res, 401, {
           error: { message: 'Invalid or missing API key', type: 'authentication_error' }
         })
       }
 
+      const apiKeyEntry = this.verifyApiKey(req)!
+      if (apiKeyEntry.id) this.onApiKeyUsed?.(apiKeyEntry.id)
+
       if (req.method === 'GET' && url.pathname === '/v1/models') {
         const models = await this.registry.listModels()
+        this.logger.info(`${req.method} ${url.pathname}`, {
+          requestId: rid,
+          category: 'request',
+          statusCode: 200,
+          duration: Date.now() - startedAt
+        })
         return this.writeJson(res, 200, {
           object: 'list',
           data: models.map((model) => ({
             id: model.id,
             object: 'model',
             created: 0,
-            owned_by: model.ownedBy || model.provider,
-            description: model.description
+            owned_by: 'gatewayhub'
           }))
         })
       }
 
       if (req.method === 'POST' && url.pathname === '/v1/chat/completions') {
         const body = await parseRequestBody(req)
-        return this.writeGatewayResponse(
-          res,
-          await this.registry.chatCompletions(body, { requestId: rid, apiFormat: 'openai' })
-        )
+        if (!this.checkScope(apiKeyEntry, body.model, res, rid)) return
+        this.logger.info(`POST /v1/chat/completions model=${body.model || 'default'}`, {
+          requestId: rid,
+          category: 'request',
+          extra: { apiFormat: 'openai', stream: body.stream !== false }
+        })
+        const response = await this.registry.chatCompletions(body, {
+          requestId: rid,
+          apiFormat: 'openai'
+        })
+        return this.writeTracedResponse(res, response, {
+          requestId: rid,
+          method: 'POST',
+          path: url.pathname,
+          model: body.model,
+          startedAt,
+          streaming: Boolean(response.stream)
+        })
       }
 
       if (req.method === 'POST' && url.pathname === '/v1/messages') {
         const body = await parseRequestBody(req)
-        return this.writeGatewayResponse(
-          res,
-          await this.registry.messages(body, { requestId: rid, apiFormat: 'anthropic' })
-        )
+        if (!this.checkScope(apiKeyEntry, body.model, res, rid)) return
+        this.logger.info(`POST /v1/messages model=${body.model || 'default'}`, {
+          requestId: rid,
+          category: 'request',
+          extra: { apiFormat: 'anthropic', stream: body.stream === true }
+        })
+        const response = await this.registry.messages(body, {
+          requestId: rid,
+          apiFormat: 'anthropic'
+        })
+        return this.writeTracedResponse(res, response, {
+          requestId: rid,
+          method: 'POST',
+          path: url.pathname,
+          model: body.model,
+          startedAt,
+          streaming: Boolean(response.stream)
+        })
       }
 
       if (req.method === 'POST' && url.pathname === '/v1/messages/count_tokens') {
         const body = await parseRequestBody(req)
-        return this.writeGatewayResponse(
-          res,
-          await this.registry.countTokens(body, { requestId: rid, apiFormat: 'anthropic' })
-        )
+        if (!this.checkScope(apiKeyEntry, body.model, res, rid)) return
+        const response = await this.registry.countTokens(body, {
+          requestId: rid,
+          apiFormat: 'anthropic'
+        })
+        this.logger.info(`POST /v1/messages/count_tokens model=${body.model || 'default'}`, {
+          requestId: rid,
+          category: 'request',
+          statusCode: response.status,
+          duration: Date.now() - startedAt
+        })
+        return this.writeGatewayResponse(res, response)
       }
 
       return this.writeJson(res, 404, {
         error: { message: `Not found: ${url.pathname}`, type: 'not_found' }
       })
     } catch (error) {
-      this.logger.error(`HTTP request failed: ${toErrorMessage(error)}`)
+      const duration = Date.now() - startedAt
+      this.logger.error(`HTTP request failed: ${toErrorMessage(error)}`, {
+        requestId: rid,
+        category: 'request',
+        statusCode: 500,
+        duration,
+        error: {
+          stack: error instanceof Error ? error.stack : undefined
+        }
+      })
       return this.writeJson(res, 500, {
         error: { message: toErrorMessage(error), type: 'gateway_error' }
       })
     }
   }
 
-  private verifyApiKey(req: IncomingMessage): boolean {
-    const expected = this.config.server.apiKey
-    if (!expected) return true
+  private verifyApiKey(req: IncomingMessage): ApiKeyEntry | null {
+    const entries = this.config.server.apiKeys
     const auth = req.headers.authorization
-    const xApiKey = req.headers['x-api-key']
-    return auth === `Bearer ${expected}` || xApiKey === expected
+    const xApiKey = req.headers['x-api-key'] as string | undefined
+    const token = auth?.startsWith('Bearer ') ? auth.slice(7) : undefined
+    const provided = token || xApiKey || ''
+    if (!entries?.length) return provided ? null : null
+    const entry = entries.find((e) => e.key === provided)
+    if (!entry) return null
+    if (entry.expiresAt && Date.now() > entry.expiresAt) return null
+    return entry
+  }
+
+  private checkScope(
+    entry: ApiKeyEntry,
+    model: string | undefined,
+    res: ServerResponse,
+    rid: string
+  ): boolean {
+    if (!entry.scopes?.length) return true
+    const raw = model || ''
+    const slash = raw.indexOf('/')
+    const provider = slash > 0 ? raw.slice(0, slash) : ''
+    if (!provider || entry.scopes.includes(provider)) return true
+    this.logger.warn(`API key "${entry.name}" denied access to provider "${provider}"`, {
+      requestId: rid,
+      category: 'auth',
+      statusCode: 403
+    })
+    this.writeJson(res, 403, {
+      error: {
+        message: `API key "${entry.name}" does not have access to provider "${provider}"`,
+        type: 'permission_error'
+      }
+    })
+    return false
+  }
+
+  private async writeTracedResponse(
+    res: ServerResponse,
+    response: GatewayResponse,
+    trace: RequestTrace
+  ): Promise<void> {
+    trace.statusCode = response.status
+    const headers = response.headers ?? { 'content-type': 'application/json; charset=utf-8' }
+    res.writeHead(response.status, headers)
+
+    if (response.stream) {
+      const tracedStream = wrapStreamForTracing(response.stream, trace, (t) => {
+        this.logger.info(`${t.method} ${t.path} completed`, {
+          requestId: t.requestId,
+          category: 'request',
+          statusCode: t.statusCode,
+          duration: t.duration,
+          streaming: true,
+          timeToFirstToken: t.timeToFirstToken,
+          chunkCount: t.chunkCount
+        })
+      })
+      for await (const chunk of tracedStream) res.write(chunk)
+      res.end()
+      return
+    }
+
+    trace.duration = Date.now() - trace.startedAt
+    this.logger.info(`${trace.method} ${trace.path} completed`, {
+      requestId: trace.requestId,
+      category: 'request',
+      statusCode: trace.statusCode,
+      duration: trace.duration,
+      streaming: false
+    })
+
+    if (response.body === undefined) res.end()
+    else res.end(typeof response.body === 'string' ? response.body : JSON.stringify(response.body))
   }
 
   private async writeGatewayResponse(

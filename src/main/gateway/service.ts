@@ -1,17 +1,22 @@
 import type {
   AccountStatus,
   AccountTestResult,
+  ApiKeyEntry,
   GatewayHubConfig,
   GatewayHubState,
+  GatewayLogEntry,
   GatewayStatusSnapshot,
   KiroAccountConfig,
+  LogCategory,
+  ModelMapping,
   ProviderStatus
 } from './types'
-import { GatewayConfigStore } from './configStore'
+import { GatewayConfigStore, sanitizeModelMappings } from './configStore'
 import { GatewayLogger } from './core/logger'
+import { DEFAULT_LOG_WRITER_CONFIG } from './core/logWriter'
 import { ProviderRegistry } from './providerRegistry'
 import { GatewayServer } from './server'
-import { sha256Short, toErrorMessage } from './core/utils'
+import { sha256Short, toErrorMessage, generateApiKeyString } from './core/utils'
 import {
   normalizeImportedAccount,
   resolveRefreshTokenAccount,
@@ -27,12 +32,17 @@ import {
 
 export class GatewayHubService {
   private readonly store = new GatewayConfigStore()
-  private readonly logger = new GatewayLogger()
+  private readonly logger = new GatewayLogger({
+    maxEntries: 1000,
+    writer: { logDir: '', ...DEFAULT_LOG_WRITER_CONFIG }
+  })
   private config?: GatewayHubConfig
   private state?: GatewayHubState
   private registry?: ProviderRegistry
   private server?: GatewayServer
   private saveTimer?: NodeJS.Timeout
+  private lastUsedMap = new Map<string, number>()
+  private lastUsedFlushTimer?: NodeJS.Timeout
 
   get configPath(): string {
     return this.store.configPath
@@ -42,11 +52,16 @@ export class GatewayHubService {
     return this.store.statePath
   }
 
-  async initialize(): Promise<void> {
+  async initialize(options?: { skipAutoStart?: boolean }): Promise<void> {
     await this.store.migrateIfNeeded()
     this.config = await this.store.loadConfig()
     this.state = await this.store.loadState()
     this.logger.replace(this.state.providers.kiro.logs ?? [])
+
+    // Initialize log writer with resolved path
+    ;(this.logger as any).config.writer.logDir = this.store.logsDir()
+    await this.logger.initialize()
+    this.logger.info('GatewayHub service initialized', { category: 'system' })
 
     setOnAccountImported(async (account) => {
       await this.ensureReady()
@@ -75,7 +90,7 @@ export class GatewayHubService {
       await this.rebuildRuntime(false)
     }
 
-    if (this.config.server.autoStart) await this.start()
+    if (this.config.server.autoStart && !options?.skipAutoStart) await this.start()
   }
 
   async start(): Promise<GatewayStatusSnapshot> {
@@ -92,13 +107,17 @@ export class GatewayHubService {
   async getStatus(): Promise<GatewayStatusSnapshot> {
     await this.ensureReady()
     const providers = (await this.registry!.statuses()) as ProviderStatus[]
+    const apiKeys = this.config!.server.apiKeys.map((entry) => ({
+      ...entry,
+      lastUsedAt: this.lastUsedMap.get(entry.id) ?? entry.lastUsedAt
+    }))
     return {
       server: {
         running: this.server!.running,
         url: this.server!.url,
         host: this.config!.server.host,
         port: this.config!.server.port,
-        apiKey: this.config!.server.apiKey
+        apiKeys
       },
       configPath: this.store.configPath,
       statePath: this.store.statePath,
@@ -181,7 +200,11 @@ export class GatewayHubService {
 
   async getAccountInfo(accountId: string) {
     await this.ensureReady()
-    return this.registry!.getAccountInfo('kiro', accountId)
+    const info = await this.registry!.getAccountInfo('kiro', accountId)
+    if (info.email) {
+      this.store.updateAccountFile(accountId, { email: info.email }).catch(() => {})
+    }
+    return info
   }
 
   async resetKiroAccount(accountId: string): Promise<GatewayStatusSnapshot> {
@@ -211,17 +234,33 @@ export class GatewayHubService {
   }
 
   async updateKiroRouteName(routeName: string): Promise<GatewayStatusSnapshot> {
+    return this.updateProviderRouteName('kiro', routeName)
+  }
+
+  async updateProviderRouteName(
+    providerType: string,
+    routeName: string
+  ): Promise<GatewayStatusSnapshot> {
     await this.ensureReady()
     const name = routeName
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9_-]/g, '')
     if (!name) throw new Error('Invalid route name')
-    const reserved = new Set(['codex', 'gemini', 'v1', 'health', 'api'])
+    const reserved = new Set(['v1', 'health', 'api'])
     if (reserved.has(name)) throw new Error(`Route name "${name}" is reserved`)
-    const currentRouteName = this.config!.providers.kiro.routeName || 'kiro'
+    const providers = this.config!.providers as Record<string, { routeName?: string } | undefined>
+    const target = providers[providerType]
+    if (!target) throw new Error(`Unknown provider: ${providerType}`)
+    for (const [key, cfg] of Object.entries(providers)) {
+      if (key === providerType) continue
+      if ((cfg?.routeName || key) === name) {
+        throw new Error(`Route name "${name}" is already used by provider "${key}"`)
+      }
+    }
+    const currentRouteName = target.routeName || providerType
     if (name !== currentRouteName) {
-      this.config!.providers.kiro.routeName = name
+      target.routeName = name
       await this.store.saveConfig(this.config!)
       await this.rebuildRuntime(this.server?.running ?? false)
     }
@@ -231,6 +270,160 @@ export class GatewayHubService {
   async getKiroSettings() {
     await this.ensureReady()
     return this.config!.providers.kiro.settings
+  }
+
+  async setAutoStart(enabled: boolean): Promise<void> {
+    await this.ensureReady()
+    this.config!.server.autoStart = enabled
+    await this.store.saveConfig(this.config!)
+  }
+
+  async getAutoStart(): Promise<boolean> {
+    await this.ensureReady()
+    return this.config!.server.autoStart ?? false
+  }
+
+  async clearLogs(): Promise<void> {
+    this.logger.replace([])
+    if (this.state) {
+      this.state.providers.kiro.logs = []
+      await this.store.saveState(this.state)
+    }
+  }
+
+  async getLogs(options?: {
+    category?: LogCategory
+    requestId?: string
+    level?: string
+    limit?: number
+  }): Promise<GatewayLogEntry[]> {
+    return this.logger.getLogs(options)
+  }
+
+  async exportLogs(format: 'json' | 'ndjson'): Promise<string> {
+    return this.logger.exportLogs(format)
+  }
+
+  async shutdown(): Promise<void> {
+    if (this.server?.running) await this.server.stop()
+    await this.logger.shutdown()
+  }
+
+  async generateNewApiKey(options: {
+    name: string
+    expiresAt?: number
+    scopes?: string[]
+  }): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const entry: ApiKeyEntry = {
+      id: `key_${sha256Short(String(Date.now()) + Math.random(), 12)}`,
+      key: generateApiKeyString(),
+      name: options.name || 'Untitled',
+      createdAt: Date.now(),
+      expiresAt: options.expiresAt,
+      scopes: options.scopes?.length ? options.scopes : undefined
+    }
+    this.config!.server.apiKeys.push(entry)
+    await this.store.saveConfig(this.config!)
+    if (this.server) this.server.updateConfig(this.config!)
+    return this.getStatus()
+  }
+
+  async revokeApiKey(id: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const keys = this.config!.server.apiKeys
+    const idx = keys.findIndex((e) => e.id === id)
+    if (idx === -1) throw new Error('API key not found')
+    keys.splice(idx, 1)
+    this.lastUsedMap.delete(id)
+    await this.store.saveConfig(this.config!)
+    if (this.server) this.server.updateConfig(this.config!)
+    return this.getStatus()
+  }
+
+  async updateApiKey(
+    id: string,
+    updates: { name?: string; expiresAt?: number | null; scopes?: string[] | null }
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const entry = this.config!.server.apiKeys.find((e) => e.id === id)
+    if (!entry) throw new Error('API key not found')
+    if (updates.name !== undefined) entry.name = updates.name
+    if (updates.expiresAt === null) delete entry.expiresAt
+    else if (updates.expiresAt !== undefined) entry.expiresAt = updates.expiresAt
+    if (updates.scopes === null) delete entry.scopes
+    else if (updates.scopes !== undefined)
+      entry.scopes = updates.scopes.length ? updates.scopes : undefined
+    await this.store.saveConfig(this.config!)
+    if (this.server) this.server.updateConfig(this.config!)
+    return this.getStatus()
+  }
+
+  private touchApiKeyUsage(id: string): void {
+    this.lastUsedMap.set(id, Date.now())
+    if (!this.lastUsedFlushTimer) {
+      this.lastUsedFlushTimer = setTimeout(() => this.flushLastUsed(), 60_000)
+    }
+  }
+
+  private async flushLastUsed(): Promise<void> {
+    this.lastUsedFlushTimer = undefined
+    if (!this.config) return
+    let changed = false
+    for (const entry of this.config.server.apiKeys) {
+      const ts = this.lastUsedMap.get(entry.id)
+      if (ts && ts !== entry.lastUsedAt) {
+        entry.lastUsedAt = ts
+        changed = true
+      }
+    }
+    if (changed) await this.store.saveConfig(this.config)
+  }
+
+  async updateProviderDisplayName(
+    providerType: string,
+    displayName: string
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const providers = this.config!.providers as Record<string, { displayName?: string } | undefined>
+    const target = providers[providerType]
+    if (!target) throw new Error(`Unknown provider: ${providerType}`)
+    target.displayName = displayName.trim() || undefined
+    await this.store.saveConfig(this.config!)
+    return this.getStatus()
+  }
+
+  async getModelMappings(): Promise<ModelMapping[]> {
+    await this.ensureReady()
+    return this.config!.modelMappings
+  }
+
+  async updateModelMappings(mappings: ModelMapping[]): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const sanitized = sanitizeModelMappings(mappings)
+    if (Array.isArray(mappings) && sanitized.length !== mappings.length) {
+      throw new Error(
+        'Some mappings were rejected: alias must be non-empty, contain no whitespace or "/", and be unique'
+      )
+    }
+    const validProviders = new Set<string>()
+    for (const [key, cfg] of Object.entries(this.config!.providers) as Array<
+      [string, { routeName?: string } | undefined]
+    >) {
+      validProviders.add(key)
+      if (cfg?.routeName) validProviders.add(cfg.routeName)
+    }
+    for (const mapping of sanitized) {
+      if (!validProviders.has(mapping.provider)) {
+        throw new Error(
+          `Mapping "${mapping.alias}" references unknown provider "${mapping.provider}"`
+        )
+      }
+    }
+    this.config!.modelMappings = sanitized
+    await this.store.saveConfig(this.config!)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
   }
 
   async addKiroRefreshToken(text: string): Promise<GatewayStatusSnapshot> {
@@ -346,6 +539,7 @@ export class GatewayHubService {
     )
     await this.registry.initialize(accountFiles)
     this.server = new GatewayServer(this.config!, this.registry, this.logger)
+    this.server.onApiKeyUsed = (id) => this.touchApiKeyUsage(id)
     if (restartServer) await this.server.start()
   }
 

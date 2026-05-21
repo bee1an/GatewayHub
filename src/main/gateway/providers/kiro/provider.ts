@@ -12,10 +12,14 @@ import type {
   ProviderStatus
 } from '../../types'
 import { GatewayLogger } from '../../core/logger'
-import { estimateTokens, jsonResponse, sseData, sleep, toErrorMessage } from '../../core/utils'
+import { jsonResponse, sseData, sleep, toErrorMessage } from '../../core/utils'
 import { kiroFetch } from './auth'
 import { KiroAccountPool, KiroAccountRuntime, toKiroModelId } from './accountPool'
-import { buildKiroPayloadFromAnthropic, buildKiroPayloadFromOpenAI } from './converters'
+import {
+  anthropicInputTokens,
+  buildKiroPayloadFromAnthropic,
+  buildKiroPayloadFromOpenAI
+} from './converters'
 import type { AccountInfo } from './types'
 import {
   FirstTokenTimeoutError,
@@ -25,6 +29,12 @@ import {
   openAiSseFromKiro
 } from './streaming'
 
+const UPSTREAM_META = { category: 'upstream' as const, provider: 'kiro' as const }
+
+function accountLabel(account: KiroAccountRuntime): string {
+  return account.config.email || account.config.label || account.config.id
+}
+
 export class KiroProvider implements ProviderAdapter {
   readonly name = 'kiro'
   private readonly pool: KiroAccountPool
@@ -32,7 +42,7 @@ export class KiroProvider implements ProviderAdapter {
   constructor(
     private readonly config: KiroProviderConfig,
     state: KiroProviderState,
-    logger: GatewayLogger,
+    private readonly logger: GatewayLogger,
     onStateChanged: () => void
   ) {
     this.pool = new KiroAccountPool(config, state, logger, onStateChanged)
@@ -51,8 +61,8 @@ export class KiroProvider implements ProviderAdapter {
     }))
   }
 
-  async chatCompletions(body: any, _context: GatewayRequestContext): Promise<GatewayResponse> {
-    const model = body.model || 'claude-sonnet-4.5'
+  async chatCompletions(body: any, context: GatewayRequestContext): Promise<GatewayResponse> {
+    const model = body.model || 'claude-sonnet-4-5'
     const kiroModel = toKiroModelId(model)
     const stream = body.stream !== false
 
@@ -60,16 +70,22 @@ export class KiroProvider implements ProviderAdapter {
       return {
         status: 200,
         headers: sseHeaders(),
-        stream: this.streamWithFailover('openai', model, kiroModel, body)
+        stream: this.streamWithFailover('openai', model, kiroModel, body, context.requestId)
       }
     }
 
-    const result = await this.nonStreamWithFailover('openai', model, kiroModel, body)
+    const result = await this.nonStreamWithFailover(
+      'openai',
+      model,
+      kiroModel,
+      body,
+      context.requestId
+    )
     return jsonResponse(200, result)
   }
 
-  async messages(body: any, _context: GatewayRequestContext): Promise<GatewayResponse> {
-    const model = body.model || 'claude-sonnet-4.5'
+  async messages(body: any, context: GatewayRequestContext): Promise<GatewayResponse> {
+    const model = body.model || 'claude-sonnet-4-5'
     const kiroModel = toKiroModelId(model)
     const stream = body.stream === true
 
@@ -77,22 +93,22 @@ export class KiroProvider implements ProviderAdapter {
       return {
         status: 200,
         headers: sseHeaders(),
-        stream: this.streamWithFailover('anthropic', model, kiroModel, body)
+        stream: this.streamWithFailover('anthropic', model, kiroModel, body, context.requestId)
       }
     }
 
-    const result = await this.nonStreamWithFailover('anthropic', model, kiroModel, body)
+    const result = await this.nonStreamWithFailover(
+      'anthropic',
+      model,
+      kiroModel,
+      body,
+      context.requestId
+    )
     return jsonResponse(200, result)
   }
 
   async countTokens(body: any): Promise<GatewayResponse> {
-    return jsonResponse(200, {
-      input_tokens: estimateTokens({
-        messages: body.messages,
-        system: body.system,
-        tools: body.tools
-      })
-    })
+    return jsonResponse(200, { input_tokens: anthropicInputTokens(body) })
   }
 
   async testAccount(accountId: string): Promise<AccountTestResult> {
@@ -147,13 +163,21 @@ export class KiroProvider implements ProviderAdapter {
     format: 'openai' | 'anthropic',
     model: string,
     kiroModel: string,
-    body: any
+    body: any,
+    rid: string
   ): Promise<any> {
     const excluded = new Set<string>()
     let lastError: unknown
-    for (let attempt = 0; attempt < Math.max(1, this.pool.listAccounts().length); attempt++) {
+    const totalAccounts = this.pool.listAccounts().length
+    for (let attempt = 0; attempt < Math.max(1, totalAccounts); attempt++) {
       const account = await this.pool.getAccountForModel(kiroModel, excluded)
       if (!account) break
+      const attemptStart = Date.now()
+      this.logger.debug(`Upstream attempt ${attempt + 1}/${totalAccounts}`, {
+        ...UPSTREAM_META,
+        requestId: rid,
+        accountId: accountLabel(account)
+      })
       try {
         const payload = this.buildPayload(format, body, model, account)
         const response = await this.callKiro(account, payload)
@@ -169,16 +193,38 @@ export class KiroProvider implements ProviderAdapter {
             : await anthropicJsonFromKiro(
                 response.body,
                 model,
+                body,
                 this.config.settings.firstTokenTimeoutSeconds
               )
         await this.pool.reportSuccess(account)
+        this.logger.info(`Upstream success`, {
+          ...UPSTREAM_META,
+          requestId: rid,
+          accountId: accountLabel(account),
+          duration: Date.now() - attemptStart
+        })
         return result
       } catch (error) {
         lastError = error
-        await this.pool.reportFailure(account, error, classifyKiroError(error))
+        const errMsg = toErrorMessage(error)
+        const classified = classifyKiroError(error)
+        await this.pool.reportFailure(account, error, classified)
         excluded.add(account.config.id)
+        this.logger.warn(`Upstream failed: ${errMsg}`, {
+          ...UPSTREAM_META,
+          requestId: rid,
+          accountId: accountLabel(account),
+          duration: Date.now() - attemptStart,
+          error: { upstreamBody: errMsg.slice(0, 500) },
+          extra: { kind: classified.kind, attempt: attempt + 1 }
+        })
       }
     }
+    this.logger.error(`All upstream attempts exhausted for model=${kiroModel}`, {
+      ...UPSTREAM_META,
+      requestId: rid,
+      extra: { totalAttempts: totalAccounts }
+    })
     throw new Error(`Kiro request failed: ${toErrorMessage(lastError ?? 'No available accounts')}`)
   }
 
@@ -186,13 +232,21 @@ export class KiroProvider implements ProviderAdapter {
     format: 'openai' | 'anthropic',
     model: string,
     kiroModel: string,
-    body: any
+    body: any,
+    rid: string
   ): AsyncGenerator<string> {
     const excluded = new Set<string>()
     let lastError: unknown
-    for (let attempt = 0; attempt < Math.max(1, this.pool.listAccounts().length); attempt++) {
+    const totalAccounts = this.pool.listAccounts().length
+    for (let attempt = 0; attempt < Math.max(1, totalAccounts); attempt++) {
       const account = await this.pool.getAccountForModel(kiroModel, excluded)
       if (!account) break
+      const attemptStart = Date.now()
+      this.logger.debug(`Upstream stream attempt ${attempt + 1}/${totalAccounts}`, {
+        ...UPSTREAM_META,
+        requestId: rid,
+        accountId: accountLabel(account)
+      })
       try {
         const payload = this.buildPayload(format, body, model, account)
         const response = await this.callKiro(account, payload)
@@ -208,17 +262,40 @@ export class KiroProvider implements ProviderAdapter {
           yield* anthropicSseFromKiro(
             response.body,
             model,
+            body,
             this.config.settings.firstTokenTimeoutSeconds
           )
         await this.pool.reportSuccess(account)
+        this.logger.info(`Upstream stream success`, {
+          ...UPSTREAM_META,
+          requestId: rid,
+          accountId: accountLabel(account),
+          duration: Date.now() - attemptStart
+        })
         return
       } catch (error) {
         lastError = error
-        await this.pool.reportFailure(account, error, classifyKiroError(error))
+        const errMsg = toErrorMessage(error)
+        const classified = classifyKiroError(error)
+        await this.pool.reportFailure(account, error, classified)
         excluded.add(account.config.id)
+        this.logger.warn(`Upstream stream failed: ${errMsg}`, {
+          ...UPSTREAM_META,
+          requestId: rid,
+          accountId: accountLabel(account),
+          duration: Date.now() - attemptStart,
+          error: { upstreamBody: errMsg.slice(0, 500) },
+          extra: { kind: classified.kind, attempt: attempt + 1 }
+        })
         if (!(error instanceof FirstTokenTimeoutError)) break
       }
     }
+
+    this.logger.error(`All upstream stream attempts exhausted for model=${kiroModel}`, {
+      ...UPSTREAM_META,
+      requestId: rid,
+      extra: { totalAttempts: totalAccounts }
+    })
 
     const message = `Kiro stream failed: ${toErrorMessage(lastError ?? 'No available accounts')}`
     if (format === 'openai') {

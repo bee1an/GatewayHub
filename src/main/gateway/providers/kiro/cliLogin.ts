@@ -11,10 +11,11 @@ import {
 import { stat } from 'fs/promises'
 import { join } from 'path'
 import { homedir, tmpdir } from 'os'
-import { BrowserWindow } from 'electron'
-import { SQLITE_TOKEN_KEYS, SQLITE_REGISTRATION_KEYS } from './constants'
+import { SQLITE_TOKEN_KEYS, SQLITE_REGISTRATION_KEYS, DEFAULT_KIRO_SETTINGS } from './constants'
 import type { KiroAccountConfig } from '../../types'
 import { sha256Short } from '../../core/utils'
+import { KiroAuthManager } from './auth'
+import { emitCliLoginEvent, type CliLoginOutputEvent } from '../../events/cliLoginEvents'
 
 export interface CliDetectResult {
   found: boolean
@@ -53,10 +54,7 @@ interface MacosKeychainState {
   previousSearchList: string[]
 }
 
-type CliLoginOutputEvent =
-  | { type: 'stdout' | 'stderr'; text: string }
-  | { type: 'exit'; code: number | null; imported?: boolean; error?: string }
-  | { type: 'error'; message: string }
+type CliLoginOutputEventLocal = CliLoginOutputEvent
 
 const dynamicImport = new Function('specifier', 'return import(specifier)') as (
   specifier: string
@@ -161,9 +159,8 @@ export function loginWithKiroCli(options?: { cliPath?: string }): void {
   }
   activeSession = session
 
-  const send = (data: CliLoginOutputEvent): void => {
-    const win = BrowserWindow.getAllWindows()[0]
-    if (win) win.webContents.send('gateway:cliLoginOutput', data)
+  const send = (data: CliLoginOutputEventLocal): void => {
+    emitCliLoginEvent(data)
   }
 
   child.stdout?.on('data', (chunk: Buffer) => {
@@ -316,6 +313,12 @@ async function extractAccountFromProfile(profileDir: string): Promise<CliLoginRe
           region: region || 'us-east-1'
         }
 
+        const email = await resolveEmailFromAccount(account)
+        if (email) {
+          account.email = email
+          account.label = email
+        }
+
         return { success: true, account }
       } finally {
         db.close()
@@ -330,6 +333,25 @@ async function extractAccountFromProfile(profileDir: string): Promise<CliLoginRe
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+async function resolveEmailFromAccount(account: KiroAccountConfig): Promise<string | undefined> {
+  try {
+    const auth = new KiroAuthManager(account, DEFAULT_KIRO_SETTINGS)
+    await auth.initialize()
+    await auth.ensureProfileArn()
+    if (!auth.profileArn) return undefined
+    const usage = await auth.apiGet('/getUsageLimits', {
+      profileArn: auth.profileArn,
+      origin: 'AI_EDITOR',
+      resourceType: 'AGENTIC_REQUEST',
+      isEmailRequired: 'true'
+    })
+    const email = usage?.userInfo?.email
+    return typeof email === 'string' && email.includes('@') ? email.trim().toLowerCase() : undefined
+  } catch {
+    return undefined
+  }
 }
 
 function setupTemporaryMacosKeychain(profileDir: string): MacosKeychainState | undefined {

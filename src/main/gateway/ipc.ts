@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron'
 import { gatewayHubService } from './service'
-import type { AccountStatus } from './types'
+import type { AccountStatus, LogCategory, ModelMapping } from './types'
 
 export function registerGatewayIpc(): void {
   ipcMain.handle('gateway:status', () => gatewayHubService.getStatus())
@@ -39,6 +39,11 @@ export function registerGatewayIpc(): void {
   ipcMain.handle('gateway:updateKiroRouteName', (_event, routeName: string) =>
     gatewayHubService.updateKiroRouteName(routeName)
   )
+  ipcMain.handle(
+    'gateway:updateProviderRouteName',
+    (_event, providerType: string, routeName: string) =>
+      gatewayHubService.updateProviderRouteName(providerType, routeName)
+  )
   ipcMain.handle('gateway:addKiroRefreshToken', (_event, text: string) =>
     gatewayHubService.addKiroRefreshToken(text)
   )
@@ -55,4 +60,42 @@ export function registerGatewayIpc(): void {
     gatewayHubService.loginWithKiroCli(options)
   )
   ipcMain.handle('gateway:cancelKiroCliLogin', () => gatewayHubService.cancelKiroCliLogin())
+  ipcMain.handle('gateway:getModelMappings', () => gatewayHubService.getModelMappings())
+  ipcMain.handle('gateway:updateModelMappings', (_event, mappings: ModelMapping[]) =>
+    gatewayHubService.updateModelMappings(mappings)
+  )
+  ipcMain.handle(
+    'gateway:generateApiKey',
+    (_event, options: { name: string; expiresAt?: number; scopes?: string[] }) =>
+      gatewayHubService.generateNewApiKey(options)
+  )
+  ipcMain.handle('gateway:revokeApiKey', (_event, id: string) => gatewayHubService.revokeApiKey(id))
+  ipcMain.handle(
+    'gateway:updateApiKey',
+    (
+      _event,
+      id: string,
+      updates: { name?: string; expiresAt?: number | null; scopes?: string[] | null }
+    ) => gatewayHubService.updateApiKey(id, updates)
+  )
+  ipcMain.handle(
+    'gateway:updateProviderDisplayName',
+    (_event, providerType: string, displayName: string) =>
+      gatewayHubService.updateProviderDisplayName(providerType, displayName)
+  )
+  ipcMain.handle('gateway:getAutoStart', () => gatewayHubService.getAutoStart())
+  ipcMain.handle('gateway:setAutoStart', (_event, enabled: boolean) =>
+    gatewayHubService.setAutoStart(enabled)
+  )
+  ipcMain.handle('gateway:clearLogs', () => gatewayHubService.clearLogs())
+  ipcMain.handle(
+    'gateway:getLogs',
+    (
+      _event,
+      options?: { category?: LogCategory; requestId?: string; level?: string; limit?: number }
+    ) => gatewayHubService.getLogs(options)
+  )
+  ipcMain.handle('gateway:exportLogs', (_event, format: 'json' | 'ndjson') =>
+    gatewayHubService.exportLogs(format)
+  )
 }

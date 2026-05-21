@@ -1,20 +1,26 @@
-import { app } from 'electron'
 import { dirname, join } from 'path'
-import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'fs/promises'
-import type { GatewayHubConfig, GatewayHubState, KiroAccountConfig } from './types'
+import { mkdir, readdir, readFile, rename, stat, unlink, writeFile } from 'fs/promises'
+import type {
+  ApiKeyEntry,
+  GatewayHubConfig,
+  GatewayHubState,
+  KiroAccountConfig,
+  ModelMapping
+} from './types'
 import {
   DEFAULT_KIRO_SETTINGS,
   SQLITE_TOKEN_KEYS,
   SQLITE_REGISTRATION_KEYS
 } from './providers/kiro/constants'
-import { generateApiKey, readJsonFile, sha256Short, writeJsonFile } from './core/utils'
+import { generateApiKey, readJsonFile, sha256Short, writeJsonFile, atomicWrite } from './core/utils'
+import { getPaths } from './core/paths'
 
 export class GatewayConfigStore {
   readonly configPath: string
   readonly statePath: string
 
   constructor() {
-    const home = app.getPath('home')
+    const home = getPaths().home()
     const configDir = join(home, '.config', 'gatewayhub')
     this.configPath = join(configDir, 'gatewayhub.config.json')
     this.statePath = join(configDir, 'gatewayhub.state.json')
@@ -22,6 +28,10 @@ export class GatewayConfigStore {
 
   accountsDir(): string {
     return join(dirname(this.configPath), 'kiro', 'accounts')
+  }
+
+  logsDir(): string {
+    return join(dirname(this.configPath), 'logs')
   }
 
   async migrateIfNeeded(): Promise<void> {
@@ -34,7 +44,7 @@ export class GatewayConfigStore {
     )
     if (configExists) return
 
-    const oldDir = app.getPath('userData')
+    const oldDir = getPaths().userData()
     const oldConfigPath = join(oldDir, 'gatewayhub.config.json')
     const oldStatePath = join(oldDir, 'gatewayhub.state.json')
 
@@ -81,7 +91,7 @@ export class GatewayConfigStore {
   async saveConfig(config: GatewayHubConfig): Promise<void> {
     delete (config.providers?.kiro as any)?.accounts
     await mkdir(dirname(this.configPath), { recursive: true })
-    await writeFile(this.configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8')
+    await atomicWrite(this.configPath, `${JSON.stringify(config, null, 2)}\n`)
   }
 
   async loadState(): Promise<GatewayHubState> {
@@ -97,7 +107,7 @@ export class GatewayConfigStore {
 
   async saveState(state: GatewayHubState): Promise<void> {
     await mkdir(dirname(this.statePath), { recursive: true })
-    await writeFile(this.statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
+    await atomicWrite(this.statePath, `${JSON.stringify(state, null, 2)}\n`)
   }
 
   async readAccountFiles(): Promise<KiroAccountConfig[]> {
@@ -119,8 +129,8 @@ export class GatewayConfigStore {
         if (data.enabled === undefined) data.enabled = true
         data.path = filePath
         accounts.push(data as KiroAccountConfig)
-      } catch {
-        // skip corrupt files
+      } catch (err) {
+        console.warn(`[GatewayHub] Skipping corrupt account file: ${file}`, err)
       }
     }
     return accounts
@@ -136,11 +146,11 @@ export class GatewayConfigStore {
     const existing = await readJsonFile<any>(targetPath).catch(() => null)
     if (existing && existing.id && existing.id !== data.id) {
       const altPath = join(dir, `${fileBase}-${sha256Short(data.id)}.json`)
-      await writeFile(altPath, `${JSON.stringify(stripPath(data), null, 2)}\n`, 'utf8')
+      await atomicWrite(altPath, `${JSON.stringify(stripPath(data), null, 2)}\n`)
       return altPath
     }
 
-    await writeFile(targetPath, `${JSON.stringify(stripPath(data), null, 2)}\n`, 'utf8')
+    await atomicWrite(targetPath, `${JSON.stringify(stripPath(data), null, 2)}\n`)
     return targetPath
   }
 
@@ -158,12 +168,24 @@ export class GatewayConfigStore {
     if (!account?.path) throw new Error(`Account not found: ${accountId}`)
     const data = await readJsonFile<any>(account.path)
     Object.assign(data, updates)
-    await writeFile(account.path, `${JSON.stringify(data, null, 2)}\n`, 'utf8')
+    await atomicWrite(account.path, `${JSON.stringify(data, null, 2)}\n`)
+
+    if (updates.email && updates.email !== account.email) {
+      const dir = dirname(account.path)
+      const newBase = safeFileName(updates.email)
+      if (newBase) {
+        const newPath = join(dir, `${newBase}.json`)
+        const conflict = await readJsonFile<any>(newPath).catch(() => null)
+        if (!conflict || conflict.id === accountId) {
+          await rename(account.path, newPath).catch(() => {})
+        }
+      }
+    }
   }
 
   async scanExternalAccounts(): Promise<Array<KiroAccountConfig & { sourceType: string }>> {
     const candidates: Array<KiroAccountConfig & { sourceType: string }> = []
-    const home = app.getPath('home')
+    const home = getPaths().home()
 
     const kiroJson = join(home, '.aws', 'sso', 'cache', 'kiro-auth-token.json')
     const kiroJsonAccount = await extractAccountFromJson(kiroJson, 'Kiro IDE credentials')
@@ -218,7 +240,7 @@ export class GatewayConfigStore {
       server: {
         host: '127.0.0.1',
         port: 8000,
-        apiKey: generateApiKey(),
+        apiKeys: [generateApiKey()],
         autoStart: false
       },
       defaultProvider: 'kiro',
@@ -230,13 +252,16 @@ export class GatewayConfigStore {
         },
         codex: {
           enabled: false,
+          routeName: 'codex',
           note: 'Reserved provider slot. Codex account gateway is not implemented in v1.'
         },
         gemini: {
           enabled: false,
+          routeName: 'gemini',
           note: 'Reserved provider slot. Gemini account gateway is not implemented in v1.'
         }
-      }
+      },
+      modelMappings: []
     }
   }
 
@@ -350,15 +375,25 @@ export class GatewayConfigStore {
             ...(input?.providers?.kiro?.settings ?? {})
           }
         },
-        codex: { ...defaults.providers.codex, ...(input?.providers?.codex ?? {}) },
-        gemini: { ...defaults.providers.gemini, ...(input?.providers?.gemini ?? {}) }
+        codex: {
+          ...defaults.providers.codex,
+          ...(input?.providers?.codex ?? {}),
+          routeName: input?.providers?.codex?.routeName || defaults.providers.codex.routeName
+        },
+        gemini: {
+          ...defaults.providers.gemini,
+          ...(input?.providers?.gemini ?? {}),
+          routeName: input?.providers?.gemini?.routeName || defaults.providers.gemini.routeName
+        }
       }
     }
     config.version = input?.version ?? 1
     config.server.port = Number(config.server.port) || 8000
     config.server.host = config.server.host || '127.0.0.1'
-    config.server.apiKey = config.server.apiKey || generateApiKey()
+    config.server.apiKeys = migrateApiKeys(input?.server)
+    delete (config.server as any).apiKey
     config.defaultProvider = config.defaultProvider || 'kiro'
+    config.modelMappings = sanitizeModelMappings(input?.modelMappings)
     delete (config.providers.kiro as any).accounts
     return config
   }
@@ -376,7 +411,7 @@ export class GatewayConfigStore {
           ...(input?.providers?.kiro ?? {}),
           accounts: input?.providers?.kiro?.accounts ?? {},
           logs: Array.isArray(input?.providers?.kiro?.logs)
-            ? input.providers.kiro.logs.slice(-300)
+            ? input.providers.kiro.logs.slice(-1000)
             : []
         }
       }
@@ -410,9 +445,61 @@ function safeFileName(value: unknown): string {
   return String(value ?? '').replace(/[^a-zA-Z0-9@._-]/g, '_')
 }
 
+function migrateApiKeys(serverInput: any): ApiKeyEntry[] {
+  const raw = serverInput?.apiKeys
+  if (Array.isArray(raw) && raw.length > 0) {
+    if (typeof raw[0] === 'object' && raw[0].key) return raw as ApiKeyEntry[]
+    return raw.map((k: string) => ({
+      id: `key_${sha256Short(k, 12)}`,
+      key: k,
+      name: 'Default',
+      createdAt: Date.now()
+    }))
+  }
+  const legacy = serverInput?.apiKey
+  if (typeof legacy === 'string' && legacy) {
+    return [
+      {
+        id: `key_${sha256Short(legacy, 12)}`,
+        key: legacy,
+        name: 'Default',
+        createdAt: Date.now()
+      }
+    ]
+  }
+  return [generateApiKey()]
+}
+
 function stripPath(data: KiroAccountConfig): Omit<KiroAccountConfig, 'path'> {
   const { path: _, ...rest } = data
   return rest
+}
+
+export function sanitizeModelMappings(input: unknown): ModelMapping[] {
+  if (!Array.isArray(input)) return []
+  const seen = new Set<string>()
+  const result: ModelMapping[] = []
+  for (const raw of input) {
+    if (!raw || typeof raw !== 'object') continue
+    const item = raw as Partial<ModelMapping> & { provider?: unknown; model?: unknown }
+    const alias = typeof item.alias === 'string' ? item.alias.trim() : ''
+    const provider = typeof item.provider === 'string' ? item.provider.trim() : ''
+    const model = typeof item.model === 'string' ? item.model.trim() : ''
+    if (!alias || !provider || !model) continue
+    if (/[\s/]/.test(alias)) continue
+    if (alias.includes(':')) continue
+    if (seen.has(alias)) continue
+    seen.add(alias)
+    const note = typeof item.note === 'string' ? item.note : undefined
+    result.push({
+      alias,
+      provider,
+      model,
+      enabled: item.enabled !== false,
+      ...(note ? { note } : {})
+    })
+  }
+  return result
 }
 
 const dynamicImport = new Function('specifier', 'return import(specifier)') as (

@@ -4,6 +4,7 @@ import type {
   GatewayRequestContext,
   GatewayResponse,
   KiroAccountConfig,
+  ModelMapping,
   ProviderAdapter,
   ProviderModel,
   ProviderName,
@@ -54,16 +55,22 @@ class PlaceholderProvider implements ProviderAdapter {
 export class ProviderRegistry {
   private readonly providers = new Map<ProviderName, ProviderAdapter>()
   private readonly routeNameToProvider = new Map<string, ProviderName>()
+  private readonly aliasMap = new Map<string, ModelMapping>()
 
   constructor(
     private readonly config: GatewayHubConfig,
     private readonly state: GatewayHubState,
     private readonly logger: GatewayLogger,
     private readonly onStateChanged: () => void
-  ) {}
+  ) {
+    for (const mapping of config.modelMappings ?? []) {
+      if (!mapping.enabled) continue
+      if (this.aliasMap.has(mapping.alias)) continue
+      this.aliasMap.set(mapping.alias, mapping)
+    }
+  }
 
   async initialize(accountFiles: KiroAccountConfig[]): Promise<void> {
-    const kiroRouteName = this.config.providers.kiro.routeName || 'kiro'
     const kiro = new KiroProvider(
       this.config.providers.kiro,
       this.state.providers.kiro,
@@ -71,15 +78,22 @@ export class ProviderRegistry {
       this.onStateChanged
     )
     await kiro.initialize(accountFiles)
-    this.providers.set('kiro', kiro)
-    this.routeNameToProvider.set(kiroRouteName, 'kiro')
-    this.providers.set('codex', new PlaceholderProvider('codex', this.config.providers.codex.note))
-    this.routeNameToProvider.set('codex', 'codex')
-    this.providers.set(
-      'gemini',
-      new PlaceholderProvider('gemini', this.config.providers.gemini.note)
+    this.registerProvider('kiro', kiro, this.config.providers.kiro.routeName || 'kiro')
+    this.registerProvider(
+      'codex',
+      new PlaceholderProvider('codex', this.config.providers.codex.note),
+      this.config.providers.codex.routeName || 'codex'
     )
-    this.routeNameToProvider.set('gemini', 'gemini')
+    this.registerProvider(
+      'gemini',
+      new PlaceholderProvider('gemini', this.config.providers.gemini.note),
+      this.config.providers.gemini.routeName || 'gemini'
+    )
+  }
+
+  private registerProvider(name: ProviderName, provider: ProviderAdapter, routeName: string): void {
+    this.providers.set(name, provider)
+    this.routeNameToProvider.set(routeName, name)
   }
 
   resolve(model?: string): {
@@ -93,15 +107,28 @@ export class ProviderRegistry {
         `Invalid model format "${raw}". Use "provider/model" instead of colon notation.`
       )
     }
+    const mapping = this.aliasMap.get(raw)
+    if (mapping) {
+      const target =
+        this.providers.get(mapping.provider) ??
+        this.providers.get(this.routeNameToProvider.get(mapping.provider) ?? '')
+      if (!target) {
+        throw new Error(`Model mapping "${raw}" targets unknown provider "${mapping.provider}"`)
+      }
+      return { provider: target, model: mapping.model, providerName: target.name }
+    }
     const slash = raw.indexOf('/')
-    const explicit = slash > 0 ? raw.slice(0, slash) : ''
-    const resolvedProviderName = explicit ? this.routeNameToProvider.get(explicit) : undefined
-    const providerName =
-      resolvedProviderName || (explicit ? undefined : this.config.defaultProvider || 'kiro')
-    if (!providerName) throw new Error(`Unknown provider: ${explicit}`)
-    const provider = this.providers.get(providerName)
-    if (!provider) throw new Error(`Unknown provider: ${providerName}`)
-    return { provider, model: explicit ? raw.slice(slash + 1) : raw, providerName }
+    if (slash <= 0) {
+      throw new Error(
+        `Model "${raw}" must be prefixed with a provider, e.g. "kiro/${raw || 'model-id'}"`
+      )
+    }
+    const explicit = raw.slice(0, slash)
+    const resolvedProviderName = this.routeNameToProvider.get(explicit)
+    if (!resolvedProviderName) throw new Error(`Unknown provider: ${explicit}`)
+    const provider = this.providers.get(resolvedProviderName)
+    if (!provider) throw new Error(`Unknown provider: ${resolvedProviderName}`)
+    return { provider, model: raw.slice(slash + 1), providerName: resolvedProviderName }
   }
 
   getRouteName(providerName: ProviderName): string {
@@ -113,12 +140,26 @@ export class ProviderRegistry {
 
   async listModels(): Promise<ProviderModel[]> {
     const result: ProviderModel[] = []
+    const mappedOriginals = new Set<string>()
+
+    for (const mapping of this.aliasMap.values()) {
+      const routeName = this.getRouteName(mapping.provider)
+      result.push({
+        id: mapping.alias,
+        provider: mapping.provider,
+        ownedBy: routeName,
+        description: mapping.note || `→ ${routeName}/${mapping.model}`
+      })
+      mappedOriginals.add(`${routeName}/${mapping.model}`)
+    }
+
     for (const [name, provider] of this.providers) {
       const models = await provider.listModels()
       const routeName = this.getRouteName(name)
       for (const model of models) {
-        if (name === this.config.defaultProvider) result.push(model)
-        result.push({ ...model, id: `${routeName}/${model.id}` })
+        const fullId = `${routeName}/${model.id}`
+        if (mappedOriginals.has(fullId)) continue
+        result.push({ ...model, id: fullId, ownedBy: routeName })
       }
     }
     return dedupeModels(result)
@@ -128,13 +169,16 @@ export class ProviderRegistry {
     const result: ProviderStatus[] = []
     for (const [name, provider] of this.providers) {
       const routeName = this.getRouteName(name)
+      const providerCfg = (this.config.providers as Record<string, any>)[name]
+      const displayName = providerCfg?.displayName || undefined
       if (provider.getStatus) {
         const s = await provider.getStatus()
-        result.push({ ...s, name: routeName, providerType: name })
+        result.push({ ...s, name: routeName, providerType: name, displayName })
       } else {
         result.push({
           name: routeName,
           providerType: name,
+          displayName,
           enabled: true,
           configured: true,
           status: 'ready',

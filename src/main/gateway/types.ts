@@ -10,23 +10,45 @@ export interface GatewayHubConfig {
     gemini: PlaceholderProviderConfig
     [name: string]: unknown
   }
+  modelMappings: ModelMapping[]
+}
+
+export interface ModelMapping {
+  alias: string
+  provider: ProviderName
+  model: string
+  enabled: boolean
+  note?: string
+}
+
+export interface ApiKeyEntry {
+  id: string
+  key: string
+  name: string
+  createdAt: number
+  lastUsedAt?: number
+  expiresAt?: number
+  scopes?: string[]
 }
 
 export interface GatewayServerConfig {
   host: string
   port: number
-  apiKey: string
+  apiKeys: ApiKeyEntry[]
   autoStart: boolean
 }
 
 export interface PlaceholderProviderConfig {
   enabled: boolean
+  routeName?: string
+  displayName?: string
   note: string
 }
 
 export interface KiroProviderConfig {
   enabled: boolean
   routeName?: string
+  displayName?: string
   settings: KiroProviderSettings
 }
 
@@ -115,12 +137,23 @@ export interface AccountRuntimeState {
   }
 }
 
+export type LogCategory = 'system' | 'auth' | 'request' | 'upstream' | 'account'
+
 export interface GatewayLogEntry {
   ts: number
   level: 'debug' | 'info' | 'warn' | 'error'
   message: string
   provider?: string
   accountId?: string
+  requestId?: string
+  category?: LogCategory
+  statusCode?: number
+  duration?: number
+  streaming?: boolean
+  timeToFirstToken?: number
+  chunkCount?: number
+  error?: { stack?: string; upstreamBody?: string }
+  extra?: Record<string, unknown>
 }
 
 export interface GatewayRequestContext {
@@ -145,6 +178,7 @@ export interface ProviderModel {
 export interface ProviderStatus {
   name: string
   providerType: ProviderName
+  displayName?: string
   enabled: boolean
   configured: boolean
   status: 'ready' | 'disabled' | 'error' | 'placeholder'
@@ -177,7 +211,7 @@ export interface GatewayStatusSnapshot {
     url: string
     host: string
     port: number
-    apiKey: string
+    apiKeys: ApiKeyEntry[]
   }
   configPath: string
   statePath: string

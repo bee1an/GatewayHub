@@ -1,10 +1,21 @@
 import { createHash, randomBytes, randomUUID } from 'crypto'
 import { homedir, hostname, userInfo } from 'os'
 import { dirname, join } from 'path'
-import { mkdir, readFile, stat, writeFile } from 'fs/promises'
+import { mkdir, readFile, rename, stat, writeFile } from 'fs/promises'
+import { withLock } from './lockfile'
 
-export function generateApiKey(): string {
+export function generateApiKeyString(): string {
   return `ghub-${randomBytes(24).toString('base64url')}`
+}
+
+export function generateApiKey(): import('../types').ApiKeyEntry {
+  const key = generateApiKeyString()
+  return {
+    id: `key_${randomBytes(6).toString('hex')}`,
+    key,
+    name: 'Default',
+    createdAt: Date.now()
+  }
 }
 
 export function requestId(prefix = 'req'): string {
@@ -38,7 +49,16 @@ export async function readJsonFile<T = any>(path: string): Promise<T> {
 export async function writeJsonFile(path: string, value: unknown): Promise<void> {
   const finalPath = expandHome(path)
   await mkdir(dirname(finalPath), { recursive: true })
-  await writeFile(finalPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+  await atomicWrite(finalPath, `${JSON.stringify(value, null, 2)}\n`)
+}
+
+export async function atomicWrite(filePath: string, content: string): Promise<void> {
+  await mkdir(dirname(filePath), { recursive: true })
+  await withLock(filePath, async () => {
+    const tmp = `${filePath}.${randomBytes(4).toString('hex')}.tmp`
+    await writeFile(tmp, content, 'utf8')
+    await rename(tmp, filePath)
+  })
 }
 
 export function parseIsoDate(value?: string): Date | undefined {

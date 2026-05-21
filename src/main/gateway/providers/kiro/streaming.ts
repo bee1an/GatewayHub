@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
-import { sseData } from '../../core/utils'
-import { openAiUsageFromBodies } from './converters'
+import { estimateTokens, sseData } from '../../core/utils'
+import { anthropicInputTokens, openAiUsageFromBodies } from './converters'
 
 export interface KiroEvent {
   type: 'content' | 'thinking' | 'tool_use' | 'usage' | 'context_usage'
@@ -16,6 +16,7 @@ export class AwsEventStreamParser {
   private buffer = ''
   private lastContent = ''
   private currentToolCall: any | undefined
+  private currentToolInputs: any[] = []
   private toolCalls: any[] = []
   private readonly decoder = new TextDecoder('utf-8')
 
@@ -80,15 +81,16 @@ export class AwsEventStreamParser {
         type: 'function',
         function: {
           name: data.name || '',
-          arguments: stringifyToolInput(data.input)
+          arguments: '{}'
         }
       }
+      this.currentToolInputs = []
+      this.appendToolInput(data.input)
       if (data.stop) this.finalizeToolCall()
       return undefined
     }
     if (type === 'tool_input') {
-      if (this.currentToolCall)
-        this.currentToolCall.function.arguments += stringifyToolInput(data.input)
+      if (this.currentToolCall) this.appendToolInput(data.input)
       return undefined
     }
     if (type === 'tool_stop') {
@@ -103,14 +105,17 @@ export class AwsEventStreamParser {
 
   private finalizeToolCall(): void {
     if (!this.currentToolCall) return
-    const args = this.currentToolCall.function.arguments
-    try {
-      this.currentToolCall.function.arguments = JSON.stringify(args ? JSON.parse(args) : {})
-    } catch {
-      this.currentToolCall.function.arguments = '{}'
-    }
+    this.currentToolCall.function.arguments = JSON.stringify(
+      normalizeToolInput(this.currentToolInputs)
+    )
     this.toolCalls.push(this.currentToolCall)
     this.currentToolCall = undefined
+    this.currentToolInputs = []
+  }
+
+  private appendToolInput(input: any): void {
+    if (input === undefined || input === null || input === '') return
+    this.currentToolInputs.push(input)
   }
 }
 
@@ -164,38 +169,43 @@ class ThinkingTagParser {
     let text = this.carry + event.content
     this.carry = ''
     while (text) {
-      if (this.inThinking) {
-        const end = text.indexOf('</thinking>')
-        if (end === -1) {
-          out.push({ type: 'thinking', thinking: text })
-          return out
-        }
-        const thinking = text.slice(0, end)
-        if (thinking) out.push({ type: 'thinking', thinking })
-        this.inThinking = false
-        text = text.slice(end + '</thinking>'.length)
-      } else {
-        const start = text.indexOf('<thinking>')
-        if (start === -1) {
-          out.push({ type: 'content', content: text })
-          return out
-        }
-        const before = text.slice(0, start)
-        if (before) out.push({ type: 'content', content: before })
-        this.inThinking = true
-        text = text.slice(start + '<thinking>'.length)
+      const tag = this.inThinking ? '</thinking>' : '<thinking>'
+      const idx = text.indexOf(tag)
+      if (idx === -1) {
+        const carry = ThinkingTagParser.tagPrefixSuffix(text, tag)
+        const head = carry ? text.slice(0, -carry.length) : text
+        if (head) out.push(this.emit(head))
+        this.carry = carry
+        return out
       }
+      const head = text.slice(0, idx)
+      if (head) out.push(this.emit(head))
+      this.inThinking = !this.inThinking
+      text = text.slice(idx + tag.length)
     }
     return out
   }
 
   finish(): KiroEvent[] {
     if (!this.carry) return []
-    const out = this.inThinking
-      ? { type: 'thinking' as const, thinking: this.carry }
-      : { type: 'content' as const, content: this.carry }
+    const out = this.emit(this.carry)
     this.carry = ''
     return [out]
+  }
+
+  private emit(text: string): KiroEvent {
+    return this.inThinking
+      ? { type: 'thinking', thinking: text }
+      : { type: 'content', content: text }
+  }
+
+  private static tagPrefixSuffix(text: string, tag: string): string {
+    const max = Math.min(text.length, tag.length - 1)
+    for (let length = max; length > 0; length--) {
+      const suffix = text.slice(-length)
+      if (tag.startsWith(suffix)) return suffix
+    }
+    return ''
   }
 }
 
@@ -316,9 +326,11 @@ export async function openAiJsonFromKiro(
 export async function* anthropicSseFromKiro(
   body: ReadableStream<Uint8Array>,
   model: string,
+  requestBody: any,
   firstTokenTimeoutSeconds: number
 ): AsyncGenerator<string> {
   const id = `msg_${randomUUID().replace(/-/g, '')}`
+  const input_tokens = anthropicInputTokens(requestBody)
   yield sseEvent('message_start', {
     type: 'message_start',
     message: {
@@ -329,36 +341,60 @@ export async function* anthropicSseFromKiro(
       content: [],
       stop_reason: null,
       stop_sequence: null,
-      usage: { input_tokens: 0, output_tokens: 0 }
+      usage: { input_tokens, output_tokens: 0 }
     }
   })
   let index = 0
-  let openText = false
+  let openBlock: 'thinking' | 'text' | undefined
+  let content = ''
+  let thinking = ''
   const toolCalls: any[] = []
+
+  function closeOpenBlock(): string[] {
+    if (!openBlock) return []
+    const frames = [sseEvent('content_block_stop', { type: 'content_block_stop', index })]
+    index += 1
+    openBlock = undefined
+    return frames
+  }
+
+  function ensureBlock(type: 'thinking' | 'text'): string[] {
+    if (openBlock === type) return []
+    const frames = closeOpenBlock()
+    frames.push(
+      sseEvent('content_block_start', {
+        type: 'content_block_start',
+        index,
+        content_block:
+          type === 'thinking'
+            ? { type: 'thinking', thinking: '', signature: '' }
+            : { type: 'text', text: '' }
+      })
+    )
+    openBlock = type
+    return frames
+  }
+
   for await (const event of parseKiroStream(body, firstTokenTimeoutSeconds)) {
-    if (
-      (event.type === 'content' && event.content) ||
-      (event.type === 'thinking' && event.thinking)
-    ) {
-      if (!openText) {
-        yield sseEvent('content_block_start', {
-          type: 'content_block_start',
-          index,
-          content_block: { type: 'text', text: '' }
-        })
-        openText = true
-      }
+    if (event.type === 'thinking' && event.thinking) {
+      thinking += event.thinking
+      for (const frame of ensureBlock('thinking')) yield frame
       yield sseEvent('content_block_delta', {
         type: 'content_block_delta',
         index,
-        delta: { type: 'text_delta', text: event.content ?? event.thinking ?? '' }
+        delta: { type: 'thinking_delta', thinking: event.thinking }
+      })
+    } else if (event.type === 'content' && event.content) {
+      content += event.content
+      for (const frame of ensureBlock('text')) yield frame
+      yield sseEvent('content_block_delta', {
+        type: 'content_block_delta',
+        index,
+        delta: { type: 'text_delta', text: event.content }
       })
     } else if (event.type === 'tool_use' && event.toolUse) toolCalls.push(event.toolUse)
   }
-  if (openText) {
-    yield sseEvent('content_block_stop', { type: 'content_block_stop', index })
-    index += 1
-  }
+  for (const frame of closeOpenBlock()) yield frame
   for (const tool of toolCalls) {
     const input = safeJson(tool.function?.arguments)
     yield sseEvent('content_block_start', {
@@ -368,16 +404,22 @@ export async function* anthropicSseFromKiro(
         type: 'tool_use',
         id: tool.id,
         name: tool.function?.name || tool.name,
-        input
+        input: {}
       }
+    })
+    yield sseEvent('content_block_delta', {
+      type: 'content_block_delta',
+      index,
+      delta: { type: 'input_json_delta', partial_json: JSON.stringify(input) }
     })
     yield sseEvent('content_block_stop', { type: 'content_block_stop', index })
     index += 1
   }
+  const output_tokens = estimateTokens(content) + estimateTokens(thinking)
   yield sseEvent('message_delta', {
     type: 'message_delta',
     delta: { stop_reason: toolCalls.length ? 'tool_use' : 'end_turn', stop_sequence: null },
-    usage: { output_tokens: 0 }
+    usage: { output_tokens }
   })
   yield sseEvent('message_stop', { type: 'message_stop' })
 }
@@ -385,6 +427,7 @@ export async function* anthropicSseFromKiro(
 export async function anthropicJsonFromKiro(
   body: ReadableStream<Uint8Array>,
   model: string,
+  requestBody: any,
   firstTokenTimeoutSeconds: number
 ) {
   const result = await collectKiroStream(body, firstTokenTimeoutSeconds)
@@ -407,8 +450,8 @@ export async function anthropicJsonFromKiro(
     stop_reason: result.toolCalls.length ? 'tool_use' : 'end_turn',
     stop_sequence: null,
     usage: {
-      input_tokens: 0,
-      output_tokens: Math.ceil((result.content.length + result.thinking.length) / 4)
+      input_tokens: anthropicInputTokens(requestBody),
+      output_tokens: estimateTokens(result.content) + estimateTokens(result.thinking)
     }
   }
 }
@@ -444,24 +487,128 @@ function findMatchingBrace(text: string, start: number): number {
   return -1
 }
 
-function stringifyToolInput(input: any): string {
-  if (!input) return ''
-  if (typeof input === 'string') return input
-  try {
-    return JSON.stringify(input)
-  } catch {
-    return ''
+function dedupeToolCalls(toolCalls: any[]): any[] {
+  const byIdentity = new Map<string, { tool: any; input: Record<string, any> }>()
+  const order: string[] = []
+
+  for (const tool of toolCalls) {
+    const identity = `${tool.id}:${tool.function?.name || tool.name || ''}`
+    const nextInput = safeJson(tool.function?.arguments)
+    const previous = byIdentity.get(identity)
+    if (!previous) {
+      byIdentity.set(identity, { tool, input: nextInput })
+      order.push(identity)
+      continue
+    }
+
+    const mergedInput = mergeToolInput(previous.input, nextInput)
+    const preferred =
+      Object.keys(nextInput).length > Object.keys(previous.input).length ? tool : previous.tool
+    byIdentity.set(identity, { tool: preferred, input: mergedInput })
+  }
+
+  return order
+    .map((identity) => byIdentity.get(identity))
+    .filter((entry): entry is { tool: any; input: Record<string, any> } => Boolean(entry))
+    .map(({ tool, input }) => toolWithArguments(tool, input))
+}
+
+function toolWithArguments(tool: any, input: Record<string, any>): any {
+  return {
+    ...tool,
+    function: {
+      ...(tool.function ?? {}),
+      name: tool.function?.name || tool.name || '',
+      arguments: JSON.stringify(input)
+    }
   }
 }
 
-function dedupeToolCalls(toolCalls: any[]): any[] {
-  const seen = new Set<string>()
-  return toolCalls.filter((tool) => {
-    const key = `${tool.id}:${tool.function?.name}:${tool.function?.arguments}`
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
+function normalizeToolInput(chunks: any[]): Record<string, any> {
+  let merged: Record<string, any> = {}
+  let hasObject = false
+  let text = ''
+
+  for (const chunk of chunks) {
+    if (typeof chunk === 'string') {
+      text += chunk
+      continue
+    }
+    if (isPlainObject(chunk)) {
+      merged = mergeToolInput(merged, chunk)
+      hasObject = true
+    }
+  }
+
+  const parsedText = parseToolInputText(text)
+  if (parsedText) {
+    merged = mergeToolInput(merged, parsedText)
+    hasObject = true
+  }
+
+  return hasObject ? merged : {}
+}
+
+function parseToolInputText(text: string): Record<string, any> | undefined {
+  if (!text.trim()) return undefined
+  try {
+    const parsed = JSON.parse(text)
+    return isPlainObject(parsed) ? parsed : undefined
+  } catch {
+    return parseConcatenatedToolInput(text)
+  }
+}
+
+function parseConcatenatedToolInput(text: string): Record<string, any> | undefined {
+  let merged: Record<string, any> = {}
+  let found = false
+  let cursor = 0
+
+  while (cursor < text.length) {
+    const start = text.indexOf('{', cursor)
+    if (start === -1) break
+    const end = findMatchingBrace(text, start)
+    if (end === -1) break
+    try {
+      const parsed = JSON.parse(text.slice(start, end + 1))
+      if (isPlainObject(parsed)) {
+        merged = mergeToolInput(merged, parsed)
+        found = true
+      }
+    } catch {
+      // Ignore malformed fragments and keep scanning for later complete objects.
+    }
+    cursor = end + 1
+  }
+
+  return found ? merged : undefined
+}
+
+function mergeToolInput(
+  target: Record<string, any>,
+  patch: Record<string, any>
+): Record<string, any> {
+  const out: Record<string, any> = { ...target }
+  for (const [key, value] of Object.entries(patch)) {
+    const previous = out[key]
+    if (isPlainObject(previous) && isPlainObject(value)) out[key] = mergeToolInput(previous, value)
+    else if (typeof previous === 'string' && typeof value === 'string')
+      out[key] = mergeStringFragment(previous, value)
+    else out[key] = value
+  }
+  return out
+}
+
+function mergeStringFragment(previous: string, next: string): string {
+  if (!previous) return next
+  if (!next) return previous
+  if (next.startsWith(previous)) return next
+  if (previous.endsWith(next)) return previous
+  return previous + next
+}
+
+function isPlainObject(value: any): value is Record<string, any> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function safeJson(value: any): any {

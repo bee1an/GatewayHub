@@ -32,6 +32,10 @@ export class KiroAccountPool {
     this.currentAccountIndex = state.currentAccountIndex || 0
   }
 
+  private accountLabel(account: KiroAccountRuntime): string {
+    return account.config.email || account.config.label || account.config.id
+  }
+
   async reload(accountFiles: KiroAccountConfig[]): Promise<void> {
     this.accounts = accountFiles.map((account) => {
       const state = this.state.accounts[account.id] ?? defaultAccountState()
@@ -191,7 +195,8 @@ export class KiroAccountPool {
     this.transitionStatus(account, nextStatus, reason, cooldownUntil)
     this.logger.warn(account.state.lastError ?? 'Kiro request failed', {
       provider: 'kiro',
-      accountId: account.config.id
+      accountId: this.accountLabel(account),
+      category: 'account'
     })
     this.onStateChanged()
   }
@@ -218,7 +223,8 @@ export class KiroAccountPool {
     this.transitionStatus(account, status, reason)
     this.logger.info(`Account status set to ${status}${reason ? `: ${reason}` : ''}`, {
       provider: 'kiro',
-      accountId
+      accountId: this.accountLabel(account),
+      category: 'account'
     })
     this.onStateChanged()
   }
@@ -263,7 +269,8 @@ export class KiroAccountPool {
       if (!cached) this.modelsCache.set(accountId, { data: fallback, cachedAt: Date.now() })
       this.logger.warn(`listAvailableModels failed for ${accountId}: ${toErrorMessage(error)}`, {
         provider: 'kiro',
-        accountId
+        accountId: this.accountLabel(account),
+        category: 'account'
       })
       return cached?.data || fallback
     }
@@ -285,13 +292,14 @@ export class KiroAccountPool {
     else
       this.logger.warn(`getUsageLimits failed for ${accountId}: ${usageResult.reason?.message}`, {
         provider: 'kiro',
-        accountId
+        accountId: this.accountLabel(account),
+        category: 'account'
       })
     if (modelsResult.status === 'fulfilled') models = modelsResult.value
     else
       this.logger.warn(
         `listAvailableModels failed for ${accountId}: ${modelsResult.reason?.message}`,
-        { provider: 'kiro', accountId }
+        { provider: 'kiro', accountId: this.accountLabel(account), category: 'account' }
       )
 
     const errors = [
@@ -343,7 +351,8 @@ export class KiroAccountPool {
     account.state.modelsCachedAt = Date.now()
     this.logger.info(`Initialized Kiro account (${auth.authType})`, {
       provider: 'kiro',
-      accountId: account.config.id
+      accountId: this.accountLabel(account),
+      category: 'account'
     })
   }
 
@@ -353,7 +362,11 @@ export class KiroAccountPool {
     account.state.lastError = toErrorMessage(error)
     account.state.lastResponseKind = 'auth'
     this.transitionStatus(account, 'auth_failed', account.state.lastError?.slice(0, 200))
-    this.logger.warn(account.state.lastError, { provider: 'kiro', accountId: account.config.id })
+    this.logger.warn(account.state.lastError, {
+      provider: 'kiro',
+      accountId: this.accountLabel(account),
+      category: 'account'
+    })
     this.onStateChanged()
   }
 
@@ -400,9 +413,7 @@ export class KiroAccountPool {
 
 export function toKiroModelId(model: string): string {
   if (model === 'auto-kiro') return 'auto'
-  return model
-    .replace(/claude-sonnet-4-5/g, 'claude-sonnet-4.5')
-    .replace(/claude-haiku-4-5/g, 'claude-haiku-4.5')
+  return model.replace(/(\d+)-(\d+)$/g, '$1.$2')
 }
 
 function defaultAccountState(): AccountRuntimeState {

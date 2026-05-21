@@ -20,16 +20,16 @@ export const KIRO_API_URL_TEMPLATE = 'https://q.{region}.amazonaws.com'
 export const FALLBACK_MODELS = [
   'auto-kiro',
   'claude-sonnet-4',
-  'claude-sonnet-4.5',
-  'claude-sonnet-4.6',
-  'claude-haiku-4.5',
-  'claude-opus-4.5',
-  'claude-opus-4.6',
-  'claude-opus-4.7',
-  'deepseek-3.2',
+  'claude-sonnet-4-5',
+  'claude-sonnet-4-6',
+  'claude-haiku-4-5',
+  'claude-opus-4-5',
+  'claude-opus-4-6',
+  'claude-opus-4-7',
+  'deepseek-3-2',
   'glm-5',
-  'minimax-m2.1',
-  'minimax-m2.5',
+  'minimax-m2-1',
+  'minimax-m2-5',
   'qwen3-coder-next'
 ]
 

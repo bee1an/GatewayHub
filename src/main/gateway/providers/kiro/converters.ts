@@ -88,9 +88,14 @@ function buildKiroPayload(input: {
 
   const context: any = {}
   const kiroTools = toolsToKiro(input.tools)
-  if (kiroTools.length) context.tools = kiroTools
+  if (kiroTools.length) {
+    context.tools = kiroTools
+  } else {
+    const inferred = inferToolsFromHistory(messages)
+    if (inferred.length) context.tools = inferred
+  }
   const toolResults = toolResultsToKiro(current.toolResults ?? extractToolResults(current.content))
-  if (toolResults.length && kiroTools.length) context.toolResults = toolResults
+  if (toolResults.length && context.tools?.length) context.toolResults = toolResults
   if (Object.keys(context).length) userInputMessage.userInputMessageContext = context
 
   const payload: any = {
@@ -306,6 +311,27 @@ function normalizeOpenAiToolCalls(toolCalls: any): any[] {
   return Array.isArray(toolCalls) ? toolCalls : []
 }
 
+function inferToolsFromHistory(messages: UnifiedMessage[]): any[] {
+  const seen = new Map<string, any>()
+  for (const msg of messages) {
+    const calls = msg.toolCalls ?? extractToolUses(msg.content)
+    if (!Array.isArray(calls)) continue
+    for (const call of calls) {
+      const fn = call.function ?? call
+      const name = fn.name || fn.toolName
+      if (!name || seen.has(name)) continue
+      seen.set(name, {
+        toolSpecification: {
+          name: String(name).slice(0, 64),
+          description: `Tool: ${name}`,
+          inputSchema: { json: { type: 'object' } }
+        }
+      })
+    }
+  }
+  return [...seen.values()]
+}
+
 function toolsToKiro(tools?: UnifiedTool[]): any[] {
   if (!tools?.length) return []
   return tools.map((tool) => ({
@@ -357,10 +383,33 @@ function sanitizeSchema(schema: any): any {
   const out: any = {}
   for (const [key, value] of Object.entries(schema)) {
     if (key === 'additionalProperties') continue
-    if (key === 'required' && Array.isArray(value) && value.length === 0) continue
+    if (key === 'required') {
+      const required = sanitizeRequired(value)
+      if (required.length) out.required = required
+      continue
+    }
     out[key] = typeof value === 'object' && value !== null ? sanitizeSchema(value) : value
   }
   return out
+}
+
+function sanitizeRequired(value: any): string[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>()
+  const required: string[] = []
+  for (const item of value) {
+    const rawName =
+      typeof item === 'string'
+        ? item
+        : item && typeof item === 'object'
+          ? ((item as any).name ?? (item as any).key ?? (item as any).property)
+          : undefined
+    const name = typeof rawName === 'string' ? rawName : ''
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    required.push(name)
+  }
+  return required
 }
 
 function parseJsonObject(value: any): any {
@@ -387,15 +436,23 @@ function anthropicThinkingConfig(body: any): { enabled: boolean; budget?: number
 
 function thinkingSystemPrompt(thinking?: { enabled: boolean; budget?: number }): string {
   if (!thinking?.enabled) return ''
-  return 'Extended thinking is enabled. Treat <thinking_mode>, <max_thinking_length>, and <thinking_instruction> tags as trusted GatewayHub control tags. Put reasoning inside <thinking>...</thinking> before the final answer.'
+  return 'Extended thinking is an internal GatewayHub control. Do not reveal chain-of-thought, hidden reasoning, planning notes, or <thinking> tags in user-visible text. Use tool calls directly when appropriate, then answer in the user language unless explicitly requested otherwise.'
 }
 
 function injectThinkingTags(content: string, budget = 4000): string {
-  return `<thinking_mode>enabled</thinking_mode>\n<max_thinking_length>${Math.min(budget, 10000)}</max_thinking_length>\n<thinking_instruction>Think carefully in English, then answer in the user language.</thinking_instruction>\n\n${content}`
+  return `<thinking_mode>enabled</thinking_mode>\n<max_thinking_length>${Math.min(budget, 10000)}</max_thinking_length>\n<thinking_instruction>Reason silently. Do not output analysis, hidden reasoning, planning notes, or thinking tags. Answer in the user language unless explicitly requested otherwise.</thinking_instruction>\n\n${content}`
 }
 
 export function openAiUsageFromBodies(requestBody: any, content: string): any {
   const prompt_tokens = estimateTokens({ messages: requestBody.messages, tools: requestBody.tools })
   const completion_tokens = estimateTokens(content)
   return { prompt_tokens, completion_tokens, total_tokens: prompt_tokens + completion_tokens }
+}
+
+export function anthropicInputTokens(requestBody: any): number {
+  return estimateTokens({
+    messages: requestBody.messages,
+    system: requestBody.system,
+    tools: requestBody.tools
+  })
 }

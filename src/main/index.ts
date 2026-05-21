@@ -3,7 +3,21 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { gatewayHubService } from './gateway/service'
 import { registerGatewayIpc } from './gateway/ipc'
+import { setPathStrategy } from './gateway/core/paths'
+import { setCliLoginSink } from './gateway/events/cliLoginEvents'
 import icon from '../../resources/icon.png?asset'
+
+setPathStrategy({
+  home: () => app.getPath('home'),
+  userData: () => app.getPath('userData')
+})
+
+setCliLoginSink({
+  emit: (event) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    if (win) win.webContents.send('gateway:cliLoginOutput', event)
+  }
+})
 
 function createWindow(): void {
   // Create the browser window.
@@ -56,6 +70,7 @@ app.whenReady().then(() => {
 
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
+
   registerGatewayIpc()
   gatewayHubService
     .initialize()

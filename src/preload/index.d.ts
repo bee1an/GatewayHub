@@ -84,6 +84,24 @@ declare global {
           }) => void
         ) => () => void
       }
+      updater: {
+        check: () => Promise<any>
+        download: () => Promise<any>
+        install: () => Promise<void>
+        onUpdateAvailable: (
+          cb: (data: { version: string; releaseNotes: string | null; releaseDate: string }) => void
+        ) => () => void
+        onDownloadProgress: (
+          cb: (data: {
+            percent: number
+            bytesPerSecond: number
+            transferred: number
+            total: number
+          }) => void
+        ) => () => void
+        onUpdateDownloaded: (cb: () => void) => () => void
+        onError: (cb: (message: string) => void) => () => void
+      }
     }
   }
 }

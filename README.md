@@ -57,3 +57,38 @@ pnpm build
 ## CLI
 
 完整的命令行工具文档见 [src/cli/README.md](src/cli/README.md)。
+
+## 安装与信任
+
+### macOS
+
+1. 从 [Releases](https://github.com/bee1an/GatewayHub/releases) 下载最新 `.dmg`
+2. 拖入 Applications 文件夹
+3. 首次打开会被 Gatekeeper 拦截，执行以下任一操作：
+
+   **方式 A（推荐）：**
+
+   ```bash
+   xattr -cr /Applications/GatewayHub.app
+   ```
+
+   **方式 B：**
+   系统设置 → 隐私与安全性 → 下方找到被拦截的 GatewayHub → 点击"仍要打开"
+
+4. 之后的自动更新不会再触发信任弹窗
+
+### Windows
+
+1. 从 Releases 下载 `.exe` 安装包
+2. 首次运行可能弹出 SmartScreen 警告，点击"更多信息" → "仍要运行"
+3. 后续自动更新不会再弹窗
+
+### Linux
+
+从 Releases 下载 `.AppImage` / `.deb` / `.snap`，直接运行即可。
+
+## 自动更新
+
+应用启动时会自动检查 GitHub Releases 上的新版本。检测到更新后会在后台下载并在下次启动时应用。
+
+更新源：`https://github.com/bee1an/GatewayHub/releases`

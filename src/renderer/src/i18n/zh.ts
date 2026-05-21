@@ -275,6 +275,15 @@ const zh = {
     discoverRunning: '扫描中...',
     discoverResult: '{{skipped}} 个已导入',
     discoverEmpty: '未发现新凭证'
+  },
+  updater: {
+    title: '发现新版本',
+    newVersion: '新版本: v{{version}}',
+    download: '下载更新',
+    later: '稍后',
+    restart: '立即重启',
+    laterRestart: '稍后重启',
+    downloadComplete: '下载完成，重启后即可应用更新。'
   }
 }
 

@@ -276,6 +276,15 @@ const en = {
     discoverRunning: 'Scanning...',
     discoverResult: '{{skipped}} already imported',
     discoverEmpty: 'No new credentials found'
+  },
+  updater: {
+    title: 'Update Available',
+    newVersion: 'New version: v{{version}}',
+    download: 'Download',
+    later: 'Later',
+    restart: 'Restart Now',
+    laterRestart: 'Later',
+    downloadComplete: 'Download complete. Restart to apply the update.'
   }
 }
 

@@ -5,6 +5,7 @@ import { gatewayHubService } from './gateway/service'
 import { registerGatewayIpc } from './gateway/ipc'
 import { setPathStrategy } from './gateway/core/paths'
 import { setCliLoginSink } from './gateway/events/cliLoginEvents'
+import { setupUpdater } from './updater'
 import icon from '../../resources/icon.png?asset'
 
 setPathStrategy({
@@ -38,6 +39,7 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
+    if (!is.dev) setupUpdater(mainWindow)
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {

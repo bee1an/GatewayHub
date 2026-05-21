@@ -64,6 +64,27 @@ const api = {
         ipcRenderer.removeAllListeners('gateway:cliLoginOutput')
       }
     }
+  },
+  updater: {
+    check: () => ipcRenderer.invoke('updater:check'),
+    download: () => ipcRenderer.invoke('updater:download'),
+    install: () => ipcRenderer.invoke('updater:install'),
+    onUpdateAvailable: (cb: (data: any) => void) => {
+      ipcRenderer.on('updater:update-available', (_e, data) => cb(data))
+      return () => ipcRenderer.removeAllListeners('updater:update-available')
+    },
+    onDownloadProgress: (cb: (data: any) => void) => {
+      ipcRenderer.on('updater:download-progress', (_e, data) => cb(data))
+      return () => ipcRenderer.removeAllListeners('updater:download-progress')
+    },
+    onUpdateDownloaded: (cb: () => void) => {
+      ipcRenderer.on('updater:update-downloaded', () => cb())
+      return () => ipcRenderer.removeAllListeners('updater:update-downloaded')
+    },
+    onError: (cb: (message: string) => void) => {
+      ipcRenderer.on('updater:error', (_e, message) => cb(message))
+      return () => ipcRenderer.removeAllListeners('updater:error')
+    }
   }
 }
 

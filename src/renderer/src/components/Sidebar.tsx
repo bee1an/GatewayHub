@@ -5,6 +5,7 @@ import { useTheme } from './useTheme'
 import { changeLanguage } from '../i18n'
 import { Button } from './ui/Button'
 import { TooltipWrapper } from './ui/Tooltip'
+import { UpdateModal } from './UpdateModal'
 import kiroIcon from '../assets/kiro-icon.svg'
 
 type ProviderStatus = {
@@ -33,6 +34,19 @@ export default function Sidebar(): React.JSX.Element {
   const { theme, toggle } = useTheme()
   const [gateways, setGateways] = useState<ProviderStatus[]>([])
   const [server, setServer] = useState<ServerInfo>({ running: false })
+  const [updateInfo, setUpdateInfo] = useState<{
+    version: string
+    releaseNotes: string | null
+    releaseDate: string
+  } | null>(null)
+  const [downloadProgress, setDownloadProgress] = useState<{
+    percent: number
+    bytesPerSecond: number
+    transferred: number
+    total: number
+  } | null>(null)
+  const [downloaded, setDownloaded] = useState(false)
+  const [updateModalOpen, setUpdateModalOpen] = useState(false)
 
   const refresh = useCallback(() => {
     window.api.gateway.status().then((s: any) => {
@@ -46,6 +60,19 @@ export default function Sidebar(): React.JSX.Element {
     const interval = setInterval(refresh, 5000)
     return () => clearInterval(interval)
   }, [refresh])
+
+  useEffect(() => {
+    const unsubs = [
+      window.api.updater.onUpdateAvailable((data) => setUpdateInfo(data)),
+      window.api.updater.onDownloadProgress((data) => setDownloadProgress(data)),
+      window.api.updater.onUpdateDownloaded(() => {
+        setDownloaded(true)
+        setDownloadProgress(null)
+      }),
+      window.api.updater.onError(() => setDownloadProgress(null))
+    ]
+    return () => unsubs.forEach((fn) => fn())
+  }, [])
 
   const configuredGateways = gateways.filter((p) => p.enabled && p.configured)
 
@@ -166,6 +193,25 @@ export default function Sidebar(): React.JSX.Element {
           </span>
         </button>
         <div className="flex items-center gap-0.5">
+          {updateInfo && (
+            <TooltipWrapper content={t('updater.newVersion', { version: updateInfo.version })}>
+              <Button
+                variant="ghost"
+                size="xs"
+                iconOnly
+                onClick={() => setUpdateModalOpen(true)}
+                aria-label="Update available"
+              >
+                <span className="relative">
+                  <span
+                    className="i-ph-arrow-circle-up text-[14px] text-warning"
+                    aria-hidden="true"
+                  />
+                  <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-warning animate-pulse" />
+                </span>
+              </Button>
+            </TooltipWrapper>
+          )}
           <TooltipWrapper content={t('sidebar.toggleLang')}>
             <Button
               variant="ghost"
@@ -197,6 +243,18 @@ export default function Sidebar(): React.JSX.Element {
           </TooltipWrapper>
         </div>
       </div>
+      <UpdateModal
+        open={updateModalOpen}
+        onOpenChange={setUpdateModalOpen}
+        updateInfo={updateInfo}
+        downloadProgress={downloadProgress}
+        downloaded={downloaded}
+        onDownload={() => {
+          setDownloadProgress({ percent: 0, bytesPerSecond: 0, transferred: 0, total: 0 })
+          window.api.updater.download()
+        }}
+        onInstall={() => window.api.updater.install()}
+      />
     </aside>
   )
 }

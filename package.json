@@ -1,13 +1,13 @@
 {
   "name": "gatewayhub",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "Local multi-provider AI gateway hub with Kiro account pool",
   "main": "./out/main/index.js",
   "bin": {
     "gatewayhub": "./out/main/cli.js"
   },
   "author": "GatewayHub",
-  "homepage": "https://github.com/jwadow/kiro-gateway",
+  "homepage": "https://github.com/bee1an/GatewayHub",
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",

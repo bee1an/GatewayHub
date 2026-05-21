@@ -14,7 +14,7 @@ import { expect, test } from 'vitest'
 
 test('assertions', () => {
   // Equality
-  expect(1 + 1).toBe(2)              // Strict equality (===)
+  expect(1 + 1).toBe(2) // Strict equality (===)
   expect({ a: 1 }).toEqual({ a: 1 }) // Deep equality
 
   // Truthiness
@@ -107,33 +107,23 @@ Use inside `toEqual`, `toHaveBeenCalledWith`, etc:
 ```ts
 expect({ id: 1, name: 'test' }).toEqual({
   id: expect.any(Number),
-  name: expect.any(String),
+  name: expect.any(String)
 })
 
-expect({ a: 1, b: 2, c: 3 }).toEqual(
-  expect.objectContaining({ a: 1 })
-)
+expect({ a: 1, b: 2, c: 3 }).toEqual(expect.objectContaining({ a: 1 }))
 
-expect([1, 2, 3, 4]).toEqual(
-  expect.arrayContaining([1, 3])
-)
+expect([1, 2, 3, 4]).toEqual(expect.arrayContaining([1, 3]))
 
-expect('hello world').toEqual(
-  expect.stringContaining('world')
-)
+expect('hello world').toEqual(expect.stringContaining('world'))
 
-expect('hello world').toEqual(
-  expect.stringMatching(/world$/)
-)
+expect('hello world').toEqual(expect.stringMatching(/world$/))
 
 expect({ value: null }).toEqual({
   value: expect.anything() // Matches anything except null/undefined
 })
 
 // Negate with expect.not
-expect([1, 2]).toEqual(
-  expect.not.arrayContaining([3])
-)
+expect([1, 2]).toEqual(expect.not.arrayContaining([3]))
 ```
 
 ## Soft Assertions
@@ -153,10 +143,9 @@ Retry until passes:
 ```ts
 await expect.poll(() => fetchStatus()).toBe('ready')
 
-await expect.poll(
-  () => document.querySelector('.element'),
-  { interval: 100, timeout: 5000 }
-).toBeTruthy()
+await expect
+  .poll(() => document.querySelector('.element'), { interval: 100, timeout: 5000 })
+  .toBeTruthy()
 ```
 
 ## Assertion Count
@@ -164,7 +153,7 @@ await expect.poll(
 ```ts
 test('async assertions', async () => {
   expect.assertions(2) // Exactly 2 assertions must run
-  
+
   await doAsync((data) => {
     expect(data).toBeDefined()
     expect(data.id).toBe(1)
@@ -184,10 +173,9 @@ expect.extend({
     const pass = received >= floor && received <= ceiling
     return {
       pass,
-      message: () => 
-        `expected ${received} to be within range ${floor} - ${ceiling}`,
+      message: () => `expected ${received} to be within range ${floor} - ${ceiling}`
     }
-  },
+  }
 })
 
 test('custom matcher', () => {
@@ -213,7 +201,7 @@ expect(() => throw new Error('fail')).toThrowErrorMatchingSnapshot()
 - Use context's `expect` in concurrent tests for correct tracking
 - `toThrow` requires wrapping sync code in a function
 
-<!-- 
+<!--
 Source references:
 - https://vitest.dev/api/expect.html
 -->

@@ -14,14 +14,14 @@ defineConfig({
   test: {
     // Run files in parallel (default: true)
     fileParallelism: true,
-    
+
     // Number of worker threads
     maxWorkers: 4,
     minWorkers: 1,
-    
+
     // Pool type: 'threads', 'forks', 'vmThreads'
-    pool: 'threads',
-  },
+    pool: 'threads'
+  }
 })
 ```
 
@@ -56,7 +56,7 @@ Force sequential execution:
 describe.concurrent('mostly parallel', () => {
   test('parallel 1', async () => {})
   test('parallel 2', async () => {})
-  
+
   test.sequential('must run alone 1', async () => {})
   test.sequential('must run alone 2', async () => {})
 })
@@ -75,8 +75,8 @@ Limit concurrent tests:
 ```ts
 defineConfig({
   test: {
-    maxConcurrency: 5, // Max concurrent tests per file
-  },
+    maxConcurrency: 5 // Max concurrent tests per file
+  }
 })
 ```
 
@@ -88,8 +88,8 @@ Each file runs in isolated environment by default:
 defineConfig({
   test: {
     // Disable isolation for faster runs (less safe)
-    isolate: false,
-  },
+    isolate: false
+  }
 })
 ```
 
@@ -118,7 +118,7 @@ jobs:
         shard: [1, 2, 3]
     steps:
       - run: vitest run --shard=${{ matrix.shard }}/3 --reporter=blob
-      
+
   merge:
     needs: test
     steps:
@@ -146,17 +146,17 @@ defineConfig({
     sequence: {
       // Run tests in random order
       shuffle: true,
-      
+
       // Seed for reproducible shuffle
       seed: 12345,
-      
+
       // Hook execution order
       hooks: 'stack', // 'stack', 'list', 'parallel'
-      
+
       // All tests concurrent by default
-      concurrent: true,
-    },
-  },
+      concurrent: true
+    }
+  }
 })
 ```
 
@@ -188,10 +188,10 @@ defineConfig({
       threads: {
         maxThreads: 8,
         minThreads: 2,
-        isolate: true,
-      },
-    },
-  },
+        isolate: true
+      }
+    }
+  }
 })
 ```
 
@@ -206,10 +206,10 @@ defineConfig({
     poolOptions: {
       forks: {
         maxForks: 4,
-        isolate: true,
-      },
-    },
-  },
+        isolate: true
+      }
+    }
+  }
 })
 ```
 
@@ -220,8 +220,8 @@ Full VM isolation per file:
 ```ts
 defineConfig({
   test: {
-    pool: 'vmThreads',
-  },
+    pool: 'vmThreads'
+  }
 })
 ```
 
@@ -243,7 +243,7 @@ vitest --bail      # Stop on first failure (same as --bail 1)
 - Use `--merge-reports` to combine sharded results
 - Shuffle tests to find hidden dependencies
 
-<!-- 
+<!--
 Source references:
 - https://vitest.dev/guide/features.html#running-tests-concurrently
 - https://vitest.dev/guide/improving-performance.html

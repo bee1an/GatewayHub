@@ -14,7 +14,7 @@ Set layer on rules:
 ```ts
 rules: [
   [/^m-(\d)$/, ([, d]) => ({ margin: `${d / 4}rem` }), { layer: 'utilities' }],
-  ['btn', { padding: '4px' }], // default layer
+  ['btn', { padding: '4px' }] // default layer
 ]
 ```
 
@@ -56,9 +56,10 @@ outputToCssLayers: {
 ```html
 <!-- UnoCSS layer -->
 <p class="uno-layer-my-layer:text-xl">
+  <!-- CSS @layer -->
+</p>
 
-<!-- CSS @layer -->
-<p class="layer-my-layer:text-xl">
+<p class="layer-my-layer:text-xl"></p>
 ```
 
 ## Preflights
@@ -73,8 +74,8 @@ preflights: [
         color: ${theme.colors.gray?.[700] ?? '#333'};
         margin: 0;
       }
-    `,
-  },
+    `
+  }
 ]
 ```
 
@@ -84,20 +85,20 @@ With layer:
 preflights: [
   {
     layer: 'base',
-    getCSS: () => `html { font-family: system-ui; }`,
-  },
+    getCSS: () => `html { font-family: system-ui; }`
+  }
 ]
 ```
 
 ## preset-wind4 Layers
 
-| Layer | Description | Order |
-|-------|-------------|-------|
-| `properties` | CSS @property rules | -200 |
-| `theme` | Theme CSS variables | -150 |
-| `base` | Reset styles | -100 |
+| Layer        | Description         | Order |
+| ------------ | ------------------- | ----- |
+| `properties` | CSS @property rules | -200  |
+| `theme`      | Theme CSS variables | -150  |
+| `base`       | Reset styles        | -100  |
 
-<!-- 
+<!--
 Source references:
 - https://unocss.dev/config/layers
 - https://unocss.dev/config/preflights

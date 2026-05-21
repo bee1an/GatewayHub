@@ -13,9 +13,7 @@ The Tailwind CSS v4 compatible preset. Enhances preset-wind3 with modern CSS fea
 import { defineConfig, presetWind4 } from 'unocss'
 
 export default defineConfig({
-  presets: [
-    presetWind4(),
-  ],
+  presets: [presetWind4()]
 })
 ```
 
@@ -33,8 +31,8 @@ import '@unocss/reset/tailwind-compat.css' // ❌ Not needed
 // Enable in config
 presetWind4({
   preflights: {
-    reset: true,
-  },
+    reset: true
+  }
 })
 ```
 
@@ -47,7 +45,8 @@ Uses `oklch` for better color perception and contrast. Not compatible with `pres
 Automatically generates CSS variables from theme:
 
 ```css
-:root, :host {
+:root,
+:host {
   --spacing: 0.25rem;
   --font-sans: ui-sans-serif, system-ui, sans-serif;
   --colors-black: #000;
@@ -70,20 +69,20 @@ Uses `@property` for better browser optimization:
 
 ### Theme Key Changes
 
-| preset-wind3 | preset-wind4 |
-|--------------|--------------|
-| `fontFamily` | `font` |
-| `fontSize` | `text.fontSize` |
-| `lineHeight` | `text.lineHeight` or `leading` |
-| `letterSpacing` | `text.letterSpacing` or `tracking` |
-| `borderRadius` | `radius` |
-| `easing` | `ease` |
-| `breakpoints` | `breakpoint` |
-| `verticalBreakpoints` | `verticalBreakpoint` |
-| `boxShadow` | `shadow` |
-| `transitionProperty` | `property` |
-| `container.maxWidth` | `containers.maxWidth` |
-| Size properties (`width`, `height`, etc.) | Unified to `spacing` |
+| preset-wind3                              | preset-wind4                       |
+| ----------------------------------------- | ---------------------------------- |
+| `fontFamily`                              | `font`                             |
+| `fontSize`                                | `text.fontSize`                    |
+| `lineHeight`                              | `text.lineHeight` or `leading`     |
+| `letterSpacing`                           | `text.letterSpacing` or `tracking` |
+| `borderRadius`                            | `radius`                           |
+| `easing`                                  | `ease`                             |
+| `breakpoints`                             | `breakpoint`                       |
+| `verticalBreakpoints`                     | `verticalBreakpoint`               |
+| `boxShadow`                               | `shadow`                           |
+| `transitionProperty`                      | `property`                         |
+| `container.maxWidth`                      | `containers.maxWidth`              |
+| Size properties (`width`, `height`, etc.) | Unified to `spacing`               |
 
 ## Options
 
@@ -92,13 +91,13 @@ presetWind4({
   preflights: {
     // Built-in reset styles
     reset: true,
-    
+
     // Theme CSS variables generation
     theme: 'on-demand', // true | false | 'on-demand'
-    
+
     // @property CSS rules
-    property: true,
-  },
+    property: true
+  }
 })
 ```
 
@@ -113,14 +112,14 @@ presetWind4({
   preflights: {
     theme: {
       mode: 'on-demand',
-      process: createRemToPxProcessor(),
+      process: createRemToPxProcessor()
     }
-  },
+  }
 })
 
 // Also apply to utilities
 export default defineConfig({
-  postprocess: [createRemToPxProcessor()],
+  postprocess: [createRemToPxProcessor()]
 })
 ```
 
@@ -133,9 +132,9 @@ presetWind4({
       // Custom parent wrapper
       parent: '@layer custom-properties',
       // Custom selector
-      selector: ':where(*, ::before, ::after)',
-    },
-  },
+      selector: ':where(*, ::before, ::after)'
+    }
+  }
 })
 ```
 
@@ -145,19 +144,19 @@ Remove `@supports` wrapper:
 presetWind4({
   preflights: {
     property: {
-      parent: false,
-    },
-  },
+      parent: false
+    }
+  }
 })
 ```
 
 ## Generated Layers
 
-| Layer | Description | Order |
-|-------|-------------|-------|
-| `properties` | CSS `@property` rules | -200 |
-| `theme` | Theme CSS variables | -150 |
-| `base` | Reset/preflight styles | -100 |
+| Layer        | Description            | Order |
+| ------------ | ---------------------- | ----- |
+| `properties` | CSS `@property` rules  | -200  |
+| `theme`      | Theme CSS variables    | -150  |
+| `base`       | Reset/preflight styles | -100  |
 
 ## Theme.defaults
 
@@ -169,17 +168,17 @@ import type { Theme } from '@unocss/preset-wind4/theme'
 const defaults: Theme['default'] = {
   transition: {
     duration: '150ms',
-    timingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)',
+    timingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)'
   },
   font: {
     family: 'var(--font-sans)',
     featureSettings: 'var(--font-sans--font-feature-settings)',
-    variationSettings: 'var(--font-sans--font-variation-settings)',
+    variationSettings: 'var(--font-sans--font-variation-settings)'
   },
   monoFont: {
-    family: 'var(--font-mono)',
+    family: 'var(--font-mono)'
     // ...
-  },
+  }
 }
 ```
 
@@ -193,9 +192,9 @@ Not needed - use built-in processor instead:
 presetWind4({
   preflights: {
     theme: {
-      process: createRemToPxProcessor(),
+      process: createRemToPxProcessor()
     }
-  },
+  }
 })
 ```
 
@@ -230,18 +229,20 @@ theme: {
 ## When to Use Wind4
 
 Choose **preset-wind4** when:
+
 - Starting a new project
 - Targeting modern browsers
 - Want built-in reset and CSS variables
 - Following Tailwind v4 conventions
 
 Choose **preset-wind3** when:
+
 - Need legacy browser support
 - Migrating from Tailwind v3
 - Using presetLegacyCompat
 - Want stable, proven preset
 
-<!-- 
+<!--
 Source references:
 - https://unocss.dev/presets/wind4
 -->

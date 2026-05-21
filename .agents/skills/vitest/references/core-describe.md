@@ -95,7 +95,7 @@ describe.concurrent('parallel tests', () => {
 ```ts
 describe.concurrent('parallel', () => {
   test('concurrent 1', async () => {})
-  
+
   describe.sequential('must be sequential', () => {
     test('step 1', async () => {})
     test('step 2', async () => {})
@@ -123,7 +123,7 @@ describe('random', { shuffle: true }, () => {})
 ```ts
 describe.each([
   { name: 'Chrome', version: 100 },
-  { name: 'Firefox', version: 90 },
+  { name: 'Firefox', version: 90 }
 ])('$name browser', ({ name, version }) => {
   test('has version', () => {
     expect(version).toBeGreaterThan(0)
@@ -136,7 +136,7 @@ describe.each([
 ```ts
 describe.for([
   ['Chrome', 100],
-  ['Firefox', 90],
+  ['Firefox', 90]
 ])('%s browser', ([name, version]) => {
   test('has version', () => {
     expect(version).toBeGreaterThan(0)
@@ -187,7 +187,7 @@ describe.concurrent.skip('equivalent', () => {})
 - Use `describe.concurrent` with context's `expect` for snapshots
 - Shuffle order depends on `sequence.seed` config
 
-<!-- 
+<!--
 Source references:
 - https://vitest.dev/api/describe.html
 -->

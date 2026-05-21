@@ -13,10 +13,7 @@ Converts `rem` units to `px` in generated utilities.
 import { defineConfig, presetRemToPx, presetWind3 } from 'unocss'
 
 export default defineConfig({
-  presets: [
-    presetWind3(),
-    presetRemToPx(),
-  ],
+  presets: [presetWind3(), presetRemToPx()]
 })
 ```
 
@@ -25,17 +22,23 @@ export default defineConfig({
 Transforms all rem values to px:
 
 ```html
-<div class="p-4">
+<div class="p-4"></div>
 ```
 
 Without preset:
+
 ```css
-.p-4 { padding: 1rem; }
+.p-4 {
+  padding: 1rem;
+}
 ```
 
 With preset:
+
 ```css
-.p-4 { padding: 16px; }
+.p-4 {
+  padding: 16px;
+}
 ```
 
 ## Use Cases
@@ -50,7 +53,7 @@ With preset:
 ```ts
 presetRemToPx({
   // Base font size for conversion (default: 16)
-  baseFontSize: 16,
+  baseFontSize: 16
 })
 ```
 
@@ -58,7 +61,7 @@ Custom base:
 
 ```ts
 presetRemToPx({
-  baseFontSize: 14, // 1rem = 14px
+  baseFontSize: 14 // 1rem = 14px
 })
 ```
 
@@ -74,13 +77,13 @@ export default defineConfig({
     presetWind4({
       preflights: {
         theme: {
-          process: createRemToPxProcessor(),
+          process: createRemToPxProcessor()
         }
-      },
-    }),
+      }
+    })
   ],
   // Also apply to utilities
-  postprocess: [createRemToPxProcessor()],
+  postprocess: [createRemToPxProcessor()]
 })
 ```
 
@@ -90,7 +93,7 @@ export default defineConfig({
 - Affects all utilities with rem units
 - Theme values in rem are also converted
 
-<!-- 
+<!--
 Source references:
 - https://unocss.dev/presets/rem-to-px
 - https://unocss.dev/presets/wind4

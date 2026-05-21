@@ -13,9 +13,7 @@ Enables `@apply`, `@screen`, `theme()`, and `icon()` directives in CSS.
 import { defineConfig, transformerDirectives } from 'unocss'
 
 export default defineConfig({
-  transformers: [
-    transformerDirectives(),
-  ],
+  transformers: [transformerDirectives()]
 })
 ```
 
@@ -50,7 +48,7 @@ Configure aliases:
 
 ```ts
 transformerDirectives({
-  applyVariable: ['--at-apply', '--uno-apply', '--uno'],
+  applyVariable: ['--at-apply', '--uno-apply', '--uno']
   // or disable: applyVariable: false
 })
 ```
@@ -83,12 +81,16 @@ Create breakpoint media queries:
 ```css
 /* Less than breakpoint */
 @screen lt-sm {
-  .item { display: none; }
+  .item {
+    display: none;
+  }
 }
 
 /* At specific breakpoint only */
 @screen at-md {
-  .item { width: 50%; }
+  .item {
+    width: 50%;
+  }
 }
 ```
 
@@ -151,7 +153,7 @@ Convert icon utility to SVG (requires preset-icons):
 }
 ```
 
-<!-- 
+<!--
 Source references:
 - https://unocss.dev/transformers/directives
 -->

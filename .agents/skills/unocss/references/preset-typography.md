@@ -15,8 +15,8 @@ import { defineConfig, presetTypography, presetWind3 } from 'unocss'
 export default defineConfig({
   presets: [
     presetWind3(), // Required!
-    presetTypography(),
-  ],
+    presetTypography()
+  ]
 })
 ```
 
@@ -40,10 +40,9 @@ export default defineConfig({
 ```
 
 Responsive:
+
 ```html
-<article class="prose prose-sm md:prose-base lg:prose-lg">
-  Responsive typography
-</article>
+<article class="prose prose-sm md:prose-base lg:prose-lg">Responsive typography</article>
 ```
 
 ## Colors
@@ -57,9 +56,7 @@ Responsive:
 ## Dark Mode
 
 ```html
-<article class="prose dark:prose-invert">
-  Dark mode typography
-</article>
+<article class="prose dark:prose-invert">Dark mode typography</article>
 ```
 
 ## Excluding Elements
@@ -79,17 +76,17 @@ Responsive:
 
 ```ts
 presetTypography({
-  selectorName: 'prose',      // Custom selector
+  selectorName: 'prose', // Custom selector
   cssVarPrefix: '--un-prose', // CSS variable prefix
-  important: false,           // Make !important
+  important: false, // Make !important
   cssExtend: {
-    'code': { color: '#8b5cf6' },
-    'a:hover': { color: '#f43f5e' },
-  },
+    code: { color: '#8b5cf6' },
+    'a:hover': { color: '#f43f5e' }
+  }
 })
 ```
 
-<!-- 
+<!--
 Source references:
 - https://unocss.dev/presets/typography
 -->

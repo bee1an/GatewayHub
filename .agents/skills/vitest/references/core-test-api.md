@@ -32,7 +32,7 @@ test('async test', async () => {
 
 // Promises are automatically awaited
 test('returns promise', () => {
-  return fetchData().then(result => {
+  return fetchData().then((result) => {
     expect(result).toBeDefined()
   })
 })
@@ -127,7 +127,7 @@ test.sequential('must run alone', async () => {})
 test.each([
   [1, 1, 2],
   [1, 2, 3],
-  [2, 1, 3],
+  [2, 1, 3]
 ])('add(%i, %i) = %i', (a, b, expected) => {
   expect(a + b).toBe(expected)
 })
@@ -135,7 +135,7 @@ test.each([
 // With objects
 test.each([
   { a: 1, b: 1, expected: 2 },
-  { a: 1, b: 2, expected: 3 },
+  { a: 1, b: 2, expected: 3 }
 ])('add($a, $b) = $expected', ({ a, b, expected }) => {
   expect(a + b).toBe(expected)
 })
@@ -157,7 +157,7 @@ Preferred over `.each` - doesn't spread arrays:
 ```ts
 test.for([
   [1, 1, 2],
-  [1, 2, 3],
+  [1, 2, 3]
 ])('add(%i, %i) = %i', ([a, b, expected], { expect }) => {
   // Second arg is TestContext
   expect(a + b).toBe(expected)
@@ -170,9 +170,9 @@ First argument provides context utilities:
 
 ```ts
 test('with context', ({ expect, skip, task }) => {
-  console.log(task.name)   // Test name
-  skip(someCondition)      // Skip dynamically
-  expect(1).toBe(1)        // Context-bound expect
+  console.log(task.name) // Test name
+  skip(someCondition) // Skip dynamically
+  expect(1).toBe(1) // Context-bound expect
 })
 ```
 
@@ -186,7 +186,7 @@ const test = base.extend({
     const db = await createDb()
     await use(db)
     await db.close()
-  },
+  }
 })
 
 test('query', async ({ db }) => {
@@ -203,13 +203,17 @@ test('flaky test', { retry: 3 }, async () => {
 })
 
 // Advanced retry options
-test('with delay', {
-  retry: {
-    count: 3,
-    delay: 1000,
-    condition: /timeout/i, // Only retry on timeout errors
+test(
+  'with delay',
+  {
+    retry: {
+      count: 3,
+      delay: 1000,
+      condition: /timeout/i // Only retry on timeout errors
+    }
   },
-}, async () => {})
+  async () => {}
+)
 ```
 
 ## Tags
@@ -227,7 +231,7 @@ test('database test', { tags: ['db', 'slow'] }, async () => {})
 - Use context's `expect` for concurrent tests and snapshots
 - Function name is used as test name if passed as first arg
 
-<!-- 
+<!--
 Source references:
 - https://vitest.dev/api/test.html
 -->

@@ -19,14 +19,14 @@ description: Configure environments like jsdom, happy-dom for browser APIs
 defineConfig({
   test: {
     environment: 'jsdom',
-    
+
     // Environment-specific options
     environmentOptions: {
       jsdom: {
-        url: 'http://localhost',
-      },
-    },
-  },
+        url: 'http://localhost'
+      }
+    }
+  }
 })
 ```
 
@@ -64,10 +64,10 @@ Full browser environment simulation:
 
 test('DOM manipulation', () => {
   document.body.innerHTML = '<div id="app"></div>'
-  
+
   const app = document.getElementById('app')
   app.textContent = 'Hello'
-  
+
   expect(app.textContent).toBe('Hello')
 })
 
@@ -87,10 +87,10 @@ defineConfig({
         url: 'http://localhost:3000',
         html: '<!DOCTYPE html><html><body></body></html>',
         userAgent: 'custom-agent',
-        resources: 'usable',
-      },
-    },
-  },
+        resources: 'usable'
+      }
+    }
+  }
 })
 ```
 
@@ -120,18 +120,18 @@ defineConfig({
         test: {
           name: 'unit',
           include: ['tests/unit/**/*.test.ts'],
-          environment: 'node',
-        },
+          environment: 'node'
+        }
       },
       {
         test: {
           name: 'dom',
           include: ['tests/dom/**/*.test.ts'],
-          environment: 'jsdom',
-        },
-      },
-    ],
-  },
+          environment: 'jsdom'
+        }
+      }
+    ]
+  }
 })
 ```
 
@@ -146,17 +146,17 @@ import type { Environment } from 'vitest/runtime'
 export default <Environment>{
   name: 'custom',
   viteEnvironment: 'ssr', // or 'client'
-  
+
   setup() {
     // Setup global state
     globalThis.myGlobal = 'value'
-    
+
     return {
       teardown() {
         delete globalThis.myGlobal
-      },
+      }
     }
-  },
+  }
 }
 ```
 
@@ -165,8 +165,8 @@ Use with:
 ```ts
 defineConfig({
   test: {
-    environment: 'custom',
-  },
+    environment: 'custom'
+  }
 })
 ```
 
@@ -178,22 +178,22 @@ For full isolation:
 export default <Environment>{
   name: 'isolated',
   viteEnvironment: 'ssr',
-  
+
   async setupVM() {
     const vm = await import('node:vm')
     const context = vm.createContext()
-    
+
     return {
       getVmContext() {
         return context
       },
-      teardown() {},
+      teardown() {}
     }
   },
-  
+
   setup() {
     return { teardown() {} }
-  },
+  }
 }
 ```
 
@@ -207,9 +207,9 @@ defineConfig({
     browser: {
       enabled: true,
       name: 'chromium', // or 'firefox', 'webkit'
-      provider: 'playwright',
-    },
-  },
+      provider: 'playwright'
+    }
+  }
 })
 ```
 
@@ -221,15 +221,15 @@ In jsdom/happy-dom, configure CSS handling:
 defineConfig({
   test: {
     css: true, // Process CSS
-    
+
     // Or with options
     css: {
       include: /\.module\.css$/,
       modules: {
-        classNameStrategy: 'non-scoped',
-      },
-    },
-  },
+        classNameStrategy: 'non-scoped'
+      }
+    }
+  }
 })
 ```
 
@@ -242,10 +242,10 @@ defineConfig({
   test: {
     server: {
       deps: {
-        inline: ['problematic-package'],
-      },
-    },
-  },
+        inline: ['problematic-package']
+      }
+    }
+  }
 })
 ```
 
@@ -258,7 +258,7 @@ defineConfig({
 - Use projects for multiple environment configurations
 - Browser Mode is for real browser testing, not environment
 
-<!-- 
+<!--
 Source references:
 - https://vitest.dev/guide/environment.html
 -->

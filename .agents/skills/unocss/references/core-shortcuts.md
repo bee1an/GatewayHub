@@ -22,6 +22,7 @@ shortcuts: {
 ```
 
 Usage:
+
 ```html
 <button class="btn btn-green">Click me</button>
 ```
@@ -34,10 +35,10 @@ Use RegExp matcher with function, similar to dynamic rules:
 shortcuts: [
   // Static shortcuts can be in array too
   {
-    btn: 'py-2 px-4 font-semibold rounded-lg shadow-md',
+    btn: 'py-2 px-4 font-semibold rounded-lg shadow-md'
   },
   // Dynamic shortcut
-  [/^btn-(.*)$/, ([, c]) => `bg-${c}-400 text-${c}-100 py-2 px-4 rounded-lg`],
+  [/^btn-(.*)$/, ([, c]) => `bg-${c}-400 text-${c}-100 py-2 px-4 rounded-lg`]
 ]
 ```
 
@@ -60,10 +61,12 @@ Dynamic shortcuts receive context with theme access:
 
 ```ts
 shortcuts: [
-  [/^badge-(.*)$/, ([, c], { theme }) => {
-    if (Object.keys(theme.colors).includes(c))
-      return `bg-${c}4:10 text-${c}5 rounded`
-  }],
+  [
+    /^badge-(.*)$/,
+    ([, c], { theme }) => {
+      if (Object.keys(theme.colors).includes(c)) return `bg-${c}4:10 text-${c}5 rounded`
+    }
+  ]
 ]
 ```
 
@@ -83,7 +86,7 @@ shortcutsLayer: 'my-shortcuts-layer'
 - Shortcuts are expanded at build time, not runtime
 - All variants work with shortcuts (`hover:btn`, `dark:btn`, etc.)
 
-<!-- 
+<!--
 Source references:
 - https://unocss.dev/config/shortcuts
 -->

@@ -19,9 +19,7 @@ import UnoCSS from 'unocss/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [
-    UnoCSS(),
-  ],
+  plugins: [UnoCSS()]
 })
 ```
 
@@ -32,9 +30,7 @@ Create config file:
 import { defineConfig, presetWind3 } from 'unocss'
 
 export default defineConfig({
-  presets: [
-    presetWind3(),
-  ],
+  presets: [presetWind3()]
 })
 ```
 
@@ -61,7 +57,7 @@ Injects generated CSS into Vue SFC `<style scoped>`.
 
 ```ts
 UnoCSS({
-  mode: 'vue-scoped',
+  mode: 'vue-scoped'
 })
 ```
 
@@ -71,7 +67,7 @@ For Web Components using Shadow DOM:
 
 ```ts
 UnoCSS({
-  mode: 'shadow-dom',
+  mode: 'shadow-dom'
 })
 ```
 
@@ -119,8 +115,8 @@ import UnoCSS from 'unocss/vite'
 export default {
   plugins: [
     UnoCSS(), // Must be before React when using attributify
-    React(),
-  ],
+    React()
+  ]
 }
 ```
 
@@ -140,10 +136,10 @@ import UnoCSS from 'unocss/vite'
 export default {
   plugins: [
     UnoCSS({
-      extractors: [extractorSvelte()],
+      extractors: [extractorSvelte()]
     }),
-    svelte(),
-  ],
+    svelte()
+  ]
 }
 ```
 
@@ -160,10 +156,7 @@ import UnoCSS from 'unocss/vite'
 import solidPlugin from 'vite-plugin-solid'
 
 export default {
-  plugins: [
-    UnoCSS(),
-    solidPlugin(),
-  ],
+  plugins: [UnoCSS(), solidPlugin()]
 }
 ```
 
@@ -174,10 +167,7 @@ import Preact from '@preact/preset-vite'
 import UnoCSS from 'unocss/vite'
 
 export default {
-  plugins: [
-    UnoCSS(),
-    Preact(),
-  ],
+  plugins: [UnoCSS(), Preact()]
 }
 ```
 
@@ -188,10 +178,7 @@ import Elm from 'vite-plugin-elm'
 import UnoCSS from 'unocss/vite'
 
 export default {
-  plugins: [
-    Elm(),
-    UnoCSS(),
-  ],
+  plugins: [Elm(), UnoCSS()]
 }
 ```
 
@@ -200,9 +187,7 @@ export default {
 ```ts
 UnoCSS({
   mode: 'shadow-dom',
-  shortcuts: [
-    { 'cool-blue': 'bg-blue-500 text-white' },
-  ],
+  shortcuts: [{ 'cool-blue': 'bg-blue-500 text-white' }]
 })
 ```
 
@@ -239,14 +224,14 @@ export default {
   plugins: [
     UnoCSS({
       legacy: {
-        renderModernChunks: false,
-      },
+        renderModernChunks: false
+      }
     }),
     legacy({
       targets: ['defaults', 'not IE 11'],
-      renderModernChunks: false,
-    }),
-  ],
+      renderModernChunks: false
+    })
+  ]
 }
 ```
 
@@ -259,12 +244,9 @@ By default, `.js` and `.ts` files are not extracted. Configure to include:
 export default defineConfig({
   content: {
     pipeline: {
-      include: [
-        /\.(vue|svelte|[jt]sx|html)($|\?)/,
-        'src/**/*.{js,ts}',
-      ],
-    },
-  },
+      include: [/\.(vue|svelte|[jt]sx|html)($|\?)/, 'src/**/*.{js,ts}']
+    }
+  }
 })
 ```
 
@@ -273,11 +255,11 @@ Or use magic comment in files:
 ```ts
 // @unocss-include
 export const classes = {
-  active: 'bg-primary text-white',
+  active: 'bg-primary text-white'
 }
 ```
 
-<!-- 
+<!--
 Source references:
 - https://unocss.dev/integrations/vite
 -->

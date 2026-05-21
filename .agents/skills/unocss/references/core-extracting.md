@@ -23,10 +23,10 @@ export default defineConfig({
     pipeline: {
       include: [
         /\.(vue|svelte|[jt]sx|mdx?|astro|html)($|\?)/,
-        'src/**/*.{js,ts}', // Add js/ts
-      ],
-    },
-  },
+        'src/**/*.{js,ts}' // Add js/ts
+      ]
+    }
+  }
 })
 ```
 
@@ -37,11 +37,8 @@ For files not in build pipeline:
 ```ts
 export default defineConfig({
   content: {
-    filesystem: [
-      'src/**/*.php',
-      'public/*.html',
-    ],
-  },
+    filesystem: ['src/**/*.php', 'public/*.html']
+  }
 })
 ```
 
@@ -52,9 +49,9 @@ export default defineConfig({
   content: {
     inline: [
       '<div class="p-4 text-red">Some text</div>',
-      async () => (await fetch('https://example.com')).text(),
-    ],
-  },
+      async () => (await fetch('https://example.com')).text()
+    ]
+  }
 })
 ```
 
@@ -67,7 +64,7 @@ Force scan a file:
 ```ts
 // @unocss-include
 export const classes = {
-  active: 'bg-primary text-white',
+  active: 'bg-primary text-white'
 }
 ```
 
@@ -112,7 +109,7 @@ safelist: ['p-1', 'p-2', 'p-3', 'p-4']
 ```ts
 const colors = {
   red: 'text-red border-red',
-  blue: 'text-blue border-blue',
+  blue: 'text-blue border-blue'
 }
 ```
 
@@ -126,12 +123,12 @@ extractors: [
     name: 'my-extractor',
     extract({ code }) {
       return code.match(/class:[\w-]+/g) || []
-    },
-  },
+    }
+  }
 ]
 ```
 
-<!-- 
+<!--
 Source references:
 - https://unocss.dev/guide/extracting
 -->

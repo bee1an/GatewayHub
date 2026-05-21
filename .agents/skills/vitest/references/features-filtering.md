@@ -61,7 +61,7 @@ Useful with lint-staged:
 ```js
 // .lintstagedrc.js
 export default {
-  '*.{ts,tsx}': 'vitest related --run',
+  '*.{ts,tsx}': 'vitest related --run'
 }
 ```
 
@@ -80,8 +80,8 @@ In CI, `.only` throws error unless configured:
 ```ts
 defineConfig({
   test: {
-    allowOnly: true, // Allow .only in CI
-  },
+    allowOnly: true // Allow .only in CI
+  }
 })
 ```
 
@@ -123,8 +123,8 @@ Configure allowed tags:
 defineConfig({
   test: {
     tags: ['db', 'slow', 'integration'],
-    strictTags: true, // Fail on unknown tags
-  },
+    strictTags: true // Fail on unknown tags
+  }
 })
 ```
 
@@ -135,23 +135,20 @@ defineConfig({
   test: {
     // Test file patterns
     include: ['**/*.{test,spec}.{ts,tsx}'],
-    
+
     // Exclude patterns
-    exclude: [
-      '**/node_modules/**',
-      '**/e2e/**',
-      '**/*.skip.test.ts',
-    ],
-    
+    exclude: ['**/node_modules/**', '**/e2e/**', '**/*.skip.test.ts'],
+
     // Include source for in-source testing
-    includeSource: ['src/**/*.ts'],
-  },
+    includeSource: ['src/**/*.ts']
+  }
 })
 ```
 
 ## Watch Mode Filtering
 
 In watch mode, press:
+
 - `p` - Filter by filename pattern
 - `t` - Filter by test name pattern
 - `a` - Run all tests
@@ -204,7 +201,7 @@ vitest list --json          # JSON output
 - Use `.only` for debugging, but configure CI to reject it
 - Watch mode has interactive filtering
 
-<!-- 
+<!--
 Source references:
 - https://vitest.dev/guide/filtering.html
 - https://vitest.dev/guide/cli.html

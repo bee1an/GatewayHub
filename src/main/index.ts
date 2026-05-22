@@ -72,6 +72,10 @@ app.whenReady().then(() => {
 
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
+  ipcMain.on('app:version', (e) => {
+    e.returnValue = app.getVersion()
+  })
+  ipcMain.handle('app:version', () => app.getVersion())
 
   registerGatewayIpc()
   gatewayHubService

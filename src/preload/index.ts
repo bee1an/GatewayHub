@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
-const appVersion = process.versions['app'] ?? process.env['npm_package_version'] ?? ''
+const appVersion: string = ipcRenderer.sendSync('app:version')
 
 const api = {
   appVersion,

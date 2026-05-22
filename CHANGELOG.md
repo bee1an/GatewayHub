@@ -2,6 +2,13 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.0.5 - 2026-05-22
+
+Fixed version number not displaying in packaged builds.
+
+- Fixed app version not showing in settings and update modal by fetching version from main process via IPC
+- Fixed tsgo type-check error for `@radix-ui/react-tabs` module resolution
+
 ## 0.0.4 - 2026-05-22
 
 Fixed auto-update not applying after download, and release notes now render properly.

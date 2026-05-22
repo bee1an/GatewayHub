@@ -4,9 +4,23 @@ import { BrowserWindow, ipcMain } from 'electron'
 autoUpdater.autoDownload = false
 autoUpdater.autoInstallOnAppQuit = false
 
-export function setupUpdater(win: BrowserWindow): void {
+let initialized = false
+
+function broadcast(channel: string, payload?: unknown): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send(channel, payload)
+  }
+}
+
+export function setupUpdater(_win: BrowserWindow): void {
+  if (initialized) {
+    autoUpdater.checkForUpdates().catch(() => {})
+    return
+  }
+  initialized = true
+
   autoUpdater.on('update-available', (info) => {
-    win.webContents.send('updater:update-available', {
+    broadcast('updater:update-available', {
       version: info.version,
       releaseNotes: info.releaseNotes,
       releaseDate: info.releaseDate
@@ -14,7 +28,7 @@ export function setupUpdater(win: BrowserWindow): void {
   })
 
   autoUpdater.on('download-progress', (progress) => {
-    win.webContents.send('updater:download-progress', {
+    broadcast('updater:download-progress', {
       percent: progress.percent,
       bytesPerSecond: progress.bytesPerSecond,
       transferred: progress.transferred,
@@ -23,11 +37,11 @@ export function setupUpdater(win: BrowserWindow): void {
   })
 
   autoUpdater.on('update-downloaded', () => {
-    win.webContents.send('updater:update-downloaded')
+    broadcast('updater:update-downloaded')
   })
 
   autoUpdater.on('error', (err) => {
-    win.webContents.send('updater:error', err.message)
+    broadcast('updater:error', err.message)
   })
 
   ipcMain.handle('updater:check', () => autoUpdater.checkForUpdates())

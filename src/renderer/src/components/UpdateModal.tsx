@@ -48,12 +48,7 @@ export function UpdateModal({
   }
 
   return (
-    <Modal
-      open={open}
-      onOpenChange={onOpenChange}
-      title={t('updater.title')}
-      width="420px"
-    >
+    <Modal open={open} onOpenChange={onOpenChange} title={t('updater.title')} width="420px">
       <div className="space-y-4">
         <div className="flex items-center gap-3 rounded-[var(--radius-md)] bg-slate p-3">
           <div className="flex items-center justify-center w-9 h-9 rounded-[var(--radius-md)] bg-emerald/15">
@@ -61,9 +56,7 @@ export function UpdateModal({
           </div>
           <div className="flex-1 flex items-center justify-between">
             <div className="flex flex-col gap-0.5">
-              <span className="text-[13px] text-porcelain font-medium">
-                v{updateInfo.version}
-              </span>
+              <span className="text-[13px] text-porcelain font-medium">v{updateInfo.version}</span>
               {updateInfo.releaseDate && (
                 <span className="text-[11px] text-fog">
                   {new Date(updateInfo.releaseDate).toLocaleDateString()}

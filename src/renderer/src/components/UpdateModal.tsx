@@ -72,6 +72,13 @@ export function UpdateModal({
         {updateInfo.releaseNotes && (
           <div
             className="max-h-40 overflow-y-auto rounded-[var(--radius-md)] bg-pitch border border-charcoal/60 p-3 text-[12px] text-steel leading-relaxed [&_p]:my-1 [&_ul]:list-disc [&_ul]:pl-4 [&_ul]:my-1 [&_li]:my-0.5 [&_a]:text-accent [&_a]:underline"
+            onClick={(e) => {
+              const target = (e.target as HTMLElement).closest('a')
+              if (!target) return
+              e.preventDefault()
+              const href = target.getAttribute('href')
+              if (href && /^https?:\/\//.test(href)) window.open(href, '_blank', 'noopener')
+            }}
             dangerouslySetInnerHTML={{
               __html: typeof updateInfo.releaseNotes === 'string' ? updateInfo.releaseNotes : ''
             }}

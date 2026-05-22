@@ -2,6 +2,12 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.0.6-beta.2 - 2026-05-23
+
+Fixed update modal links navigating the entire window when clicked.
+
+- Fixed clicking links inside release notes loading the URL into the app window — links now open in the system browser as expected
+
 ## 0.0.6-beta.1 - 2026-05-22
 
 Fixed auto-update not actually replacing the app on macOS, plus icon and styling fixes in the update modal.

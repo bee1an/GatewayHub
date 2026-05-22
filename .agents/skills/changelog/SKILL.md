@@ -62,3 +62,12 @@ After the changelog section is written to `CHANGELOG.md`:
 3. If no Release exists, create one: `gh release create v<version> --title "v<version>" --notes-file -` (pipe the changelog section via stdin)
 4. If a Release already exists, update it: `gh release edit v<version> --notes-file -`
 5. If the tag does not exist yet, skip this step and only update the local `CHANGELOG.md`.
+
+### Cleanup auto-appended content
+
+GitHub may auto-append boilerplate (e.g. `**Full Changelog**: <compare-url>`, "What's Changed", contributor lists) to the release body even when `--notes` is provided explicitly. This happens when the repo has release notes auto-generation enabled or a `.github/release.yml` template.
+
+After creating or editing a release, **always verify the final body** with `gh release view v<version> --json body -q .body` and compare it against the changelog section that was supposed to be written. If GitHub added anything that isn't in the source `CHANGELOG.md`:
+
+- Re-run `gh release edit v<version> --notes-file -` with only the intended changelog content.
+- Do NOT include the auto-generated `**Full Changelog**` line, comparison links, or "What's Changed" sections — the changelog body should match `CHANGELOG.md` exactly.

@@ -251,7 +251,7 @@ export default function Settings(): React.JSX.Element {
               className="text-storm hover:text-porcelain transition-colors font-mono truncate"
             >
               bee1an/GatewayHub
-              <span className="i-ph:arrow-square-out ml-1 text-[10px] inline-block align-middle text-fog" />
+              <span className="i-ph-arrow-square-out ml-1 text-[10px] inline-block align-middle text-fog" />
             </a>
           </div>
         </div>

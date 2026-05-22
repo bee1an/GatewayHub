@@ -2,6 +2,15 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.0.6-beta.1 - 2026-05-22
+
+Fixed auto-update not actually replacing the app on macOS, plus icon and styling fixes in the update modal.
+
+- Added ad-hoc code signing for macOS (`identity: '-'`) so `quitAndInstall` can replace the app — the previous unsigned build was rejected by Squirrel.Mac during the update step
+- Fixed missing icons in update modal (`i-ph:xxx` corrected to `i-ph-xxx` to match the resolver used elsewhere)
+- Fixed transparent backgrounds rendering as solid green by replacing `bg-emerald/10` and `bg-emerald/15` with `color-mix` expressions
+- Removed auto-generated "Full Changelog" lines from existing GitHub Releases
+
 ## 0.0.5 - 2026-05-22
 
 Fixed version number not displaying in packaged builds.

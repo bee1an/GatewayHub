@@ -51,8 +51,8 @@ export function UpdateModal({
     <Modal open={open} onOpenChange={onOpenChange} title={t('updater.title')} width="420px">
       <div className="space-y-4">
         <div className="flex items-center gap-3 rounded-[var(--radius-md)] bg-slate p-3">
-          <div className="flex items-center justify-center w-9 h-9 rounded-[var(--radius-md)] bg-emerald/15">
-            <span className="i-ph:arrow-circle-up-bold text-emerald text-lg" />
+          <div className="flex items-center justify-center w-9 h-9 rounded-[var(--radius-md)] bg-[color-mix(in_srgb,var(--c-emerald)_15%,transparent)]">
+            <span className="i-ph-arrow-circle-up-bold text-emerald text-lg" />
           </div>
           <div className="flex-1 flex items-center justify-between">
             <div className="flex flex-col gap-0.5">
@@ -99,8 +99,8 @@ export function UpdateModal({
         )}
 
         {downloaded && (
-          <div className="flex items-center gap-2 rounded-[var(--radius-md)] bg-emerald/10 border border-emerald/20 p-3">
-            <span className="i-ph:check-circle-bold text-emerald text-base" />
+          <div className="flex items-center gap-2 rounded-[var(--radius-md)] bg-[color-mix(in_srgb,var(--c-emerald)_10%,transparent)] border border-[color-mix(in_srgb,var(--c-emerald)_20%,transparent)] p-3">
+            <span className="i-ph-check-circle-bold text-emerald text-base" />
             <span className="text-[12px] text-emerald font-medium">
               {t('updater.downloadComplete')}
             </span>
@@ -115,7 +115,7 @@ export function UpdateModal({
             className="text-[11px] text-fog hover:text-storm transition-colors"
           >
             GitHub Releases
-            <span className="i-ph:arrow-square-out ml-0.5 text-[10px] inline-block align-middle" />
+            <span className="i-ph-arrow-square-out ml-0.5 text-[10px] inline-block align-middle" />
           </a>
           <div className="flex gap-2">
             {!downloading && !downloaded && (

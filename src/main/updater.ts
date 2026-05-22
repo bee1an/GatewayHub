@@ -3,6 +3,7 @@ import { BrowserWindow, ipcMain } from 'electron'
 
 autoUpdater.autoDownload = false
 autoUpdater.autoInstallOnAppQuit = true
+autoUpdater.allowPrerelease = true
 
 let initialized = false
 

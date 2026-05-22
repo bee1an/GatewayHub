@@ -173,7 +173,9 @@ const en = {
     autoStart: 'Auto Start',
     autoStartDesc: 'Start gateway server when app launches',
     save: 'Save',
-    saved: 'Settings saved'
+    saved: 'Settings saved',
+    about: 'About',
+    version: 'Version'
   },
   apiKeys: {
     title: 'API Keys',
@@ -280,6 +282,7 @@ const en = {
   updater: {
     title: 'Update Available',
     newVersion: 'New version: v{{version}}',
+    current: 'Current',
     download: 'Download',
     later: 'Later',
     restart: 'Restart Now',

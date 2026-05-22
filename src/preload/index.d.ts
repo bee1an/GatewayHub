@@ -12,6 +12,7 @@ declare global {
   interface Window {
     electron: ElectronAPI
     api: {
+      appVersion: string
       gateway: {
         status: () => Promise<any>
         start: () => Promise<any>

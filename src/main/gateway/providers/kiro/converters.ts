@@ -2,6 +2,9 @@ import { randomUUID } from 'crypto'
 import { estimateTokens } from '../../core/utils'
 import { toKiroModelId } from './accountPool'
 
+const EMPTY_MESSAGE_PLACEHOLDER = ''
+const EMPTY_TOOL_RESULT_PLACEHOLDER = '(empty result)'
+
 interface UnifiedMessage {
   role: string
   content: any
@@ -124,7 +127,7 @@ function openAiMessagesToUnified(messages: any[]): { system: string; messages: U
     if (msg.role === 'tool') {
       pendingToolResults.push({
         tool_use_id: msg.tool_call_id || '',
-        content: extractText(msg.content) || '(empty result)'
+        content: extractText(msg.content) || EMPTY_TOOL_RESULT_PLACEHOLDER
       })
       pendingImages.push(...extractImages(msg.content))
       continue
@@ -198,14 +201,16 @@ function anthropicToolsToUnified(tools?: any[]): UnifiedTool[] {
 
 function toKiroHistoryMessage(message: UnifiedMessage, model: string): any {
   if (message.role === 'assistant') {
-    const assistantResponseMessage: any = { content: extractText(message.content) || '(empty)' }
+    const assistantResponseMessage: any = {
+      content: extractText(message.content) || EMPTY_MESSAGE_PLACEHOLDER
+    }
     const uses = toolUsesToKiro(message.toolCalls ?? extractToolUses(message.content))
     if (uses.length) assistantResponseMessage.toolUses = uses
     return { assistantResponseMessage }
   }
 
   const userInputMessage: any = {
-    content: extractText(message.content) || '(empty)',
+    content: extractText(message.content) || EMPTY_MESSAGE_PLACEHOLDER,
     modelId: model,
     origin: 'AI_EDITOR'
   }
@@ -227,7 +232,7 @@ function normalizeMessages(messages: UnifiedMessage[]): UnifiedMessage[] {
 
 function ensureFirstUser(messages: UnifiedMessage[]): UnifiedMessage[] {
   if (!messages.length || messages[0].role === 'user') return messages
-  return [{ role: 'user', content: '(empty)' }, ...messages]
+  return [{ role: 'user', content: EMPTY_MESSAGE_PLACEHOLDER }, ...messages]
 }
 
 function ensureAlternating(messages: UnifiedMessage[]): UnifiedMessage[] {
@@ -235,7 +240,10 @@ function ensureAlternating(messages: UnifiedMessage[]): UnifiedMessage[] {
   for (const message of messages) {
     const previous = result[result.length - 1]
     if (previous && previous.role === message.role) {
-      result.push({ role: previous.role === 'user' ? 'assistant' : 'user', content: '(empty)' })
+      result.push({
+        role: previous.role === 'user' ? 'assistant' : 'user',
+        content: EMPTY_MESSAGE_PLACEHOLDER
+      })
     }
     result.push(message)
   }
@@ -293,7 +301,7 @@ function extractToolResults(content: any): any[] {
     .filter((part) => part?.type === 'tool_result')
     .map((part) => ({
       tool_use_id: part.tool_use_id || '',
-      content: extractText(part.content) || '(empty result)'
+      content: extractText(part.content) || EMPTY_TOOL_RESULT_PLACEHOLDER
     }))
 }
 
@@ -358,7 +366,7 @@ function toolUsesToKiro(toolCalls: any[]): any[] {
 function toolResultsToKiro(results: any[]): any[] {
   if (!Array.isArray(results)) return []
   return results.map((result) => ({
-    content: [{ text: extractText(result.content) || '(empty result)' }],
+    content: [{ text: extractText(result.content) || EMPTY_TOOL_RESULT_PLACEHOLDER }],
     status: result.is_error ? 'error' : 'success',
     toolUseId: result.tool_use_id || result.toolUseId || ''
   }))

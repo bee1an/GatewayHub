@@ -234,6 +234,30 @@ export default function Settings(): React.JSX.Element {
           </pre>
         </div>
       </div>
+
+      <div className="card">
+        <div className="px-3.5 py-2 border-b border-charcoal/60">
+          <h2 className="text-[13px] font-medium text-porcelain">{t('settings.about')}</h2>
+        </div>
+        <div className="px-3.5 py-2.5">
+          <div className="grid grid-cols-[72px_1fr] gap-x-3 gap-y-2 text-[12px] items-center">
+            <span className="text-fog font-medium">{t('settings.version')}</span>
+            <span className="text-storm font-mono">
+              v{window.api.appVersion || '—'}
+            </span>
+            <span className="text-fog font-medium">GitHub</span>
+            <a
+              href="https://github.com/bee1an/GatewayHub"
+              target="_blank"
+              rel="noreferrer"
+              className="text-storm hover:text-porcelain transition-colors font-mono truncate"
+            >
+              bee1an/GatewayHub
+              <span className="i-ph:arrow-square-out ml-1 text-[10px] inline-block align-middle text-fog" />
+            </a>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

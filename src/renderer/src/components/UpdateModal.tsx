@@ -50,23 +50,34 @@ export function UpdateModal({
   return (
     <Modal
       open={open}
-      onOpenChange={downloading ? () => {} : onOpenChange}
+      onOpenChange={onOpenChange}
       title={t('updater.title')}
+      width="420px"
     >
       <div className="space-y-4">
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald/10 border border-emerald/20 text-emerald font-medium">
-            v{updateInfo.version}
-          </span>
-          {updateInfo.releaseDate && (
+        <div className="flex items-center gap-3 rounded-[var(--radius-md)] bg-slate p-3">
+          <div className="flex items-center justify-center w-9 h-9 rounded-[var(--radius-md)] bg-emerald/15">
+            <span className="i-ph:arrow-circle-up-bold text-emerald text-lg" />
+          </div>
+          <div className="flex-1 flex items-center justify-between">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[13px] text-porcelain font-medium">
+                v{updateInfo.version}
+              </span>
+              {updateInfo.releaseDate && (
+                <span className="text-[11px] text-fog">
+                  {new Date(updateInfo.releaseDate).toLocaleDateString()}
+                </span>
+              )}
+            </div>
             <span className="text-[11px] text-fog">
-              {new Date(updateInfo.releaseDate).toLocaleDateString()}
+              {t('updater.current')}: v{window.api.appVersion}
             </span>
-          )}
+          </div>
         </div>
 
         {updateInfo.releaseNotes && (
-          <div className="max-h-48 overflow-y-auto rounded-[var(--radius-md)] bg-pitch border border-charcoal/60 p-3">
+          <div className="max-h-40 overflow-y-auto rounded-[var(--radius-md)] bg-pitch border border-charcoal/60 p-3">
             <pre className="text-[12px] text-steel whitespace-pre-wrap font-sans leading-relaxed">
               {typeof updateInfo.releaseNotes === 'string' ? updateInfo.releaseNotes : ''}
             </pre>
@@ -74,52 +85,71 @@ export function UpdateModal({
         )}
 
         {downloading && downloadProgress && (
-          <div className="space-y-2">
-            <div className="h-2 rounded-full bg-charcoal overflow-hidden">
-              <div
-                className="h-full rounded-full bg-emerald transition-[width] duration-300"
-                style={{ width: `${downloadProgress.percent}%` }}
-              />
-            </div>
-            <div className="flex items-center justify-between text-[11px] text-fog">
+          <div className="space-y-2 rounded-[var(--radius-md)] bg-slate p-3">
+            <div className="flex items-center justify-between text-[11px] text-storm mb-1.5">
               <span>
                 {formatBytes(downloadProgress.transferred)} / {formatBytes(downloadProgress.total)}
               </span>
               <span>{formatSpeed(downloadProgress.bytesPerSecond)}</span>
             </div>
-            <div className="text-[11px] text-fog text-center">
+            <div className="h-1.5 rounded-full bg-charcoal overflow-hidden">
+              <div
+                className="h-full rounded-full bg-emerald transition-[width] duration-300"
+                style={{ width: `${downloadProgress.percent}%` }}
+              />
+            </div>
+            <div className="text-[11px] text-fog text-right">
               {Math.round(downloadProgress.percent)}%
             </div>
           </div>
         )}
 
         {downloaded && (
-          <div className="text-[12px] text-emerald font-medium text-center py-2">
-            {t('updater.downloadComplete')}
+          <div className="flex items-center gap-2 rounded-[var(--radius-md)] bg-emerald/10 border border-emerald/20 p-3">
+            <span className="i-ph:check-circle-bold text-emerald text-base" />
+            <span className="text-[12px] text-emerald font-medium">
+              {t('updater.downloadComplete')}
+            </span>
           </div>
         )}
 
-        <div className="flex justify-end gap-2 pt-2">
-          {!downloading && !downloaded && (
-            <>
-              <Button variant="default" onClick={() => onOpenChange(false)}>
+        <div className="flex items-center justify-between pt-1">
+          <a
+            href="https://github.com/bee1an/GatewayHub/releases"
+            target="_blank"
+            rel="noreferrer"
+            className="text-[11px] text-fog hover:text-storm transition-colors"
+          >
+            GitHub Releases
+            <span className="i-ph:arrow-square-out ml-0.5 text-[10px] inline-block align-middle" />
+          </a>
+          <div className="flex gap-2">
+            {!downloading && !downloaded && (
+              <>
+                <Button variant="ghost" onClick={() => onOpenChange(false)}>
+                  {t('updater.later')}
+                </Button>
+                <Button variant="primary" onClick={onDownload}>
+                  {t('updater.download')}
+                </Button>
+              </>
+            )}
+            {downloading && (
+              <Button variant="ghost" onClick={() => onOpenChange(false)}>
                 {t('updater.later')}
               </Button>
-              <Button variant="primary" onClick={onDownload}>
-                {t('updater.download')}
-              </Button>
-            </>
-          )}
-          {downloaded && (
-            <>
-              <Button variant="default" onClick={() => onOpenChange(false)}>
-                {t('updater.laterRestart')}
-              </Button>
-              <Button variant="primary" onClick={onInstall}>
-                {t('updater.restart')}
-              </Button>
-            </>
-          )}
+            )}
+            {downloaded && (
+              <>
+                <Button variant="ghost" onClick={() => onOpenChange(false)}>
+                  {t('updater.laterRestart')}
+                </Button>
+                <Button variant="primary" onClick={onInstall}>
+                  {t('updater.restart')}
+                </Button>
+              </>
+            )}
+          </div>
         </div>
       </div>
     </Modal>

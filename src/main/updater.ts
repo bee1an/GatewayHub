@@ -14,7 +14,9 @@ function broadcast(channel: string, payload?: unknown): void {
 
 export function setupUpdater(_win: BrowserWindow): void {
   if (initialized) {
-    autoUpdater.checkForUpdates().catch(() => {})
+    autoUpdater.checkForUpdates().catch((err) => {
+      console.error('[updater] check failed:', err)
+    })
     return
   }
   initialized = true
@@ -48,5 +50,7 @@ export function setupUpdater(_win: BrowserWindow): void {
   ipcMain.handle('updater:download', () => autoUpdater.downloadUpdate())
   ipcMain.handle('updater:install', () => autoUpdater.quitAndInstall())
 
-  autoUpdater.checkForUpdates().catch(() => {})
+  autoUpdater.checkForUpdates().catch((err) => {
+    console.error('[updater] check failed:', err)
+  })
 }

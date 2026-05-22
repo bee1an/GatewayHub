@@ -1,7 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
+const appVersion = process.versions['app'] ?? process.env['npm_package_version'] ?? ''
+
 const api = {
+  appVersion,
   gateway: {
     status: () => ipcRenderer.invoke('gateway:status'),
     start: () => ipcRenderer.invoke('gateway:start'),

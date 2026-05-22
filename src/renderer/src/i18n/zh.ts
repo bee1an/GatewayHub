@@ -173,7 +173,9 @@ const zh = {
     autoStart: '自动启动',
     autoStartDesc: '应用启动时自动启动网关服务',
     save: '保存',
-    saved: '设置已保存'
+    saved: '设置已保存',
+    about: '关于',
+    version: '版本'
   },
   apiKeys: {
     title: 'API Keys',
@@ -279,6 +281,7 @@ const zh = {
   updater: {
     title: '发现新版本',
     newVersion: '新版本: v{{version}}',
+    current: '当前版本',
     download: '下载更新',
     later: '稍后',
     restart: '立即重启',

@@ -70,11 +70,12 @@ export function UpdateModal({
         </div>
 
         {updateInfo.releaseNotes && (
-          <div className="max-h-40 overflow-y-auto rounded-[var(--radius-md)] bg-pitch border border-charcoal/60 p-3">
-            <pre className="text-[12px] text-steel whitespace-pre-wrap font-sans leading-relaxed">
-              {typeof updateInfo.releaseNotes === 'string' ? updateInfo.releaseNotes : ''}
-            </pre>
-          </div>
+          <div
+            className="max-h-40 overflow-y-auto rounded-[var(--radius-md)] bg-pitch border border-charcoal/60 p-3 text-[12px] text-steel leading-relaxed [&_p]:my-1 [&_ul]:list-disc [&_ul]:pl-4 [&_ul]:my-1 [&_li]:my-0.5 [&_a]:text-accent [&_a]:underline"
+            dangerouslySetInnerHTML={{
+              __html: typeof updateInfo.releaseNotes === 'string' ? updateInfo.releaseNotes : ''
+            }}
+          />
         )}
 
         {downloading && downloadProgress && (

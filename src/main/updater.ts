@@ -2,7 +2,7 @@ import { autoUpdater } from 'electron-updater'
 import { BrowserWindow, ipcMain } from 'electron'
 
 autoUpdater.autoDownload = false
-autoUpdater.autoInstallOnAppQuit = false
+autoUpdater.autoInstallOnAppQuit = true
 
 let initialized = false
 
@@ -48,7 +48,7 @@ export function setupUpdater(_win: BrowserWindow): void {
 
   ipcMain.handle('updater:check', () => autoUpdater.checkForUpdates())
   ipcMain.handle('updater:download', () => autoUpdater.downloadUpdate())
-  ipcMain.handle('updater:install', () => autoUpdater.quitAndInstall())
+  ipcMain.handle('updater:install', () => autoUpdater.quitAndInstall(false, true))
 
   autoUpdater.checkForUpdates().catch((err) => {
     console.error('[updater] check failed:', err)

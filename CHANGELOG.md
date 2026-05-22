@@ -2,6 +2,13 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.0.4 - 2026-05-22
+
+Fixed auto-update not applying after download, and release notes now render properly.
+
+- Fixed update not installing on restart by enabling `autoInstallOnAppQuit` and forcing quit-and-install with correct parameters
+- Fixed release notes displaying raw HTML tags in the update modal
+
 ## 0.0.3 - 2026-05-22
 
 Improved update modal UX, added about section to settings, and cleaned up Kiro converter internals.

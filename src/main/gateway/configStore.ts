@@ -10,7 +10,8 @@ import type {
 import {
   DEFAULT_KIRO_SETTINGS,
   SQLITE_TOKEN_KEYS,
-  SQLITE_REGISTRATION_KEYS
+  SQLITE_REGISTRATION_KEYS,
+  normalizeKiroModelId
 } from './providers/kiro/constants'
 import { generateApiKey, readJsonFile, sha256Short, writeJsonFile, atomicWrite } from './core/utils'
 import { getPaths } from './core/paths'
@@ -80,8 +81,11 @@ export class GatewayConfigStore {
     }
 
     const config = this.normalizeConfig(parsed)
+    const shouldSaveNormalizedConfig =
+      Boolean(parsed.providers?.kiro?.accounts) ||
+      JSON.stringify(parsed.modelMappings ?? []) !== JSON.stringify(config.modelMappings)
 
-    if (parsed.providers?.kiro?.accounts) {
+    if (shouldSaveNormalizedConfig) {
       await this.saveConfig(config)
     }
 
@@ -393,7 +397,7 @@ export class GatewayConfigStore {
     config.server.apiKeys = migrateApiKeys(input?.server)
     delete (config.server as any).apiKey
     config.defaultProvider = config.defaultProvider || 'kiro'
-    config.modelMappings = sanitizeModelMappings(input?.modelMappings)
+    config.modelMappings = sanitizeModelMappings(input?.modelMappings, kiroMappingProviders(config))
     delete (config.providers.kiro as any).accounts
     return config
   }
@@ -475,7 +479,10 @@ function stripPath(data: KiroAccountConfig): Omit<KiroAccountConfig, 'path'> {
   return rest
 }
 
-export function sanitizeModelMappings(input: unknown): ModelMapping[] {
+export function sanitizeModelMappings(
+  input: unknown,
+  kiroProviders: ReadonlySet<string> = new Set(['kiro'])
+): ModelMapping[] {
   if (!Array.isArray(input)) return []
   const seen = new Set<string>()
   const result: ModelMapping[] = []
@@ -484,8 +491,9 @@ export function sanitizeModelMappings(input: unknown): ModelMapping[] {
     const item = raw as Partial<ModelMapping> & { provider?: unknown; model?: unknown }
     const alias = typeof item.alias === 'string' ? item.alias.trim() : ''
     const provider = typeof item.provider === 'string' ? item.provider.trim() : ''
-    const model = typeof item.model === 'string' ? item.model.trim() : ''
-    if (!alias || !provider || !model) continue
+    const rawModel = typeof item.model === 'string' ? item.model.trim() : ''
+    if (!alias || !provider || !rawModel) continue
+    const model = kiroProviders.has(provider) ? normalizeKiroModelId(rawModel) : rawModel
     if (/[\s/]/.test(alias)) continue
     if (alias.includes(':')) continue
     if (seen.has(alias)) continue
@@ -500,6 +508,13 @@ export function sanitizeModelMappings(input: unknown): ModelMapping[] {
     })
   }
   return result
+}
+
+function kiroMappingProviders(config: GatewayHubConfig): Set<string> {
+  const names = new Set<string>(['kiro'])
+  const routeName = config.providers.kiro.routeName
+  if (routeName) names.add(routeName)
+  return names
 }
 
 const dynamicImport = new Function('specifier', 'return import(specifier)') as (

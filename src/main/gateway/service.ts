@@ -400,7 +400,7 @@ export class GatewayHubService {
 
   async updateModelMappings(mappings: ModelMapping[]): Promise<GatewayStatusSnapshot> {
     await this.ensureReady()
-    const sanitized = sanitizeModelMappings(mappings)
+    const sanitized = sanitizeModelMappings(mappings, this.kiroMappingProviders())
     if (Array.isArray(mappings) && sanitized.length !== mappings.length) {
       throw new Error(
         'Some mappings were rejected: alias must be non-empty, contain no whitespace or "/", and be unique'
@@ -424,6 +424,13 @@ export class GatewayHubService {
     await this.store.saveConfig(this.config!)
     await this.rebuildRuntime(this.server?.running ?? false)
     return this.getStatus()
+  }
+
+  private kiroMappingProviders(): Set<string> {
+    const names = new Set<string>(['kiro'])
+    const routeName = this.config?.providers.kiro.routeName
+    if (routeName) names.add(routeName)
+    return names
   }
 
   async addKiroRefreshToken(text: string): Promise<GatewayStatusSnapshot> {

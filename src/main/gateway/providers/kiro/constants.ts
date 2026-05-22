@@ -17,21 +17,29 @@ export const AWS_SSO_OIDC_URL_TEMPLATE = 'https://oidc.{region}.amazonaws.com/to
 export const KIRO_RUNTIME_URL_TEMPLATE = 'https://runtime.{region}.kiro.dev'
 export const KIRO_API_URL_TEMPLATE = 'https://q.{region}.amazonaws.com'
 
+export const DEFAULT_KIRO_MODEL = 'auto'
+
 export const FALLBACK_MODELS = [
-  'auto-kiro',
+  DEFAULT_KIRO_MODEL,
+  'claude-opus-4.7',
+  'claude-opus-4.6',
+  'claude-sonnet-4.6',
+  'claude-opus-4.5',
+  'claude-sonnet-4.5',
   'claude-sonnet-4',
-  'claude-sonnet-4-5',
-  'claude-sonnet-4-6',
-  'claude-haiku-4-5',
-  'claude-opus-4-5',
-  'claude-opus-4-6',
-  'claude-opus-4-7',
-  'deepseek-3-2',
+  'claude-haiku-4.5',
+  'deepseek-3.2',
+  'minimax-m2.5',
+  'minimax-m2.1',
   'glm-5',
-  'minimax-m2-1',
-  'minimax-m2-5',
   'qwen3-coder-next'
 ]
+
+export function normalizeKiroModelId(model: string): string {
+  const value = model.trim()
+  if (!value || value === 'auto-kiro') return DEFAULT_KIRO_MODEL
+  return value.replace(/(\d+)-(\d+)$/g, '$1.$2')
+}
 
 export const SQLITE_TOKEN_KEYS = [
   'kirocli:social:token',

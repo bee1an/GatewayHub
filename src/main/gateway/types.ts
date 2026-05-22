@@ -108,6 +108,7 @@ export type ResponseKind =
   | 'rate_limit'
   | 'quota'
   | 'auth'
+  | 'model_error'
   | 'server_error'
   | 'network'
   | 'timeout'

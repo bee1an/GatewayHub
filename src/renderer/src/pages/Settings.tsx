@@ -35,7 +35,7 @@ function buildSnippet(status: GatewayStatus, format: SnippetFormat): string {
   const url = `${status.server.url}/v1/chat/completions`
   const key = status.server.apiKeys[0]?.key ?? ''
   const body =
-    '{"model":"kiro/claude-sonnet-4-5","messages":[{"role":"user","content":"hello"}],"stream":true}'
+    '{"model":"kiro/claude-sonnet-4.5","messages":[{"role":"user","content":"hello"}],"stream":true}'
 
   if (format === 'curl') {
     return `curl ${url} \\

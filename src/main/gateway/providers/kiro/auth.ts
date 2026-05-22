@@ -302,8 +302,8 @@ export async function kiroFetch(
     const proxy = proxyUrl.includes('://') ? proxyUrl : `http://${proxyUrl}`
     const dispatcher = new undici.ProxyAgent(proxy)
     return undici.fetch(url, { ...init, dispatcher }) as Promise<Response>
-  } catch {
-    return fetch(url, init)
+  } catch (error) {
+    throw new Error(`Kiro proxy setup failed for ${proxyUrl}: ${toErrorMessage(error)}`)
   }
 }
 

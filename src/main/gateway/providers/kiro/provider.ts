@@ -14,6 +14,7 @@ import type {
 import { GatewayLogger } from '../../core/logger'
 import { jsonResponse, sseData, sleep, toErrorMessage } from '../../core/utils'
 import { kiroFetch } from './auth'
+import { DEFAULT_KIRO_MODEL, normalizeKiroModelId } from './constants'
 import { KiroAccountPool, KiroAccountRuntime, toKiroModelId } from './accountPool'
 import {
   anthropicInputTokens,
@@ -34,6 +35,8 @@ const UPSTREAM_META = { category: 'upstream' as const, provider: 'kiro' as const
 function accountLabel(account: KiroAccountRuntime): string {
   return account.config.email || account.config.label || account.config.id
 }
+
+class NonRetryableKiroError extends Error {}
 
 export class KiroProvider implements ProviderAdapter {
   readonly name = 'kiro'
@@ -62,7 +65,7 @@ export class KiroProvider implements ProviderAdapter {
   }
 
   async chatCompletions(body: any, context: GatewayRequestContext): Promise<GatewayResponse> {
-    const model = body.model || 'claude-sonnet-4-5'
+    const model = normalizeKiroModelId(String(body.model || DEFAULT_KIRO_MODEL))
     const kiroModel = toKiroModelId(model)
     const stream = body.stream !== false
 
@@ -85,7 +88,7 @@ export class KiroProvider implements ProviderAdapter {
   }
 
   async messages(body: any, context: GatewayRequestContext): Promise<GatewayResponse> {
-    const model = body.model || 'claude-sonnet-4-5'
+    const model = normalizeKiroModelId(String(body.model || DEFAULT_KIRO_MODEL))
     const kiroModel = toKiroModelId(model)
     const stream = body.stream === true
 
@@ -208,8 +211,10 @@ export class KiroProvider implements ProviderAdapter {
         lastError = error
         const errMsg = toErrorMessage(error)
         const classified = classifyKiroError(error)
-        await this.pool.reportFailure(account, error, classified)
-        excluded.add(account.config.id)
+        if (classified.kind !== 'model_error') {
+          await this.pool.reportFailure(account, error, classified)
+          excluded.add(account.config.id)
+        }
         this.logger.warn(`Upstream failed: ${errMsg}`, {
           ...UPSTREAM_META,
           requestId: rid,
@@ -218,6 +223,7 @@ export class KiroProvider implements ProviderAdapter {
           error: { upstreamBody: errMsg.slice(0, 500) },
           extra: { kind: classified.kind, attempt: attempt + 1 }
         })
+        if (classified.kind === 'model_error') break
       }
     }
     this.logger.error(`All upstream attempts exhausted for model=${kiroModel}`, {
@@ -277,8 +283,10 @@ export class KiroProvider implements ProviderAdapter {
         lastError = error
         const errMsg = toErrorMessage(error)
         const classified = classifyKiroError(error)
-        await this.pool.reportFailure(account, error, classified)
-        excluded.add(account.config.id)
+        if (classified.kind !== 'model_error') {
+          await this.pool.reportFailure(account, error, classified)
+          excluded.add(account.config.id)
+        }
         this.logger.warn(`Upstream stream failed: ${errMsg}`, {
           ...UPSTREAM_META,
           requestId: rid,
@@ -287,7 +295,7 @@ export class KiroProvider implements ProviderAdapter {
           error: { upstreamBody: errMsg.slice(0, 500) },
           extra: { kind: classified.kind, attempt: attempt + 1 }
         })
-        if (!(error instanceof FirstTokenTimeoutError)) break
+        if (classified.kind === 'model_error' || !(error instanceof FirstTokenTimeoutError)) break
       }
     }
 
@@ -342,14 +350,16 @@ export class KiroProvider implements ProviderAdapter {
         }
         if (response.ok) return response
         const text = await response.text().catch(() => '')
-        lastError = new Error(`Kiro HTTP ${response.status}: ${text.slice(0, 1000)}`)
+        const message = `Kiro HTTP ${response.status}: ${text.slice(0, 1000)}`
+        lastError = new Error(message)
         if (response.status === 429 || response.status >= 500) {
           await sleep(500 * Math.pow(2, attempt))
           continue
         }
-        throw lastError
+        throw new NonRetryableKiroError(message)
       } catch (error) {
         lastError = error
+        if (error instanceof NonRetryableKiroError) throw error
         if (attempt < this.config.settings.maxRetries - 1) {
           await sleep(500 * Math.pow(2, attempt))
           continue
@@ -392,6 +402,15 @@ export function classifyKiroError(error: unknown): ClassifiedKiroError {
       return { kind: 'quota', cooldownMs: 60 * 60_000 }
     }
     return { kind: 'rate_limit', cooldownMs: 60_000 }
+  }
+
+  if (
+    status === 400 &&
+    (msg.includes('invalid_model_id') ||
+      msg.includes('invalid model id') ||
+      msg.includes('select a different model'))
+  ) {
+    return { kind: 'model_error', cooldownMs: 0 }
   }
 
   if (status >= 500 && status < 600) return { kind: 'server_error', cooldownMs: 30_000 }

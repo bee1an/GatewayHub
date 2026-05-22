@@ -3,6 +3,9 @@ productName: GatewayHub
 directories:
   buildResources: build
 files:
+  - out/**/*
+  - resources/**/*
+  - package.json
   - '!**/.vscode/*'
   - '!src/*'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
@@ -14,7 +17,7 @@ asarUnpack:
 extraResources:
   - from: out/main/cli.js
     to: cli/gatewayhub.js
-  - from: out/main/chunks/**
+  - from: out/main/chunks
     to: cli/chunks/
   - from: build/cli-launcher.sh
     to: cli/gatewayhub

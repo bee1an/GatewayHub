@@ -10,7 +10,7 @@ import type {
 import type { AccountInfo, AvailableModelsResponse, UsageLimitsResponse } from './types'
 import { GatewayLogger } from '../../core/logger'
 import { toErrorMessage } from '../../core/utils'
-import { FALLBACK_MODELS } from './constants'
+import { FALLBACK_MODELS, normalizeKiroModelId } from './constants'
 import { KiroAuthManager } from './auth'
 
 export interface KiroAccountRuntime {
@@ -39,7 +39,9 @@ export class KiroAccountPool {
   async reload(accountFiles: KiroAccountConfig[]): Promise<void> {
     this.accounts = accountFiles.map((account) => {
       const state = this.state.accounts[account.id] ?? defaultAccountState()
-      state.modelIds = state.modelIds?.length ? state.modelIds : [...FALLBACK_MODELS]
+      state.modelIds = state.modelIds?.length
+        ? normalizeModelIds(state.modelIds)
+        : [...FALLBACK_MODELS]
       // 兼容旧状态文件：补默认值
       state.status ??= 'available'
       state.statusUpdatedAt ??= 0
@@ -66,8 +68,7 @@ export class KiroAccountPool {
     const set = new Set<string>()
     for (const account of this.accounts) {
       if (account.config.enabled === false) continue
-      for (const model of account.state.modelIds?.length ? account.state.modelIds : FALLBACK_MODELS)
-        set.add(model)
+      for (const model of accountModels(account)) set.add(model)
     }
     if (!set.size) for (const model of FALLBACK_MODELS) set.add(model)
     return [...set].sort()
@@ -262,6 +263,12 @@ export class KiroAccountPool {
       if (account.auth!.profileArn) params.profileArn = account.auth!.profileArn
 
       const result = await account.auth!.apiGet('/ListAvailableModels', params)
+      const modelIds = normalizeModelIds(result.models?.map((model) => model.modelId) ?? [])
+      if (modelIds.length) {
+        account.state.modelIds = modelIds
+        account.state.modelsCachedAt = Date.now()
+        this.onStateChanged()
+      }
       this.modelsCache.set(accountId, { data: result, cachedAt: Date.now() })
       return result
     } catch (error) {
@@ -406,14 +413,33 @@ export class KiroAccountPool {
   }
 
   private accountHasModel(account: KiroAccountRuntime, model: string): boolean {
-    const models = account.state.modelIds?.length ? account.state.modelIds : FALLBACK_MODELS
-    return models.includes(model) || models.includes('auto-kiro') || models.includes('auto')
+    const normalized = normalizeKiroModelId(model)
+    return accountModels(account).some(
+      (available) => normalizeKiroModelId(available) === normalized
+    )
   }
 }
 
 export function toKiroModelId(model: string): string {
-  if (model === 'auto-kiro') return 'auto'
-  return model.replace(/(\d+)-(\d+)$/g, '$1.$2')
+  return normalizeKiroModelId(model)
+}
+
+function accountModels(account: KiroAccountRuntime): string[] {
+  return account.state.modelIds?.length
+    ? normalizeModelIds(account.state.modelIds)
+    : [...FALLBACK_MODELS]
+}
+
+function normalizeModelIds(models: string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const model of models) {
+    const normalized = normalizeKiroModelId(model)
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    result.push(normalized)
+  }
+  return result
 }
 
 function defaultAccountState(): AccountRuntimeState {

@@ -6,46 +6,24 @@ type UpdateInfo = {
   version: string
   releaseNotes: string | null
   releaseDate: string
-}
-
-type DownloadProgress = {
-  percent: number
-  bytesPerSecond: number
-  transferred: number
-  total: number
+  installMethod?: 'brew' | 'manual'
 }
 
 export function UpdateModal({
   open,
   onOpenChange,
   updateInfo,
-  downloadProgress,
-  downloaded,
-  onDownload,
   onInstall
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   updateInfo: UpdateInfo | null
-  downloadProgress: DownloadProgress | null
-  downloaded: boolean
-  onDownload: () => void
   onInstall: () => void
 }): React.JSX.Element | null {
   const { t } = useTranslation()
   if (!updateInfo) return null
 
-  const downloading = downloadProgress !== null && !downloaded
-
-  function formatBytes(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-  }
-
-  function formatSpeed(bytesPerSecond: number): string {
-    return `${formatBytes(bytesPerSecond)}/s`
-  }
+  const isBrew = updateInfo.installMethod === 'brew'
 
   return (
     <Modal open={open} onOpenChange={onOpenChange} title={t('updater.title')} width="420px">
@@ -85,34 +63,9 @@ export function UpdateModal({
           />
         )}
 
-        {downloading && downloadProgress && (
-          <div className="space-y-2 rounded-[var(--radius-md)] bg-slate p-3">
-            <div className="flex items-center justify-between text-[11px] text-storm mb-1.5">
-              <span>
-                {formatBytes(downloadProgress.transferred)} / {formatBytes(downloadProgress.total)}
-              </span>
-              <span>{formatSpeed(downloadProgress.bytesPerSecond)}</span>
-            </div>
-            <div className="h-1.5 rounded-full bg-charcoal overflow-hidden">
-              <div
-                className="h-full rounded-full bg-emerald transition-[width] duration-300"
-                style={{ width: `${downloadProgress.percent}%` }}
-              />
-            </div>
-            <div className="text-[11px] text-fog text-right">
-              {Math.round(downloadProgress.percent)}%
-            </div>
-          </div>
-        )}
-
-        {downloaded && (
-          <div className="flex items-center gap-2 rounded-[var(--radius-md)] bg-[color-mix(in_srgb,var(--c-emerald)_10%,transparent)] border border-[color-mix(in_srgb,var(--c-emerald)_20%,transparent)] p-3">
-            <span className="i-ph-check-circle-bold text-emerald text-base" />
-            <span className="text-[12px] text-emerald font-medium">
-              {t('updater.downloadComplete')}
-            </span>
-          </div>
-        )}
+        <div className="rounded-[var(--radius-md)] bg-pitch border border-charcoal/60 p-3 text-[11px] text-fog leading-relaxed">
+          {isBrew ? t('updater.brewHint') : t('updater.manualHint')}
+        </div>
 
         <div className="flex items-center justify-between pt-1">
           <a
@@ -125,31 +78,12 @@ export function UpdateModal({
             <span className="i-ph-arrow-square-out ml-0.5 text-[10px] inline-block align-middle" />
           </a>
           <div className="flex gap-2">
-            {!downloading && !downloaded && (
-              <>
-                <Button variant="ghost" onClick={() => onOpenChange(false)}>
-                  {t('updater.later')}
-                </Button>
-                <Button variant="primary" onClick={onDownload}>
-                  {t('updater.download')}
-                </Button>
-              </>
-            )}
-            {downloading && (
-              <Button variant="ghost" onClick={() => onOpenChange(false)}>
-                {t('updater.later')}
-              </Button>
-            )}
-            {downloaded && (
-              <>
-                <Button variant="ghost" onClick={() => onOpenChange(false)}>
-                  {t('updater.laterRestart')}
-                </Button>
-                <Button variant="primary" onClick={onInstall}>
-                  {t('updater.restart')}
-                </Button>
-              </>
-            )}
+            <Button variant="ghost" onClick={() => onOpenChange(false)}>
+              {t('updater.later')}
+            </Button>
+            <Button variant="primary" onClick={onInstall}>
+              {isBrew ? t('updater.upgradeBrew') : t('updater.openDownload')}
+            </Button>
           </div>
         </div>
       </div>

@@ -2,6 +2,17 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.0.6-beta.3 - 2026-05-23
+
+Switched macOS auto-update to a Homebrew-based flow and stopped CI from auto-injecting Full Changelog into release notes.
+
+- Replaced electron-updater install logic with Homebrew upgrade — Squirrel.Mac requires a real signing identity to replace the app, which is impossible without an Apple Developer certificate
+- Detects whether the app is installed via `brew install --cask gatewayhub`; if so, the update modal triggers `brew upgrade --cask gatewayhub` in Terminal and restarts automatically
+- Falls back to opening the GitHub Release page when the app was installed manually
+- Removed download progress, restart-now flow, and related IPC events from the update modal — they were never reliably working on unsigned macOS builds
+- Disabled `generate_release_notes` in the release workflow so the changelog body matches `CHANGELOG.md` exactly without GitHub-appended Full Changelog links
+- Added `bee1an/homebrew-gatewayhub` tap and CI sync job that updates the cask after each stable release
+
 ## 0.0.6-beta.2 - 2026-05-23
 
 Fixed update modal links navigating the entire window when clicked.

@@ -62,6 +62,23 @@ pnpm build
 
 ### macOS
 
+#### 推荐：通过 Homebrew 安装
+
+```bash
+brew tap bee1an/gatewayhub
+brew install --cask gatewayhub
+```
+
+升级：
+
+```bash
+brew upgrade --cask gatewayhub
+```
+
+通过 Homebrew 安装的版本，应用内检测到新版本后点击「使用 Homebrew 更新」会自动打开终端执行升级命令并重启应用。
+
+#### 手动安装
+
 1. 从 [Releases](https://github.com/bee1an/GatewayHub/releases) 下载最新 `.dmg`
 2. 拖入 Applications 文件夹
 3. 首次打开会被 Gatekeeper 拦截，执行以下任一操作：
@@ -75,7 +92,7 @@ pnpm build
    **方式 B：**
    系统设置 → 隐私与安全性 → 下方找到被拦截的 GatewayHub → 点击"仍要打开"
 
-4. 之后的自动更新不会再触发信任弹窗
+> 手动安装的版本不支持应用内自动更新，新版本会引导跳转到 GitHub Release 页面手动下载。
 
 ### Windows
 
@@ -89,6 +106,9 @@ pnpm build
 
 ## 自动更新
 
-应用启动时会自动检查 GitHub Releases 上的新版本。检测到更新后会在后台下载并在下次启动时应用。
+应用启动时会自动检查 GitHub Releases 上的新版本。
+
+- **macOS（通过 Homebrew 安装）**：在弹框点击「使用 Homebrew 更新」即可，会自动打开终端运行 `brew upgrade --cask gatewayhub` 并重启应用
+- **macOS（手动安装）/ Windows / Linux**：弹框会引导跳转到 [GitHub Releases](https://github.com/bee1an/GatewayHub/releases) 手动下载新版本
 
 更新源：`https://github.com/bee1an/GatewayHub/releases`

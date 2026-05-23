@@ -283,11 +283,13 @@ const en = {
     title: 'Update Available',
     newVersion: 'New version: v{{version}}',
     current: 'Current',
-    download: 'Download',
     later: 'Later',
-    restart: 'Restart Now',
-    laterRestart: 'Later',
-    downloadComplete: 'Download complete. Restart to apply the update.'
+    upgradeBrew: 'Upgrade via Homebrew',
+    openDownload: 'Open Download Page',
+    brewHint:
+      'Click "Upgrade via Homebrew" to open Terminal and run brew upgrade --cask gatewayhub. The app will restart automatically.',
+    manualHint:
+      'This installation was not managed by Homebrew. Click to open the GitHub Release page for manual download.'
   }
 }
 

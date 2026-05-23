@@ -138,7 +138,83 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          generate_release_notes: true
+          generate_release_notes: false
           files: artifacts/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  sync-homebrew-cask:
+    needs: publish-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH key for tap repo
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+      - name: Checkout tap repo
+        run: |
+          git clone git@github.com:bee1an/homebrew-gatewayhub.git tap
+      - name: Compute dmg sha256
+        id: sha
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          DMG_URL="https://github.com/bee1an/GatewayHub/releases/download/${RELEASE_TAG}/gatewayhub-${VERSION}.dmg"
+          curl -sL "$DMG_URL" -o /tmp/app.dmg
+          if [ ! -s /tmp/app.dmg ]; then
+            echo "dmg download failed or empty"
+            exit 1
+          fi
+          SHA=$(sha256sum /tmp/app.dmg | awk '{print $1}')
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Update cask
+        run: |
+          cd tap
+          cat > Casks/gatewayhub.rb <<EOF
+          cask "gatewayhub" do
+            version "${{ steps.sha.outputs.version }}"
+            sha256 "${{ steps.sha.outputs.sha }}"
+
+            url "https://github.com/bee1an/GatewayHub/releases/download/v#{version}/gatewayhub-#{version}.dmg"
+            name "GatewayHub"
+            desc "Local multi-provider AI gateway hub with Kiro account pool"
+            homepage "https://github.com/bee1an/GatewayHub"
+
+            livecheck do
+              url :url
+              strategy :github_latest
+            end
+
+            auto_updates false
+            depends_on macos: ">= :big_sur"
+
+            app "GatewayHub.app"
+
+            postflight do
+              system_command "/usr/bin/xattr",
+                             args: ["-cr", "#{appdir}/GatewayHub.app"],
+                             sudo: false
+            end
+
+            zap trash: [
+              "~/Library/Application Support/GatewayHub",
+              "~/Library/Logs/GatewayHub",
+              "~/Library/Preferences/dev.gatewayhub.app.plist",
+              "~/Library/Saved Application State/dev.gatewayhub.app.savedState",
+            ]
+          end
+          EOF
+      - name: Commit and push
+        run: |
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/gatewayhub.rb
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Update gatewayhub to ${RELEASE_TAG}"
+          git push

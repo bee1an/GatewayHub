@@ -282,11 +282,12 @@ const zh = {
     title: '发现新版本',
     newVersion: '新版本: v{{version}}',
     current: '当前版本',
-    download: '下载更新',
     later: '稍后',
-    restart: '立即重启',
-    laterRestart: '稍后重启',
-    downloadComplete: '下载完成，重启后即可应用更新。'
+    upgradeBrew: '使用 Homebrew 更新',
+    openDownload: '前往下载页',
+    brewHint:
+      '点击「使用 Homebrew 更新」会打开终端执行 brew upgrade --cask gatewayhub，应用会自动重启。',
+    manualHint: '当前版本不是通过 Homebrew 安装，点击会跳转到 GitHub Release 页面手动下载。'
   }
 }
 

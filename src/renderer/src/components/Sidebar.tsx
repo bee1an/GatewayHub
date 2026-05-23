@@ -38,14 +38,8 @@ export default function Sidebar(): React.JSX.Element {
     version: string
     releaseNotes: string | null
     releaseDate: string
+    installMethod?: 'brew' | 'manual'
   } | null>(null)
-  const [downloadProgress, setDownloadProgress] = useState<{
-    percent: number
-    bytesPerSecond: number
-    transferred: number
-    total: number
-  } | null>(null)
-  const [downloaded, setDownloaded] = useState(false)
   const [updateModalOpen, setUpdateModalOpen] = useState(false)
 
   const refresh = useCallback(() => {
@@ -64,12 +58,7 @@ export default function Sidebar(): React.JSX.Element {
   useEffect(() => {
     const unsubs = [
       window.api.updater.onUpdateAvailable((data) => setUpdateInfo(data)),
-      window.api.updater.onDownloadProgress((data) => setDownloadProgress(data)),
-      window.api.updater.onUpdateDownloaded(() => {
-        setDownloaded(true)
-        setDownloadProgress(null)
-      }),
-      window.api.updater.onError(() => setDownloadProgress(null))
+      window.api.updater.onError((msg) => console.error('[updater]', msg))
     ]
     return () => unsubs.forEach((fn) => fn())
   }, [])
@@ -247,13 +236,10 @@ export default function Sidebar(): React.JSX.Element {
         open={updateModalOpen}
         onOpenChange={setUpdateModalOpen}
         updateInfo={updateInfo}
-        downloadProgress={downloadProgress}
-        downloaded={downloaded}
-        onDownload={() => {
-          setDownloadProgress({ percent: 0, bytesPerSecond: 0, transferred: 0, total: 0 })
-          window.api.updater.download()
+        onInstall={() => {
+          window.api.updater.install()
+          setUpdateModalOpen(false)
         }}
-        onInstall={() => window.api.updater.install()}
       />
     </aside>
   )

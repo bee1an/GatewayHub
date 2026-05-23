@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { usePolling } from '../hooks/usePolling'
+import { formatCostUsd, formatCredits, formatTokens } from '../utils/format'
 
 type GatewayLogEntry = {
   ts: number
@@ -28,6 +29,37 @@ type GatewayStatus = {
   logs: GatewayLogEntry[]
 }
 
+type UsageDetail = {
+  summary: {
+    todayTokens: number
+    todayCredits: number
+    todayCostUsd: number | null
+    last30DaysTokens: number
+    last30DaysCredits: number
+    last30DaysCostUsd: number | null
+    todayInputTokens: number
+    todayOutputTokens: number
+    todayCacheReadTokens: number
+    todayCacheWriteTokens: number
+    todayRequests: number
+    updatedAt: string
+  }
+  daily: Array<{
+    date: string
+    accountId: string
+    model: string
+    provider?: string
+    inputTokens: number
+    outputTokens: number
+    cacheReadTokens: number
+    cacheWrite5mTokens: number
+    cacheWrite1hTokens: number
+    credits: number
+    requests: number
+    costUsd: number | null
+  }>
+}
+
 const PROVIDER_COLORS = [
   { bg: 'bg-aether', dot: 'bg-aether' },
   { bg: 'bg-cyan', dot: 'bg-cyan' },
@@ -40,6 +72,7 @@ const PROVIDER_COLORS = [
 export default function Dashboard(): React.JSX.Element {
   const { t } = useTranslation()
   const { data: status } = usePolling<GatewayStatus>(() => window.api.gateway.status(), 3000)
+  const { data: usage } = usePolling<UsageDetail>(() => window.api.gateway.readUsage(), 5000)
 
   const logs = useMemo(() => status?.logs ?? [], [status?.logs])
 
@@ -48,13 +81,12 @@ export default function Dashboard(): React.JSX.Element {
     const todayLogs = logs.filter((l) => l.ts >= todayStart)
     const requestLogs = todayLogs.filter((l) => l.category === 'request')
 
-    const todayRequests = requestLogs.length
     const todayErrors = requestLogs.filter(
       (l) => l.level === 'error' || (l.statusCode && l.statusCode >= 400)
     )
     const successRate =
-      todayRequests > 0
-        ? Math.round(((todayRequests - todayErrors.length) / todayRequests) * 100)
+      requestLogs.length > 0
+        ? Math.round(((requestLogs.length - todayErrors.length) / requestLogs.length) * 100)
         : 100
 
     const durationLogs = requestLogs.filter((l) => l.duration !== undefined)
@@ -77,8 +109,37 @@ export default function Dashboard(): React.JSX.Element {
       {} as Record<string, number>
     )
 
-    return { todayRequests, successRate, avgDuration, avgTTFT, providerBreakdown }
-  }, [logs])
+    // Token / cost / cache 走 UsageStore（持久化、跨重启）；fallback: store 还没数据时显示 0
+    const summary = usage?.summary
+    const inputTokens = summary?.todayInputTokens ?? 0
+    const outputTokens = summary?.todayOutputTokens ?? 0
+    const cacheReadTokens = summary?.todayCacheReadTokens ?? 0
+    const cacheWriteTokens = summary?.todayCacheWriteTokens ?? 0
+    const totalTokens = inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens
+    const todayCredits = summary?.todayCredits ?? 0
+    const todayRequests = summary?.todayRequests ?? requestLogs.length
+    const costUsd = summary?.todayCostUsd ?? null
+    const hasUsage = totalTokens > 0 || todayCredits > 0
+    const inputSide = inputTokens + cacheReadTokens + cacheWriteTokens
+    const cacheHitRate = inputSide > 0 ? Math.round((cacheReadTokens / inputSide) * 100) : null
+
+    return {
+      todayRequests,
+      successRate,
+      avgDuration,
+      avgTTFT,
+      providerBreakdown,
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
+      totalTokens,
+      todayCredits,
+      costUsd,
+      cacheHitRate,
+      hasUsage
+    }
+  }, [logs, usage])
 
   if (!status) return <DashboardSkeleton />
 
@@ -122,7 +183,9 @@ export default function Dashboard(): React.JSX.Element {
         />
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div
+        className={`grid gap-3 ${metrics.hasUsage ? 'grid-cols-2 lg:grid-cols-6' : 'grid-cols-3'}`}
+      >
         <MetricCard
           icon="i-ph-timer"
           label={t('dashboard.avgResponseTime')}
@@ -144,6 +207,49 @@ export default function Dashboard(): React.JSX.Element {
           unit=""
           accent="emerald"
         />
+        {metrics.hasUsage && (
+          <>
+            {metrics.todayCredits > 0 ? (
+              <MetricCard
+                icon="i-ph-coin-vertical"
+                label={t('dashboard.todayCredits')}
+                value={formatCredits(metrics.todayCredits)}
+                unit=""
+                accent="violet"
+              />
+            ) : (
+              <MetricCard
+                icon="i-ph-stack"
+                label={t('dashboard.todayTokens')}
+                value={formatTokens(metrics.totalTokens)}
+                unit=""
+                accent="violet"
+              />
+            )}
+            <MetricCard
+              icon="i-ph-currency-dollar"
+              label={t('dashboard.todayCost')}
+              value={
+                metrics.costUsd !== null ? formatCostUsd(metrics.costUsd) : t('dashboard.noData')
+              }
+              unit=""
+              accent="aether"
+            />
+            {metrics.todayCredits === 0 && (
+              <MetricCard
+                icon="i-ph-database"
+                label={t('dashboard.cacheHitRate')}
+                value={
+                  metrics.cacheHitRate !== null
+                    ? String(metrics.cacheHitRate)
+                    : t('dashboard.noData')
+                }
+                unit={metrics.cacheHitRate !== null ? '%' : ''}
+                accent="emerald"
+              />
+            )}
+          </>
+        )}
       </div>
 
       {Object.keys(metrics.providerBreakdown).length > 0 && (

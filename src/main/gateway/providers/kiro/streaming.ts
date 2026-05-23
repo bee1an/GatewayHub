@@ -1,14 +1,19 @@
 import { randomUUID } from 'crypto'
+import type { UsageStats } from '../../types'
 import { estimateTokens, sseData } from '../../core/utils'
 import { anthropicInputTokens, openAiUsageFromBodies } from './converters'
 
 export interface KiroEvent {
-  type: 'content' | 'thinking' | 'tool_use' | 'usage' | 'context_usage'
+  type: 'content' | 'thinking' | 'tool_use' | 'usage' | 'context_usage' | 'metering'
   content?: string
   thinking?: string
   toolUse?: any
   usage?: any
+  /** Kiro meteringEvent.usage：上游的 credit 数量 */
+  credits?: number
 }
+
+export type UsageSink = (usage: UsageStats) => void
 
 export class FirstTokenTimeoutError extends Error {}
 
@@ -50,11 +55,14 @@ export class AwsEventStreamParser {
   }
 
   private findNextJson(): { pos: number; type: string } | undefined {
+    // 注意：metering 走 {"unit": 模式（payload 形如 {"unit":"credit","usage":2.59}），
+    // 必须排在 {"usage": 之前，否则会被当成 token usage 匹配。
     const patterns: Array<[string, string]> = [
       ['{"content":', 'content'],
       ['{"name":', 'tool_start'],
       ['{"input":', 'tool_input'],
       ['{"stop":', 'tool_stop'],
+      ['{"unit":', 'metering'],
       ['{"usage":', 'usage'],
       ['{"contextUsagePercentage":', 'context_usage']
     ]
@@ -96,6 +104,14 @@ export class AwsEventStreamParser {
     if (type === 'tool_stop') {
       if (this.currentToolCall && data.stop) this.finalizeToolCall()
       return undefined
+    }
+    if (type === 'metering') {
+      // Kiro meteringEvent: {"unit":"credit","unitPlural":"credits","usage":2.59}
+      // 只有 unit === 'credit' 且 usage 是数字时才视为有效 metering
+      const unit = typeof data.unit === 'string' ? data.unit.toLowerCase() : ''
+      const usage = typeof data.usage === 'number' && Number.isFinite(data.usage) ? data.usage : NaN
+      if (unit !== 'credit' || !Number.isFinite(usage)) return undefined
+      return { type: 'metering', credits: usage }
     }
     if (type === 'usage') return { type: 'usage', usage: data.usage }
     if (type === 'context_usage')
@@ -228,7 +244,8 @@ export async function* openAiSseFromKiro(
   body: ReadableStream<Uint8Array>,
   model: string,
   requestBody: any,
-  firstTokenTimeoutSeconds: number
+  firstTokenTimeoutSeconds: number,
+  onUsage?: UsageSink
 ): AsyncGenerator<string> {
   const id = `chatcmpl-${randomUUID().replace(/-/g, '')}`
   const created = Math.floor(Date.now() / 1000)
@@ -236,8 +253,18 @@ export async function* openAiSseFromKiro(
   let content = ''
   let thinking = ''
   const toolCalls: any[] = []
+  let upstreamUsage: any | undefined
+  let credits = 0
 
   for await (const event of parseKiroStream(body, firstTokenTimeoutSeconds)) {
+    if (event.type === 'usage' && event.usage) {
+      upstreamUsage = event.usage
+      continue
+    }
+    if (event.type === 'metering' && typeof event.credits === 'number') {
+      credits += event.credits
+      continue
+    }
     if (event.type === 'content' && event.content) {
       content += event.content
       yield sseData({
@@ -289,7 +316,12 @@ export async function* openAiSseFromKiro(
     })
     first = false
   }
-  const usage = openAiUsageFromBodies(requestBody, content + thinking)
+  const usageStats = withCredits(
+    extractUpstreamUsage(upstreamUsage) ?? fallbackUsage(requestBody, content, thinking),
+    credits
+  )
+  onUsage?.(usageStats)
+  const usage = toOpenAiUsage(usageStats)
   yield sseData({
     id,
     object: 'chat.completion.chunk',
@@ -305,21 +337,44 @@ export async function openAiJsonFromKiro(
   body: ReadableStream<Uint8Array>,
   model: string,
   requestBody: any,
-  firstTokenTimeoutSeconds: number
+  firstTokenTimeoutSeconds: number,
+  onUsage?: UsageSink
 ) {
-  const result = await collectKiroStream(body, firstTokenTimeoutSeconds)
-  const message: any = { role: 'assistant', content: result.content }
-  if (result.thinking) message.reasoning_content = result.thinking
-  if (result.toolCalls.length) message.tool_calls = result.toolCalls
+  let upstreamUsage: any | undefined
+  let credits = 0
+  let content = ''
+  let thinking = ''
+  const toolCalls: any[] = []
+  for await (const event of parseKiroStream(body, firstTokenTimeoutSeconds)) {
+    if (event.type === 'usage' && event.usage) upstreamUsage = event.usage
+    else if (event.type === 'metering' && typeof event.credits === 'number')
+      credits += event.credits
+    else if (event.type === 'content') content += event.content ?? ''
+    else if (event.type === 'thinking') thinking += event.thinking ?? ''
+    else if (event.type === 'tool_use') toolCalls.push(event.toolUse)
+  }
+
+  const message: any = { role: 'assistant', content }
+  if (thinking) message.reasoning_content = thinking
+  if (toolCalls.length) message.tool_calls = toolCalls
+
+  const usageStats = withCredits(
+    extractUpstreamUsage(upstreamUsage) ?? {
+      inputTokens: openAiUsageFromBodies(requestBody, content + thinking).prompt_tokens,
+      outputTokens: estimateTokens(content) + estimateTokens(thinking),
+      estimated: true
+    },
+    credits
+  )
+  onUsage?.(usageStats)
+
   return {
     id: `chatcmpl-${randomUUID().replace(/-/g, '')}`,
     object: 'chat.completion',
     created: Math.floor(Date.now() / 1000),
     model,
-    choices: [
-      { index: 0, message, finish_reason: result.toolCalls.length ? 'tool_calls' : 'stop' }
-    ],
-    usage: openAiUsageFromBodies(requestBody, result.content + result.thinking)
+    choices: [{ index: 0, message, finish_reason: toolCalls.length ? 'tool_calls' : 'stop' }],
+    usage: toOpenAiUsage(usageStats)
   }
 }
 
@@ -327,10 +382,14 @@ export async function* anthropicSseFromKiro(
   body: ReadableStream<Uint8Array>,
   model: string,
   requestBody: any,
-  firstTokenTimeoutSeconds: number
+  firstTokenTimeoutSeconds: number,
+  onUsage?: UsageSink
 ): AsyncGenerator<string> {
   const id = `msg_${randomUUID().replace(/-/g, '')}`
-  const input_tokens = anthropicInputTokens(requestBody)
+
+  // Kiro 上游 usage 事件总是出现在流末尾。message_start 必须在第一帧之前发出，
+  // 所以这里先用估算值占位，到流尾再用真实 usage 算 cost / 触发 onUsage。
+  const fallbackInput = anthropicInputTokens(requestBody)
   yield sseEvent('message_start', {
     type: 'message_start',
     message: {
@@ -341,7 +400,7 @@ export async function* anthropicSseFromKiro(
       content: [],
       stop_reason: null,
       stop_sequence: null,
-      usage: { input_tokens, output_tokens: 0 }
+      usage: { input_tokens: fallbackInput, output_tokens: 0 }
     }
   })
   let index = 0
@@ -349,6 +408,8 @@ export async function* anthropicSseFromKiro(
   let content = ''
   let thinking = ''
   const toolCalls: any[] = []
+  let upstreamUsage: any | undefined
+  let credits = 0
 
   function closeOpenBlock(): string[] {
     if (!openBlock) return []
@@ -376,6 +437,14 @@ export async function* anthropicSseFromKiro(
   }
 
   for await (const event of parseKiroStream(body, firstTokenTimeoutSeconds)) {
+    if (event.type === 'usage' && event.usage) {
+      upstreamUsage = event.usage
+      continue
+    }
+    if (event.type === 'metering' && typeof event.credits === 'number') {
+      credits += event.credits
+      continue
+    }
     if (event.type === 'thinking' && event.thinking) {
       thinking += event.thinking
       for (const frame of ensureBlock('thinking')) yield frame
@@ -415,11 +484,15 @@ export async function* anthropicSseFromKiro(
     yield sseEvent('content_block_stop', { type: 'content_block_stop', index })
     index += 1
   }
-  const output_tokens = estimateTokens(content) + estimateTokens(thinking)
+  const usageStats = withCredits(
+    extractUpstreamUsage(upstreamUsage) ?? fallbackUsage(requestBody, content, thinking),
+    credits
+  )
+  onUsage?.(usageStats)
   yield sseEvent('message_delta', {
     type: 'message_delta',
     delta: { stop_reason: toolCalls.length ? 'tool_use' : 'end_turn', stop_sequence: null },
-    usage: { output_tokens }
+    usage: toAnthropicDeltaUsage(usageStats)
   })
   yield sseEvent('message_stop', { type: 'message_stop' })
 }
@@ -428,36 +501,142 @@ export async function anthropicJsonFromKiro(
   body: ReadableStream<Uint8Array>,
   model: string,
   requestBody: any,
-  firstTokenTimeoutSeconds: number
+  firstTokenTimeoutSeconds: number,
+  onUsage?: UsageSink
 ) {
-  const result = await collectKiroStream(body, firstTokenTimeoutSeconds)
-  const content: any[] = []
-  if (result.thinking) content.push({ type: 'thinking', thinking: result.thinking })
-  if (result.content) content.push({ type: 'text', text: result.content })
-  for (const tool of result.toolCalls)
-    content.push({
+  let upstreamUsage: any | undefined
+  let credits = 0
+  let content = ''
+  let thinking = ''
+  const toolCalls: any[] = []
+  for await (const event of parseKiroStream(body, firstTokenTimeoutSeconds)) {
+    if (event.type === 'usage' && event.usage) upstreamUsage = event.usage
+    else if (event.type === 'metering' && typeof event.credits === 'number')
+      credits += event.credits
+    else if (event.type === 'content') content += event.content ?? ''
+    else if (event.type === 'thinking') thinking += event.thinking ?? ''
+    else if (event.type === 'tool_use') toolCalls.push(event.toolUse)
+  }
+
+  const contentBlocks: any[] = []
+  if (thinking) contentBlocks.push({ type: 'thinking', thinking })
+  if (content) contentBlocks.push({ type: 'text', text: content })
+  for (const tool of toolCalls)
+    contentBlocks.push({
       type: 'tool_use',
       id: tool.id,
       name: tool.function?.name || tool.name,
       input: safeJson(tool.function?.arguments)
     })
+
+  const usageStats = withCredits(
+    extractUpstreamUsage(upstreamUsage) ?? fallbackUsage(requestBody, content, thinking),
+    credits
+  )
+  onUsage?.(usageStats)
+
   return {
     id: `msg_${randomUUID().replace(/-/g, '')}`,
     type: 'message',
     role: 'assistant',
     model,
-    content,
-    stop_reason: result.toolCalls.length ? 'tool_use' : 'end_turn',
+    content: contentBlocks,
+    stop_reason: toolCalls.length ? 'tool_use' : 'end_turn',
     stop_sequence: null,
-    usage: {
-      input_tokens: anthropicInputTokens(requestBody),
-      output_tokens: estimateTokens(result.content) + estimateTokens(result.thinking)
-    }
+    usage: toAnthropicDeltaUsage(usageStats)
   }
 }
 
 function sseEvent(event: string, data: any): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+}
+
+/** 从 Kiro 上游 KiroEvent.usage 提取 UsageStats（Anthropic 命名为主，兼容多种 case） */
+function extractUpstreamUsage(rawUsage: any): UsageStats | undefined {
+  if (!rawUsage || typeof rawUsage !== 'object') return undefined
+  const inputTokens = pickNumber(rawUsage, ['input_tokens', 'inputTokens', 'prompt_tokens'])
+  const outputTokens = pickNumber(rawUsage, ['output_tokens', 'outputTokens', 'completion_tokens'])
+  const cacheRead = pickNumber(rawUsage, [
+    'cache_read_input_tokens',
+    'cacheReadInputTokens',
+    'cached_tokens'
+  ])
+  const cacheCreation = rawUsage.cache_creation ?? rawUsage.cacheCreation
+  const w5m = pickNumber(cacheCreation, ['ephemeral_5m_input_tokens', 'ephemeral5mInputTokens'])
+  const w1h = pickNumber(cacheCreation, ['ephemeral_1h_input_tokens', 'ephemeral1hInputTokens'])
+  const cacheCreationTotal = pickNumber(rawUsage, [
+    'cache_creation_input_tokens',
+    'cacheCreationInputTokens'
+  ])
+
+  if (
+    inputTokens === undefined &&
+    outputTokens === undefined &&
+    cacheRead === undefined &&
+    cacheCreationTotal === undefined
+  ) {
+    return undefined
+  }
+
+  return {
+    inputTokens: inputTokens ?? 0,
+    outputTokens: outputTokens ?? 0,
+    cacheReadTokens: cacheRead,
+    cacheWrite5mTokens: w5m ?? (w1h === undefined ? cacheCreationTotal : undefined),
+    cacheWrite1hTokens: w1h
+  }
+}
+
+function pickNumber(source: any, keys: string[]): number | undefined {
+  if (!source || typeof source !== 'object') return undefined
+  for (const key of keys) {
+    const v = source[key]
+    if (typeof v === 'number' && Number.isFinite(v)) return v
+  }
+  return undefined
+}
+
+/** UsageStats → OpenAI 兼容 usage 字段（prompt_tokens 含 cached） */
+function toOpenAiUsage(usage: UsageStats): any {
+  const cached = usage.cacheReadTokens ?? 0
+  const w5m = usage.cacheWrite5mTokens ?? 0
+  const w1h = usage.cacheWrite1hTokens ?? 0
+  const prompt_tokens = (usage.inputTokens || 0) + cached + w5m + w1h
+  const completion_tokens = usage.outputTokens || 0
+  const result: any = {
+    prompt_tokens,
+    completion_tokens,
+    total_tokens: prompt_tokens + completion_tokens
+  }
+  if (cached > 0) result.prompt_tokens_details = { cached_tokens: cached }
+  return result
+}
+
+/** UsageStats → Anthropic message_delta.usage（含真实 output_tokens） */
+function toAnthropicDeltaUsage(usage: UsageStats): any {
+  const out: any = { input_tokens: usage.inputTokens || 0, output_tokens: usage.outputTokens || 0 }
+  if (usage.cacheReadTokens !== undefined) out.cache_read_input_tokens = usage.cacheReadTokens
+  const cw5 = usage.cacheWrite5mTokens
+  const cw1 = usage.cacheWrite1hTokens
+  if (cw5 !== undefined || cw1 !== undefined) {
+    out.cache_creation_input_tokens = (cw5 ?? 0) + (cw1 ?? 0)
+  }
+  return out
+}
+
+/** 回退路径：用 estimateTokens 拼一个粗糙 UsageStats */
+function fallbackUsage(requestBody: any, content: string, thinking: string): UsageStats {
+  return {
+    inputTokens: anthropicInputTokens(requestBody),
+    outputTokens: estimateTokens(content) + estimateTokens(thinking),
+    estimated: true
+  }
+}
+
+/** 把 meteringEvent 累计的 credits 注入到 usage 上（>0 才注入，避免污染非 Kiro 路径的语义） */
+function withCredits(usage: UsageStats, credits: number): UsageStats {
+  if (!Number.isFinite(credits) || credits <= 0) return usage
+  return { ...usage, credits }
 }
 
 function findMatchingBrace(text: string, start: number): number {

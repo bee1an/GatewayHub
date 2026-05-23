@@ -5,6 +5,28 @@ import { usePolling } from '../hooks/usePolling'
 import { ToggleFilter } from '../components/ui/ToggleFilter'
 import { Button } from '../components/ui/Button'
 import { useToast } from '../components/ui/ToastContext'
+import { formatCostUsd, formatCredits, formatTokens } from '../utils/format'
+
+type UsageStats = {
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens?: number
+  cacheWrite5mTokens?: number
+  cacheWrite1hTokens?: number
+  credits?: number
+  estimated?: boolean
+}
+
+type CostStats = {
+  inputUsd: number
+  outputUsd: number
+  cacheReadUsd: number
+  cacheWriteUsd: number
+  creditsUsd: number
+  totalUsd: number
+  currency: 'USD'
+  basis: 'credit' | 'token' | 'none'
+}
 
 type LogEntry = {
   ts: number
@@ -19,6 +41,10 @@ type LogEntry = {
   streaming?: boolean
   timeToFirstToken?: number
   chunkCount?: number
+  model?: string
+  apiFormat?: 'openai' | 'anthropic'
+  usage?: UsageStats
+  cost?: CostStats
   error?: { stack?: string; upstreamBody?: string }
   extra?: Record<string, unknown>
 }
@@ -336,6 +362,34 @@ function LogRow({
           </span>
         )}
         <p className="text-[12px] text-porcelain/85 truncate flex-1 min-w-0">{log.message}</p>
+        {log.usage &&
+          (typeof log.usage.credits === 'number' && log.usage.credits > 0 ? (
+            <span
+              className="shrink-0 text-[11px] font-mono text-storm tabular-nums"
+              title={`${log.usage.credits.toFixed(4)} credits${log.usage.estimated ? ' (estimated)' : ''}`}
+            >
+              ◆{formatCredits(log.usage.credits)}
+            </span>
+          ) : (
+            <span
+              className="shrink-0 text-[11px] font-mono text-storm tabular-nums"
+              title={`in ${log.usage.inputTokens} / out ${log.usage.outputTokens}${log.usage.cacheReadTokens ? ` / cache read ${log.usage.cacheReadTokens}` : ''}${log.usage.estimated ? ' (estimated)' : ''}`}
+            >
+              ↑
+              {formatTokens(
+                log.usage.inputTokens +
+                  (log.usage.cacheReadTokens ?? 0) +
+                  (log.usage.cacheWrite5mTokens ?? 0) +
+                  (log.usage.cacheWrite1hTokens ?? 0)
+              )}{' '}
+              ↓{formatTokens(log.usage.outputTokens)}
+            </span>
+          ))}
+        {log.cost && log.cost.totalUsd > 0 && (
+          <span className="shrink-0 text-[11px] font-mono text-aether tabular-nums">
+            {formatCostUsd(log.cost.totalUsd)}
+          </span>
+        )}
         {log.duration !== undefined && (
           <span className="shrink-0 text-[11px] font-mono text-storm tabular-nums">
             {log.duration}ms
@@ -416,6 +470,83 @@ function LogRow({
                 <span className="text-fog">{t('logs.streaming')}</span>
                 <span className="text-steel">
                   TTFT: {log.timeToFirstToken ?? '-'}ms | Chunks: {log.chunkCount ?? '-'}
+                </span>
+              </>
+            )}
+            {log.model && (
+              <>
+                <span className="text-fog">{t('logs.model')}</span>
+                <span className="font-mono text-steel break-all">{log.model}</span>
+              </>
+            )}
+            {log.usage &&
+              (typeof log.usage.credits === 'number' && log.usage.credits > 0 ? (
+                <>
+                  <span className="text-fog">{t('logs.credits')}</span>
+                  <span className="font-mono text-aether tabular-nums">
+                    {log.usage.credits.toFixed(4)}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="text-fog">{t('logs.tokensInput')}</span>
+                  <span className="font-mono text-steel tabular-nums">
+                    {log.usage.inputTokens.toLocaleString()}
+                    {log.usage.estimated && (
+                      <span className="text-fog ml-1.5 text-[10px]">({t('logs.estimated')})</span>
+                    )}
+                  </span>
+                  <span className="text-fog">{t('logs.tokensOutput')}</span>
+                  <span className="font-mono text-steel tabular-nums">
+                    {log.usage.outputTokens.toLocaleString()}
+                  </span>
+                  {log.usage.cacheReadTokens !== undefined && log.usage.cacheReadTokens > 0 && (
+                    <>
+                      <span className="text-fog">{t('logs.tokensCacheRead')}</span>
+                      <span className="font-mono text-emerald tabular-nums">
+                        {log.usage.cacheReadTokens.toLocaleString()}
+                      </span>
+                    </>
+                  )}
+                  {log.usage.cacheWrite5mTokens !== undefined &&
+                    log.usage.cacheWrite5mTokens > 0 && (
+                      <>
+                        <span className="text-fog">{t('logs.tokensCacheWrite5m')}</span>
+                        <span className="font-mono text-warning tabular-nums">
+                          {log.usage.cacheWrite5mTokens.toLocaleString()}
+                        </span>
+                      </>
+                    )}
+                  {log.usage.cacheWrite1hTokens !== undefined &&
+                    log.usage.cacheWrite1hTokens > 0 && (
+                      <>
+                        <span className="text-fog">{t('logs.tokensCacheWrite1h')}</span>
+                        <span className="font-mono text-warning tabular-nums">
+                          {log.usage.cacheWrite1hTokens.toLocaleString()}
+                        </span>
+                      </>
+                    )}
+                </>
+              ))}
+            {log.cost && log.cost.totalUsd > 0 && (
+              <>
+                <span className="text-fog">{t('logs.cost')}</span>
+                <span className="font-mono text-aether tabular-nums">
+                  {formatCostUsd(log.cost.totalUsd)}
+                  {log.cost.basis === 'credit' ? (
+                    <span className="text-fog ml-2 text-[10px]">
+                      {log.usage?.credits?.toFixed(4)} × $
+                      {(log.cost.creditsUsd / (log.usage?.credits || 1)).toFixed(2)}/credit
+                    </span>
+                  ) : (
+                    <span className="text-fog ml-2 text-[10px]">
+                      in {formatCostUsd(log.cost.inputUsd)} / out{' '}
+                      {formatCostUsd(log.cost.outputUsd)}
+                      {log.cost.cacheReadUsd > 0 && ` / cr ${formatCostUsd(log.cost.cacheReadUsd)}`}
+                      {log.cost.cacheWriteUsd > 0 &&
+                        ` / cw ${formatCostUsd(log.cost.cacheWriteUsd)}`}
+                    </span>
+                  )}
                 </span>
               </>
             )}

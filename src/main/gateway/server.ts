@@ -1,9 +1,11 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http'
-import type { ApiKeyEntry, GatewayHubConfig, GatewayResponse } from './types'
+import type { ApiKeyEntry, GatewayHubConfig, GatewayResponse, UsageStats, UsageMeta } from './types'
 import { GatewayLogger } from './core/logger'
 import { parseRequestBody, requestId, toErrorMessage } from './core/utils'
 import { wrapStreamForTracing, type RequestTrace } from './core/requestTracer'
 import { ProviderRegistry } from './providerRegistry'
+import { PricingTable } from './core/pricing'
+import { UsageStore } from './core/usageStore'
 
 export class GatewayServer {
   private server?: Server
@@ -12,7 +14,9 @@ export class GatewayServer {
   constructor(
     private config: GatewayHubConfig,
     private readonly registry: ProviderRegistry,
-    private readonly logger: GatewayLogger
+    private readonly logger: GatewayLogger,
+    private readonly pricing: PricingTable,
+    private readonly usageStore: UsageStore
   ) {}
 
   updateConfig(config: GatewayHubConfig): void {
@@ -118,18 +122,20 @@ export class GatewayServer {
           category: 'request',
           extra: { apiFormat: 'openai', stream: body.stream !== false }
         })
-        const response = await this.registry.chatCompletions(body, {
-          requestId: rid,
-          apiFormat: 'openai'
-        })
-        return this.writeTracedResponse(res, response, {
+        const trace: RequestTrace = {
           requestId: rid,
           method: 'POST',
           path: url.pathname,
           model: body.model,
-          startedAt,
-          streaming: Boolean(response.stream)
+          apiFormat: 'openai',
+          startedAt
+        }
+        const response = await this.registry.chatCompletions(body, {
+          requestId: rid,
+          apiFormat: 'openai',
+          onUsage: this.makeUsageSink(trace)
         })
+        return this.writeTracedResponse(res, response, trace)
       }
 
       if (req.method === 'POST' && url.pathname === '/v1/messages') {
@@ -140,18 +146,20 @@ export class GatewayServer {
           category: 'request',
           extra: { apiFormat: 'anthropic', stream: body.stream === true }
         })
-        const response = await this.registry.messages(body, {
-          requestId: rid,
-          apiFormat: 'anthropic'
-        })
-        return this.writeTracedResponse(res, response, {
+        const trace: RequestTrace = {
           requestId: rid,
           method: 'POST',
           path: url.pathname,
           model: body.model,
-          startedAt,
-          streaming: Boolean(response.stream)
+          apiFormat: 'anthropic',
+          startedAt
+        }
+        const response = await this.registry.messages(body, {
+          requestId: rid,
+          apiFormat: 'anthropic',
+          onUsage: this.makeUsageSink(trace)
         })
+        return this.writeTracedResponse(res, response, trace)
       }
 
       if (req.method === 'POST' && url.pathname === '/v1/messages/count_tokens') {
@@ -234,19 +242,30 @@ export class GatewayServer {
     trace: RequestTrace
   ): Promise<void> {
     trace.statusCode = response.status
+    trace.streaming = Boolean(response.stream)
     const headers = response.headers ?? { 'content-type': 'application/json; charset=utf-8' }
     res.writeHead(response.status, headers)
 
     if (response.stream) {
       const tracedStream = wrapStreamForTracing(response.stream, trace, (t) => {
+        if (t.usage) {
+          const cost = this.pricing.compute(t.model, t.usage, t.provider)
+          t.cost = cost.known ? cost : undefined
+        }
         this.logger.info(`${t.method} ${t.path} completed`, {
           requestId: t.requestId,
+          accountId: t.accountId,
+          provider: t.provider,
           category: 'request',
           statusCode: t.statusCode,
           duration: t.duration,
           streaming: true,
           timeToFirstToken: t.timeToFirstToken,
-          chunkCount: t.chunkCount
+          chunkCount: t.chunkCount,
+          model: t.model,
+          apiFormat: t.apiFormat,
+          usage: t.usage,
+          cost: t.cost
         })
       })
       for await (const chunk of tracedStream) res.write(chunk)
@@ -255,12 +274,22 @@ export class GatewayServer {
     }
 
     trace.duration = Date.now() - trace.startedAt
+    if (trace.usage) {
+      const cost = this.pricing.compute(trace.model, trace.usage, trace.provider)
+      trace.cost = cost.known ? cost : undefined
+    }
     this.logger.info(`${trace.method} ${trace.path} completed`, {
       requestId: trace.requestId,
+      accountId: trace.accountId,
+      provider: trace.provider,
       category: 'request',
       statusCode: trace.statusCode,
       duration: trace.duration,
-      streaming: false
+      streaming: false,
+      model: trace.model,
+      apiFormat: trace.apiFormat,
+      usage: trace.usage,
+      cost: trace.cost
     })
 
     if (response.body === undefined) res.end()
@@ -285,6 +314,35 @@ export class GatewayServer {
   private writeJson(res: ServerResponse, status: number, body: unknown): void {
     res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
     res.end(JSON.stringify(body))
+  }
+
+  /**
+   * 构造 onUsage 回调：流尾或非流响应解析完毕时调用一次。
+   * - 把 usage / accountId 写到 trace，便于后续 logger 打印
+   * - 异步落到 UsageStore（持久化今日累计）
+   */
+  private makeUsageSink(trace: RequestTrace): (usage: UsageStats, meta?: UsageMeta) => void {
+    return (usage, meta) => {
+      trace.usage = usage
+      if (meta?.accountId) trace.accountId = meta.accountId
+      if (meta?.model) trace.model = meta.model
+      if (meta?.provider) trace.provider = meta.provider
+      // record 是 fire-and-forget；store 内部串行队列保证顺序
+      void this.usageStore
+        .record({
+          accountId: meta?.accountId,
+          model: meta?.model ?? trace.model,
+          provider: meta?.provider ?? trace.provider,
+          apiFormat: trace.apiFormat,
+          usage
+        })
+        .catch((error) => {
+          this.logger.warn(`Usage store record failed: ${toErrorMessage(error)}`, {
+            requestId: trace.requestId,
+            category: 'system'
+          })
+        })
+    }
   }
 }
 

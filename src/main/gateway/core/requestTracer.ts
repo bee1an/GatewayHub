@@ -1,16 +1,22 @@
-import type { GatewayLogEntry } from '../types'
+import type { CostStats, GatewayLogEntry, ProviderName, UsageStats } from '../types'
 
 export interface RequestTrace {
   requestId: string
   method: string
   path: string
   model?: string
+  apiFormat?: 'openai' | 'anthropic'
   startedAt: number
   streaming?: boolean
   statusCode?: number
   duration?: number
   timeToFirstToken?: number
   chunkCount?: number
+  usage?: UsageStats
+  cost?: CostStats
+  accountId?: string
+  /** 来源网关；onUsage 回调里写入，决定 cost 计价方式 */
+  provider?: ProviderName
 }
 
 export function wrapStreamForTracing(

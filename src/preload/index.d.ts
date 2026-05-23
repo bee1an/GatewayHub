@@ -74,6 +74,58 @@ declare global {
           limit?: number
         }) => Promise<any[]>
         exportLogs: (format: 'json' | 'ndjson') => Promise<string>
+        getPricing: () => Promise<
+          Record<
+            string,
+            {
+              inputPerMTokens: number
+              outputPerMTokens: number
+              cacheReadPerMTokens?: number
+              cacheWrite5mPerMTokens?: number
+              cacheWrite1hPerMTokens?: number
+            }
+          >
+        >
+        readUsage: (options?: {
+          sinceKey?: string
+          untilKey?: string
+          accountId?: string
+          model?: string
+          provider?: string
+        }) => Promise<{
+          summary: {
+            todayTokens: number
+            todayCredits: number
+            todayCostUsd: number | null
+            last30DaysTokens: number
+            last30DaysCredits: number
+            last30DaysCostUsd: number | null
+            todayInputTokens: number
+            todayOutputTokens: number
+            todayCacheReadTokens: number
+            todayCacheWriteTokens: number
+            todayRequests: number
+            updatedAt: string
+          }
+          daily: Array<{
+            date: string
+            accountId: string
+            model: string
+            provider?: string
+            apiFormat?: 'openai' | 'anthropic'
+            inputTokens: number
+            outputTokens: number
+            cacheReadTokens: number
+            cacheWrite5mTokens: number
+            cacheWrite1hTokens: number
+            credits: number
+            requests: number
+            costUsd: number | null
+            costBasis: 'credit' | 'token' | 'none'
+            updatedAt: string
+          }>
+        }>
+        clearUsage: () => Promise<void>
         onCliLoginOutput: (
           cb: (data: {
             type: string

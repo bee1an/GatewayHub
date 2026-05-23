@@ -1,3 +1,4 @@
+import { dirname, join } from 'path'
 import type {
   AccountStatus,
   AccountTestResult,
@@ -16,6 +17,8 @@ import { GatewayLogger } from './core/logger'
 import { DEFAULT_LOG_WRITER_CONFIG } from './core/logWriter'
 import { ProviderRegistry } from './providerRegistry'
 import { GatewayServer } from './server'
+import { PricingTable, loadPricingOverrides, type ModelPrice } from './core/pricing'
+import { UsageStore, defaultUsageStorePath } from './core/usageStore'
 import { sha256Short, toErrorMessage, generateApiKeyString } from './core/utils'
 import {
   normalizeImportedAccount,
@@ -36,6 +39,8 @@ export class GatewayHubService {
     maxEntries: 1000,
     writer: { logDir: '', ...DEFAULT_LOG_WRITER_CONFIG }
   })
+  private pricing = new PricingTable()
+  private usageStore?: UsageStore
   private config?: GatewayHubConfig
   private state?: GatewayHubState
   private registry?: ProviderRegistry
@@ -61,6 +66,19 @@ export class GatewayHubService {
     // Initialize log writer with resolved path
     ;(this.logger as any).config.writer.logDir = this.store.logsDir()
     await this.logger.initialize()
+
+    // 加载价格覆盖（~/.config/gatewayhub/pricing.json）
+    const overrides = await loadPricingOverrides(
+      join(dirname(this.store.configPath), 'pricing.json')
+    )
+    this.pricing = new PricingTable(overrides)
+
+    // 初始化用量持久化 store（~/.config/gatewayhub/usage-store/v1.json）
+    this.usageStore = new UsageStore({
+      filePath: defaultUsageStorePath(dirname(this.store.configPath)),
+      pricing: this.pricing
+    })
+
     this.logger.info('GatewayHub service initialized', { category: 'system' })
 
     setOnAccountImported(async (account) => {
@@ -304,6 +322,25 @@ export class GatewayHubService {
     return this.logger.exportLogs(format)
   }
 
+  getPricing(): Record<string, ModelPrice> {
+    return this.pricing.list()
+  }
+
+  async readUsage(options?: {
+    sinceKey?: string
+    untilKey?: string
+    accountId?: string
+    model?: string
+  }) {
+    await this.ensureReady()
+    return this.usageStore!.read(options)
+  }
+
+  async clearUsage(): Promise<void> {
+    await this.ensureReady()
+    await this.usageStore!.clear()
+  }
+
   async shutdown(): Promise<void> {
     if (this.server?.running) await this.server.stop()
     await this.logger.shutdown()
@@ -545,7 +582,13 @@ export class GatewayHubService {
       () => void this.persistStateSoon()
     )
     await this.registry.initialize(accountFiles)
-    this.server = new GatewayServer(this.config!, this.registry, this.logger)
+    this.server = new GatewayServer(
+      this.config!,
+      this.registry,
+      this.logger,
+      this.pricing,
+      this.usageStore!
+    )
     this.server.onApiKeyUsed = (id) => this.touchApiKeyUsage(id)
     if (restartServer) await this.server.start()
   }

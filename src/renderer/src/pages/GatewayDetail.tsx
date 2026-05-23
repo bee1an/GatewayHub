@@ -9,6 +9,7 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { TooltipWrapper } from '../components/ui/Tooltip'
 import { useToast } from '../components/ui/ToastContext'
+import Usage from './Usage'
 
 type AccountFilter = 'all' | 'available' | 'problematic'
 
@@ -106,6 +107,7 @@ export default function GatewayDetail(): React.JSX.Element {
   const [removeTarget, setRemoveTarget] = useState<{ id: string; label: string } | null>(null)
   const [filter, setFilter] = useState<AccountFilter>('all')
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [tab, setTab] = useState<'overview' | 'usage'>('overview')
 
   const draftValue =
     routeNameDraft && routeNameDraft.name === name ? routeNameDraft.value : (name ?? '')
@@ -314,93 +316,117 @@ export default function GatewayDetail(): React.JSX.Element {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-3 gap-3">
-            <div className="card px-3 py-2 flex flex-col gap-1">
-              <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
-                {t('gateway.healthy')}
-              </span>
-              <span className="text-[17px] font-[650] text-emerald tabular-nums leading-none">
-                {accountStats.healthy}{' '}
-                <span className="text-[12px] text-fog font-normal">/ {accountStats.total}</span>
-              </span>
-            </div>
-            <div className="card px-3 py-2 flex flex-col gap-1">
-              <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
-                {t('gateway.requests')}
-              </span>
-              <span className="text-[17px] font-[650] text-porcelain tabular-nums leading-none">
-                {accountStats.totalReqs}
-              </span>
-            </div>
-            <div className="card px-3 py-2 flex flex-col gap-1">
-              <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
-                {t('gateway.successRate')}
-              </span>
-              <span
-                className={`text-[17px] font-[650] tabular-nums leading-none ${accountStats.problematic > 0 ? 'text-warning' : 'text-emerald'}`}
-              >
-                {accountStats.totalReqs > 0
-                  ? `${Math.round((accounts.reduce((s, a) => s + (a.stats?.successfulRequests ?? 0), 0) / accountStats.totalReqs) * 100)}%`
-                  : '100%'}
-              </span>
-            </div>
-          </div>
+          <SegmentedControl
+            value={tab}
+            onValueChange={(v) => setTab(v as 'overview' | 'usage')}
+            items={[
+              { value: 'overview', label: t('gateway.tabOverview') },
+              { value: 'usage', label: t('gateway.tabUsage') }
+            ]}
+          />
 
-          <div className="flex items-center justify-between gap-3">
-            <SegmentedControl
-              value={filter}
-              onValueChange={(v) => setFilter(v as AccountFilter)}
-              items={[
-                { value: 'all', label: `${t('logs.all')} (${accounts.length})` },
-                {
-                  value: 'available',
-                  label: `${t('gateway.statusAvailable')} (${accountStats.healthy})`
-                },
-                { value: 'problematic', label: `${t('logs.error')} (${accountStats.problematic})` }
-              ]}
+          {tab === 'usage' && gateway?.providerType ? (
+            <Usage
+              provider={gateway.providerType}
+              hideHeader
+              accountLabels={Object.fromEntries(
+                accounts.map((a) => [a.id, accountInfoMap[a.id]?.data?.email || a.label || a.id])
+              )}
             />
-            {isKiro && (
-              <Button size="sm" variant="primary" onClick={() => setDialogOpen(true)}>
-                {t('gateway.addAccount')}
-              </Button>
-            )}
-          </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="card px-3 py-2 flex flex-col gap-1">
+                  <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
+                    {t('gateway.healthy')}
+                  </span>
+                  <span className="text-[17px] font-[650] text-emerald tabular-nums leading-none">
+                    {accountStats.healthy}{' '}
+                    <span className="text-[12px] text-fog font-normal">/ {accountStats.total}</span>
+                  </span>
+                </div>
+                <div className="card px-3 py-2 flex flex-col gap-1">
+                  <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
+                    {t('gateway.requests')}
+                  </span>
+                  <span className="text-[17px] font-[650] text-porcelain tabular-nums leading-none">
+                    {accountStats.totalReqs}
+                  </span>
+                </div>
+                <div className="card px-3 py-2 flex flex-col gap-1">
+                  <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
+                    {t('gateway.successRate')}
+                  </span>
+                  <span
+                    className={`text-[17px] font-[650] tabular-nums leading-none ${accountStats.problematic > 0 ? 'text-warning' : 'text-emerald'}`}
+                  >
+                    {accountStats.totalReqs > 0
+                      ? `${Math.round((accounts.reduce((s, a) => s + (a.stats?.successfulRequests ?? 0), 0) / accountStats.totalReqs) * 100)}%`
+                      : '100%'}
+                  </span>
+                </div>
+              </div>
 
-          <div className="card overflow-hidden">
-            {filteredAccounts.map((acc, i) => (
-              <AccountRow
-                key={acc.id}
-                account={acc}
-                info={accountInfoMap[acc.id]}
-                busy={busy}
-                expanded={expandedId === acc.id}
-                onToggleExpand={() => setExpandedId(expandedId === acc.id ? null : acc.id)}
-                last={i === filteredAccounts.length - 1}
-                onToggle={() =>
-                  run(
-                    () => window.api.gateway.toggleKiroAccount(acc.id, !acc.enabled),
-                    acc.enabled ? t('gateway.disabled') : t('gateway.enabled')
-                  )
-                }
-                onRemove={() => setRemoveTarget({ id: acc.id, label: acc.label || acc.id })}
-                onReset={() =>
-                  run(() => window.api.gateway.resetKiroAccount(acc.id), t('gateway.resetDone'))
-                }
-                onPauseToggle={() => {
-                  const isPaused = acc.status === 'manual_disabled'
-                  return run(
-                    () =>
-                      window.api.gateway.setKiroAccountStatus(
-                        acc.id,
-                        isPaused ? 'available' : 'manual_disabled'
-                      ),
-                    isPaused ? t('gateway.resumed') : t('gateway.paused')
-                  )
-                }}
-                onRefreshInfo={() => fetchAccountInfo(acc.id)}
-              />
-            ))}
-          </div>
+              <div className="flex items-center justify-between gap-3">
+                <SegmentedControl
+                  value={filter}
+                  onValueChange={(v) => setFilter(v as AccountFilter)}
+                  items={[
+                    { value: 'all', label: `${t('logs.all')} (${accounts.length})` },
+                    {
+                      value: 'available',
+                      label: `${t('gateway.statusAvailable')} (${accountStats.healthy})`
+                    },
+                    {
+                      value: 'problematic',
+                      label: `${t('logs.error')} (${accountStats.problematic})`
+                    }
+                  ]}
+                />
+                {isKiro && (
+                  <Button size="sm" variant="primary" onClick={() => setDialogOpen(true)}>
+                    {t('gateway.addAccount')}
+                  </Button>
+                )}
+              </div>
+
+              <div className="card overflow-hidden">
+                {filteredAccounts.map((acc, i) => (
+                  <AccountRow
+                    key={acc.id}
+                    account={acc}
+                    info={accountInfoMap[acc.id]}
+                    busy={busy}
+                    expanded={expandedId === acc.id}
+                    onToggleExpand={() => setExpandedId(expandedId === acc.id ? null : acc.id)}
+                    last={i === filteredAccounts.length - 1}
+                    onToggle={() =>
+                      run(
+                        () => window.api.gateway.toggleKiroAccount(acc.id, !acc.enabled),
+                        acc.enabled ? t('gateway.disabled') : t('gateway.enabled')
+                      )
+                    }
+                    onRemove={() => setRemoveTarget({ id: acc.id, label: acc.label || acc.id })}
+                    onReset={() =>
+                      run(() => window.api.gateway.resetKiroAccount(acc.id), t('gateway.resetDone'))
+                    }
+                    onPauseToggle={() => {
+                      const isPaused = acc.status === 'manual_disabled'
+                      return run(
+                        () =>
+                          window.api.gateway.setKiroAccountStatus(
+                            acc.id,
+                            isPaused ? 'available' : 'manual_disabled'
+                          ),
+                        isPaused ? t('gateway.resumed') : t('gateway.paused')
+                      )
+                    }}
+                    onRefreshInfo={() => fetchAccountInfo(acc.id)}
+                  />
+                ))}
+              </div>
+            </>
+          )}
         </>
       )}
 

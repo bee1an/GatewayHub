@@ -61,6 +61,15 @@ const api = {
       limit?: number
     }) => ipcRenderer.invoke('gateway:getLogs', options),
     exportLogs: (format: 'json' | 'ndjson') => ipcRenderer.invoke('gateway:exportLogs', format),
+    getPricing: () => ipcRenderer.invoke('gateway:getPricing'),
+    readUsage: (options?: {
+      sinceKey?: string
+      untilKey?: string
+      accountId?: string
+      model?: string
+      provider?: string
+    }) => ipcRenderer.invoke('gateway:readUsage', options),
+    clearUsage: () => ipcRenderer.invoke('gateway:clearUsage'),
     onCliLoginOutput: (cb: (data: any) => void) => {
       ipcRenderer.on('gateway:cliLoginOutput', (_e, data) => cb(data))
       return () => {

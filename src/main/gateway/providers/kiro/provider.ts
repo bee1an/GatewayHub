@@ -9,7 +9,9 @@ import type {
   KiroProviderState,
   ProviderAdapter,
   ProviderModel,
-  ProviderStatus
+  ProviderStatus,
+  UsageMeta,
+  UsageStats
 } from '../../types'
 import { GatewayLogger } from '../../core/logger'
 import { jsonResponse, sseData, sleep, toErrorMessage } from '../../core/utils'
@@ -73,7 +75,14 @@ export class KiroProvider implements ProviderAdapter {
       return {
         status: 200,
         headers: sseHeaders(),
-        stream: this.streamWithFailover('openai', model, kiroModel, body, context.requestId)
+        stream: this.streamWithFailover(
+          'openai',
+          model,
+          kiroModel,
+          body,
+          context.requestId,
+          context.onUsage
+        )
       }
     }
 
@@ -82,7 +91,8 @@ export class KiroProvider implements ProviderAdapter {
       model,
       kiroModel,
       body,
-      context.requestId
+      context.requestId,
+      context.onUsage
     )
     return jsonResponse(200, result)
   }
@@ -96,7 +106,14 @@ export class KiroProvider implements ProviderAdapter {
       return {
         status: 200,
         headers: sseHeaders(),
-        stream: this.streamWithFailover('anthropic', model, kiroModel, body, context.requestId)
+        stream: this.streamWithFailover(
+          'anthropic',
+          model,
+          kiroModel,
+          body,
+          context.requestId,
+          context.onUsage
+        )
       }
     }
 
@@ -105,7 +122,8 @@ export class KiroProvider implements ProviderAdapter {
       model,
       kiroModel,
       body,
-      context.requestId
+      context.requestId,
+      context.onUsage
     )
     return jsonResponse(200, result)
   }
@@ -167,7 +185,8 @@ export class KiroProvider implements ProviderAdapter {
     model: string,
     kiroModel: string,
     body: any,
-    rid: string
+    rid: string,
+    onUsage?: (u: UsageStats, meta?: UsageMeta) => void
   ): Promise<any> {
     const excluded = new Set<string>()
     let lastError: unknown
@@ -181,6 +200,9 @@ export class KiroProvider implements ProviderAdapter {
         requestId: rid,
         accountId: accountLabel(account)
       })
+      const sink = onUsage
+        ? (u: UsageStats) => onUsage(u, { accountId: account.config.id, model, provider: 'kiro' })
+        : undefined
       try {
         const payload = this.buildPayload(format, body, model, account)
         const response = await this.callKiro(account, payload)
@@ -191,13 +213,15 @@ export class KiroProvider implements ProviderAdapter {
                 response.body,
                 model,
                 body,
-                this.config.settings.firstTokenTimeoutSeconds
+                this.config.settings.firstTokenTimeoutSeconds,
+                sink
               )
             : await anthropicJsonFromKiro(
                 response.body,
                 model,
                 body,
-                this.config.settings.firstTokenTimeoutSeconds
+                this.config.settings.firstTokenTimeoutSeconds,
+                sink
               )
         await this.pool.reportSuccess(account)
         this.logger.info(`Upstream success`, {
@@ -239,7 +263,8 @@ export class KiroProvider implements ProviderAdapter {
     model: string,
     kiroModel: string,
     body: any,
-    rid: string
+    rid: string,
+    onUsage?: (u: UsageStats, meta?: UsageMeta) => void
   ): AsyncGenerator<string> {
     const excluded = new Set<string>()
     let lastError: unknown
@@ -253,6 +278,9 @@ export class KiroProvider implements ProviderAdapter {
         requestId: rid,
         accountId: accountLabel(account)
       })
+      const sink = onUsage
+        ? (u: UsageStats) => onUsage(u, { accountId: account.config.id, model, provider: 'kiro' })
+        : undefined
       try {
         const payload = this.buildPayload(format, body, model, account)
         const response = await this.callKiro(account, payload)
@@ -262,14 +290,16 @@ export class KiroProvider implements ProviderAdapter {
             response.body,
             model,
             body,
-            this.config.settings.firstTokenTimeoutSeconds
+            this.config.settings.firstTokenTimeoutSeconds,
+            sink
           )
         else
           yield* anthropicSseFromKiro(
             response.body,
             model,
             body,
-            this.config.settings.firstTokenTimeoutSeconds
+            this.config.settings.firstTokenTimeoutSeconds,
+            sink
           )
         await this.pool.reportSuccess(account)
         this.logger.info(`Upstream stream success`, {

@@ -98,4 +98,13 @@ export function registerGatewayIpc(): void {
   ipcMain.handle('gateway:exportLogs', (_event, format: 'json' | 'ndjson') =>
     gatewayHubService.exportLogs(format)
   )
+  ipcMain.handle('gateway:getPricing', () => gatewayHubService.getPricing())
+  ipcMain.handle(
+    'gateway:readUsage',
+    (
+      _event,
+      options?: { sinceKey?: string; untilKey?: string; accountId?: string; model?: string }
+    ) => gatewayHubService.readUsage(options)
+  )
+  ipcMain.handle('gateway:clearUsage', () => gatewayHubService.clearUsage())
 }

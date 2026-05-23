@@ -57,9 +57,7 @@ function buildKiroPayload(input: {
   if (!messages.length) throw new Error('No messages to send')
   messages = ensureFirstUser(ensureAlternating(messages))
 
-  const fullSystem = [input.system, thinkingSystemPrompt(input.thinking)]
-    .filter(Boolean)
-    .join('\n\n')
+  const fullSystem = input.system
   const historyMessages = messages.slice(0, -1)
   const current = messages[messages.length - 1]
 
@@ -75,9 +73,6 @@ function buildKiroPayload(input: {
     history.push({ assistantResponseMessage: { content: currentContent } })
     currentContent = 'Continue'
   }
-
-  if (input.thinking?.enabled && current.role === 'user')
-    currentContent = injectThinkingTags(currentContent, input.thinking.budget)
 
   const userInputMessage: any = {
     content: currentContent,
@@ -440,15 +435,6 @@ function openAiThinkingConfig(body: any): { enabled: boolean; budget?: number } 
 function anthropicThinkingConfig(body: any): { enabled: boolean; budget?: number } | undefined {
   if (!body.thinking || body.thinking.type === 'disabled') return undefined
   return { enabled: true, budget: Number(body.thinking.budget_tokens) || 4000 }
-}
-
-function thinkingSystemPrompt(thinking?: { enabled: boolean; budget?: number }): string {
-  if (!thinking?.enabled) return ''
-  return 'Extended thinking is an internal GatewayHub control. Do not reveal chain-of-thought, hidden reasoning, planning notes, or <thinking> tags in user-visible text. Use tool calls directly when appropriate, then answer in the user language unless explicitly requested otherwise.'
-}
-
-function injectThinkingTags(content: string, budget = 4000): string {
-  return `<thinking_mode>enabled</thinking_mode>\n<max_thinking_length>${Math.min(budget, 10000)}</max_thinking_length>\n<thinking_instruction>Reason silently. Do not output analysis, hidden reasoning, planning notes, or thinking tags. Answer in the user language unless explicitly requested otherwise.</thinking_instruction>\n\n${content}`
 }
 
 export function openAiUsageFromBodies(requestBody: any, content: string): any {

@@ -140,6 +140,82 @@ export interface AccountRuntimeState {
 
 export type LogCategory = 'system' | 'auth' | 'request' | 'upstream' | 'account'
 
+export interface UsageStats {
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens?: number
+  cacheWrite5mTokens?: number
+  cacheWrite1hTokens?: number
+  /** 上游网关的原生计费单位（Kiro 用 credit）。优先级高于 token 价格 */
+  credits?: number
+  estimated?: boolean
+}
+
+export interface CostStats {
+  inputUsd: number
+  outputUsd: number
+  cacheReadUsd: number
+  cacheWriteUsd: number
+  /** 按 credit 计价时的费用；非 credit 网关恒为 0 */
+  creditsUsd: number
+  totalUsd: number
+  currency: 'USD'
+  /** true 表示价格表覆盖了该模型；false/undefined 表示该模型未在价格表中 */
+  known?: boolean
+  /** 计价模式：credit = 按上游 credit 计费；token = 按模型 token 单价计费 */
+  basis: 'credit' | 'token' | 'none'
+}
+
+/** 单日用量聚合：一个账户/模型在某天的累计 token 数 */
+export interface UsageDailyEntry {
+  date: string // YYYY-MM-DD（本地时区）
+  accountId: string
+  model: string
+  /** 来源网关（kiro/codex/...）；用于前端选择 token 还是 credit 视图 */
+  provider?: ProviderName
+  apiFormat?: 'openai' | 'anthropic'
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWrite5mTokens: number
+  cacheWrite1hTokens: number
+  /** 累计 credit 数（kiro 网关有效，其他网关恒为 0） */
+  credits: number
+  requests: number
+  costUsd: number | null // null 表示模型未定价
+  /** 计价模式：credit / token / none */
+  costBasis: 'credit' | 'token' | 'none'
+  updatedAt: string
+}
+
+export interface UsageReadOptions {
+  sinceKey?: string
+  untilKey?: string
+  accountId?: string
+  model?: string
+  provider?: ProviderName
+}
+
+export interface UsageSummary {
+  todayTokens: number
+  todayCredits: number
+  todayCostUsd: number | null
+  last30DaysTokens: number
+  last30DaysCredits: number
+  last30DaysCostUsd: number | null
+  todayInputTokens: number
+  todayOutputTokens: number
+  todayCacheReadTokens: number
+  todayCacheWriteTokens: number
+  todayRequests: number
+  updatedAt: string
+}
+
+export interface UsageDetail {
+  summary: UsageSummary
+  daily: UsageDailyEntry[]
+}
+
 export interface GatewayLogEntry {
   ts: number
   level: 'debug' | 'info' | 'warn' | 'error'
@@ -153,6 +229,10 @@ export interface GatewayLogEntry {
   streaming?: boolean
   timeToFirstToken?: number
   chunkCount?: number
+  model?: string
+  apiFormat?: 'openai' | 'anthropic'
+  usage?: UsageStats
+  cost?: CostStats
   error?: { stack?: string; upstreamBody?: string }
   extra?: Record<string, unknown>
 }
@@ -160,6 +240,13 @@ export interface GatewayLogEntry {
 export interface GatewayRequestContext {
   requestId: string
   apiFormat: 'openai' | 'anthropic'
+  onUsage?: (usage: UsageStats, meta?: UsageMeta) => void
+}
+
+export interface UsageMeta {
+  accountId?: string
+  model?: string
+  provider?: ProviderName
 }
 
 export interface GatewayResponse {

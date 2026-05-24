@@ -257,6 +257,7 @@ const en = {
   },
   addAccount: {
     title: 'Add Kiro Account',
+    codexTitle: 'Add Codex Account',
     type: 'Type',
     label: 'Label',
     path: 'Path',
@@ -269,7 +270,9 @@ const en = {
       token: 'Token',
       json: 'JSON',
       cli: 'CLI Login',
-      advanced: 'Advanced'
+      advanced: 'Advanced',
+      codexBrowser: 'Browser',
+      codexDevice: 'Device Code'
     },
     tokenPlaceholder: 'Paste your Kiro refresh token here...',
     accessTokenPlaceholder: 'Paste your Kiro access token here...',
@@ -293,7 +296,24 @@ const en = {
     cliFailed: 'Login failed (exit code {{code}})',
     discoverRunning: 'Scanning...',
     discoverResult: '{{skipped}} already imported',
-    discoverEmpty: 'No new credentials found'
+    discoverEmpty: 'No new credentials found',
+    codexBrowserDesc:
+      'Sign in via ChatGPT OAuth in your default browser; the callback is captured automatically.',
+    codexLoginBrowser: 'Open browser to sign in',
+    codexAwaitingBrowser: 'Preparing OAuth flow...',
+    codexBrowserOpened: 'Browser opened; copy the link below if it does not pop up.',
+    codexLoginSuccess: 'Sign-in successful, account added',
+    codexRetry: 'Retry',
+    codexDeviceDesc:
+      'Use device-code flow when no browser is available. Enter the user code on another device.',
+    codexLoginDevice: 'Get device code',
+    codexRequestingCode: 'Requesting device code...',
+    codexDeviceCodeHint: 'Open the URL on any device and enter the user code:',
+    codexJsonHint:
+      "Paste the contents of the official codex CLI's ~/.codex/auth.json (single object or array)",
+    codexJsonPlaceholder:
+      '{ "auth_mode": "chatgpt", "tokens": {"access_token": "...", "refresh_token": "..."} }',
+    codexDiscoverDesc: 'Scan local ~/.codex/auth.json credentials'
   },
   updater: {
     title: 'Update Available',

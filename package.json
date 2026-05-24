@@ -1,7 +1,7 @@
 {
   "name": "gatewayhub",
-  "version": "0.0.6",
-  "description": "Local multi-provider AI gateway hub with Kiro account pool",
+  "version": "0.1.0",
+  "description": "Local multi-provider AI gateway hub with Kiro and Codex account pools",
   "main": "./out/main/index.js",
   "bin": {
     "gatewayhub": "./out/main/cli.js"

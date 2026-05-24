@@ -256,6 +256,7 @@ const zh = {
   },
   addAccount: {
     title: '添加 Kiro 账号',
+    codexTitle: '添加 Codex 账号',
     type: '类型',
     label: '标签',
     path: '路径',
@@ -268,7 +269,9 @@ const zh = {
       token: 'Token',
       json: 'JSON',
       cli: 'CLI 登录',
-      advanced: '高级'
+      advanced: '高级',
+      codexBrowser: '浏览器登录',
+      codexDevice: '设备码登录'
     },
     tokenPlaceholder: '粘贴 Kiro refresh token...',
     accessTokenPlaceholder: '粘贴 Kiro access token...',
@@ -292,7 +295,21 @@ const zh = {
     cliFailed: '登录失败（退出码 {{code}}）',
     discoverRunning: '扫描中...',
     discoverResult: '{{skipped}} 个已导入',
-    discoverEmpty: '未发现新凭证'
+    discoverEmpty: '未发现新凭证',
+    codexBrowserDesc: '通过 ChatGPT OAuth 在系统浏览器中登录，授权后会自动捕获回调。',
+    codexLoginBrowser: '打开浏览器登录',
+    codexAwaitingBrowser: '正在准备 OAuth...',
+    codexBrowserOpened: '已打开浏览器；如果没有自动跳转，可手动复制下面链接打开。',
+    codexLoginSuccess: '登录成功，账号已添加',
+    codexRetry: '重试',
+    codexDeviceDesc: '设备码登录适合无浏览器环境：在另一台设备上输入下面的用户码完成授权。',
+    codexLoginDevice: '获取设备码',
+    codexRequestingCode: '正在请求设备码...',
+    codexDeviceCodeHint: '在任意设备上打开下面的链接并输入用户码：',
+    codexJsonHint: '粘贴官方 codex CLI 的 ~/.codex/auth.json 文件内容（单对象或数组）',
+    codexJsonPlaceholder:
+      '{ "auth_mode": "chatgpt", "tokens": {"access_token": "...", "refresh_token": "..."} }',
+    codexDiscoverDesc: '扫描本机已有的 ~/.codex/auth.json 凭据'
   },
   updater: {
     title: '发现新版本',

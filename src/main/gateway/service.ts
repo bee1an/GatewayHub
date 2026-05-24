@@ -3,6 +3,7 @@ import type {
   AccountStatus,
   AccountTestResult,
   ApiKeyEntry,
+  CodexAccountConfig,
   GatewayHubConfig,
   GatewayHubState,
   GatewayLogEntry,
@@ -32,6 +33,15 @@ import {
   setOnAccountImported,
   type CliDetectResult
 } from './providers/kiro/cliLogin'
+import { buildCodexAccountFromAuth, parseCodexAuthInput } from './providers/codex/normalize'
+import {
+  cancelCodexBrowserLogin,
+  cancelCodexDeviceLogin,
+  loginCodexWithBrowser,
+  loginCodexWithDevice,
+  setOnCodexAccountImported,
+  type LoginEventListener
+} from './providers/codex/login'
 
 export class GatewayHubService {
   private readonly store = new GatewayConfigStore()
@@ -97,6 +107,28 @@ export class GatewayHubService {
         })
       } else {
         await this.store.writeAccountFile(account)
+      }
+      await this.rebuildRuntime(this.server?.running ?? false)
+    })
+
+    setOnCodexAccountImported(async (account) => {
+      await this.ensureReady()
+      const existing = await this.store.readCodexAccountFiles()
+      const match = existing.find((a) => a.id === account.id)
+      if (match) {
+        await this.store.updateCodexAccountFile(account.id, {
+          refreshToken: account.refreshToken,
+          accessToken: account.accessToken,
+          idToken: account.idToken,
+          chatgptAccountId: account.chatgptAccountId,
+          expiresAt: account.expiresAt,
+          lastRefresh: account.lastRefresh,
+          subscriptionActiveUntil: account.subscriptionActiveUntil,
+          email: account.email,
+          name: account.name
+        })
+      } else {
+        await this.store.writeCodexAccountFile(account)
       }
       await this.rebuildRuntime(this.server?.running ?? false)
     })
@@ -568,6 +600,158 @@ export class GatewayHubService {
     return cancelCli()
   }
 
+  // ============== Codex ==============
+
+  async scanCodexAccounts(): Promise<{ candidates: any[] }> {
+    await this.ensureReady()
+    return this.store.scanCodexAccounts()
+  }
+
+  async importScannedCodexAccounts(
+    ids: string[]
+  ): Promise<{ added: CodexAccountConfig[]; status: GatewayStatusSnapshot }> {
+    await this.ensureReady()
+    const { candidates } = await this.store.scanCodexAccounts()
+    const selected = candidates.filter((c) => ids.includes(c.id) && !c.existing)
+    const added: CodexAccountConfig[] = []
+    for (const candidate of selected) {
+      try {
+        await this.store.writeCodexAccountFile(candidate)
+        added.push(candidate)
+      } catch {
+        // skip
+      }
+    }
+    if (added.length) await this.rebuildRuntime(this.server?.running ?? false)
+    return { added, status: await this.getStatus() }
+  }
+
+  async testCodexAccount(accountId: string): Promise<AccountTestResult> {
+    await this.ensureReady()
+    const result = await this.registry!.testAccount('codex', accountId)
+    await this.persistStateSoon()
+    return result
+  }
+
+  async toggleCodexAccount(accountId: string, enabled: boolean): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.store.updateCodexAccountFile(accountId, { enabled })
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async removeCodexAccount(accountId: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const deleted = await this.store.deleteCodexAccountFile(accountId)
+    if (!deleted) throw new Error(`Codex account not found: ${accountId}`)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async getCodexAccountInfo(accountId: string) {
+    await this.ensureReady()
+    return this.registry!.getAccountInfo('codex', accountId)
+  }
+
+  async resetCodexAccount(accountId: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.registry!.resetAccount('codex', accountId)
+    await this.persistStateSoon()
+    return this.getStatus()
+  }
+
+  async setCodexAccountStatus(
+    accountId: string,
+    status: AccountStatus,
+    reason?: string
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.registry!.setAccountStatus('codex', accountId, status, reason)
+    await this.persistStateSoon()
+    return this.getStatus()
+  }
+
+  async getCodexSettings() {
+    await this.ensureReady()
+    return this.config!.providers.codex.settings
+  }
+
+  async updateCodexSettings(
+    settings: Partial<Record<string, any>>
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    Object.assign(this.config!.providers.codex.settings, settings)
+    await this.store.saveConfig(this.config!)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  /** 用户粘贴 ~/.codex/auth.json 内容（单对象或数组）批量导入 */
+  async importCodexAuthJson(
+    text: string
+  ): Promise<{ added: number; skipped: number; errors: string[]; status: GatewayStatusSnapshot }> {
+    await this.ensureReady()
+    const payloads = parseCodexAuthInput(text)
+    if (!payloads.length) throw new Error('Invalid Codex auth.json input')
+    let added = 0,
+      updated = 0,
+      skipped = 0
+    const errors: string[] = []
+    const existingAccounts = await this.store.readCodexAccountFiles()
+    const existingIds = new Set(existingAccounts.map((a) => a.id))
+    for (const payload of payloads) {
+      try {
+        const account = buildCodexAccountFromAuth(payload)
+        if (!account) {
+          skipped++
+          continue
+        }
+        if (existingIds.has(account.id)) {
+          await this.store.updateCodexAccountFile(account.id, {
+            refreshToken: account.refreshToken,
+            accessToken: account.accessToken,
+            idToken: account.idToken,
+            chatgptAccountId: account.chatgptAccountId,
+            expiresAt: account.expiresAt,
+            lastRefresh: account.lastRefresh,
+            subscriptionActiveUntil: account.subscriptionActiveUntil,
+            email: account.email,
+            name: account.name
+          })
+          updated++
+        } else {
+          await this.store.writeCodexAccountFile(account)
+          existingIds.add(account.id)
+          added++
+        }
+      } catch (err) {
+        errors.push(toErrorMessage(err))
+      }
+    }
+    if (added > 0 || updated > 0) await this.rebuildRuntime(this.server?.running ?? false)
+    return { added, skipped: skipped + updated, errors, status: await this.getStatus() }
+  }
+
+  /**
+   * 启动 Codex OAuth 浏览器登录。
+   * 进度通过 onLoginEvent 推送给 IPC（由调用方注入）。
+   */
+  async startCodexBrowserLogin(emit: LoginEventListener): Promise<void> {
+    await this.ensureReady()
+    return loginCodexWithBrowser(this.config!.providers.codex.settings, emit)
+  }
+
+  async startCodexDeviceLogin(emit: LoginEventListener): Promise<void> {
+    await this.ensureReady()
+    return loginCodexWithDevice(this.config!.providers.codex.settings, emit)
+  }
+
+  async cancelCodexLogin(): Promise<boolean> {
+    const browser = await cancelCodexBrowserLogin()
+    const device = await cancelCodexDeviceLogin()
+    return browser || device
+  }
+
   private async ensureReady(): Promise<void> {
     if (!this.config || !this.state || !this.registry || !this.server) await this.initialize()
   }
@@ -575,13 +759,23 @@ export class GatewayHubService {
   private async rebuildRuntime(restartServer: boolean): Promise<void> {
     if (this.server?.running) await this.server.stop()
     const accountFiles = await this.store.readAccountFiles()
+    const codexFiles = await this.store.readCodexAccountFiles()
     this.registry = new ProviderRegistry(
       this.config!,
       this.state!,
       this.logger,
-      () => void this.persistStateSoon()
+      () => void this.persistStateSoon(),
+      async (accountId, updates) => {
+        try {
+          await this.store.updateCodexAccountFile(accountId, updates)
+        } catch (error) {
+          this.logger.warn(`updateCodexAccountFile failed: ${toErrorMessage(error)}`, {
+            category: 'system'
+          })
+        }
+      }
     )
-    await this.registry.initialize(accountFiles)
+    await this.registry.initialize(accountFiles, codexFiles)
     this.server = new GatewayServer(
       this.config!,
       this.registry,
@@ -596,10 +790,12 @@ export class GatewayHubService {
   private async persistStateSoon(): Promise<void> {
     if (!this.state) return
     this.state.providers.kiro.logs = this.logger.getEntries()
+    this.state.providers.codex.logs = this.logger.getEntries()
     if (this.saveTimer) clearTimeout(this.saveTimer)
     this.saveTimer = setTimeout(() => {
       if (!this.state) return
       this.state.providers.kiro.logs = this.logger.getEntries()
+      this.state.providers.codex.logs = this.logger.getEntries()
       void this.store.saveState(this.state)
     }, 100)
   }

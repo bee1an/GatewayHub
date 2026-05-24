@@ -6,7 +6,7 @@ export interface GatewayHubConfig {
   defaultProvider: ProviderName
   providers: {
     kiro: KiroProviderConfig
-    codex: PlaceholderProviderConfig
+    codex: CodexProviderConfig
     gemini: PlaceholderProviderConfig
     [name: string]: unknown
   }
@@ -81,15 +81,72 @@ export interface KiroAccountConfig {
   apiRegion?: string
 }
 
+export interface CodexProviderConfig {
+  enabled: boolean
+  routeName?: string
+  displayName?: string
+  settings: CodexProviderSettings
+}
+
+export interface CodexProviderSettings {
+  /** ChatGPT 后端 base URL，默认 https://chatgpt.com/backend-api */
+  baseUrl: string
+  /** HTTP/SOCKS5 代理 URL */
+  vpnProxyUrl: string
+  firstTokenTimeoutSeconds: number
+  streamingReadTimeoutSeconds: number
+  maxRetries: number
+  /** OAuth callback 端口，默认 1455 */
+  callbackPort: number
+  /** access_token 提前刷新窗口（秒） */
+  refreshSkewSeconds: number
+  /** 强制 last_refresh 过期时间（秒） */
+  refreshIntervalSeconds: number
+}
+
+/** Codex 凭据结构（兼容官方 codex CLI 的 ~/.codex/auth.json） */
+export interface CodexAccountConfig {
+  id: string
+  /** 账号显示标签（用户可改） */
+  label?: string
+  /** 来自 id_token 的 email；用于 UI 展示和去重 */
+  email?: string
+  enabled: boolean
+  path?: string
+  /** OAuth refresh token */
+  refreshToken?: string
+  /** OAuth access token（短期 JWT） */
+  accessToken?: string
+  /** OAuth id_token（含 chatgpt_account_id 等 claims） */
+  idToken?: string
+  /** ChatGPT 后端账号 ID（来自 id_token 的 auth.chatgpt_account_id claim） */
+  chatgptAccountId?: string
+  /** 上次 token 刷新的 ISO 时间 */
+  lastRefresh?: string
+  /** access_token 解码出的 exp（毫秒） */
+  expiresAt?: number
+  /** 订阅过期时间 ISO（来自 id_token） */
+  subscriptionActiveUntil?: string
+  /** 用户名 */
+  name?: string
+}
+
 export interface GatewayHubState {
   version: 1
   providers: {
     kiro: KiroProviderState
+    codex: CodexProviderState
     [name: string]: unknown
   }
 }
 
 export interface KiroProviderState {
+  accounts: Record<string, AccountRuntimeState>
+  currentAccountIndex: number
+  logs: GatewayLogEntry[]
+}
+
+export interface CodexProviderState {
   accounts: Record<string, AccountRuntimeState>
   currentAccountIndex: number
   logs: GatewayLogEntry[]

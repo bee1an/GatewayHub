@@ -136,6 +136,50 @@ declare global {
             error?: string
           }) => void
         ) => () => void
+        // ========== Codex ==========
+        scanCodexAccounts: () => Promise<{
+          candidates: Array<{
+            id: string
+            label?: string
+            email?: string
+            chatgptAccountId?: string
+            existing?: boolean
+            sourceType?: string
+          }>
+        }>
+        importScannedCodexAccounts: (ids: string[]) => Promise<{ added: any[]; status: any }>
+        testCodexAccount: (accountId: string) => Promise<any>
+        toggleCodexAccount: (accountId: string, enabled: boolean) => Promise<any>
+        removeCodexAccount: (accountId: string) => Promise<any>
+        getCodexAccountInfo: (accountId: string) => Promise<{
+          id: string
+          email?: string
+          name?: string
+          chatgptAccountId?: string
+          subscriptionActiveUntil?: string
+          expiresAt?: number
+          lastRefresh?: string
+        }>
+        resetCodexAccount: (accountId: string) => Promise<any>
+        setCodexAccountStatus: (accountId: string, status: string, reason?: string) => Promise<any>
+        getCodexSettings: () => Promise<any>
+        updateCodexSettings: (settings: Record<string, any>) => Promise<any>
+        importCodexJson: (
+          text: string
+        ) => Promise<{ added: number; skipped: number; errors: string[]; status: any }>
+        loginCodexBrowser: () => Promise<void>
+        loginCodexDevice: () => Promise<void>
+        cancelCodexLogin: () => Promise<boolean>
+        onCodexLoginEvent: (
+          cb: (event: {
+            kind: 'pending' | 'authorize' | 'success' | 'error' | 'cancelled'
+            message?: string
+            authorizeUrl?: string
+            userCode?: string
+            verificationUri?: string
+            accountId?: string
+          }) => void
+        ) => () => void
       }
       updater: {
         check: () => Promise<any>

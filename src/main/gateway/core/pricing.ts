@@ -106,7 +106,41 @@ const BUILTIN: Record<string, ModelPrice> = {
     outputPerMTokens: 10,
     cacheReadPerMTokens: 0.125
   },
+  'gpt-5-codex': {
+    inputPerMTokens: 1.25,
+    outputPerMTokens: 10,
+    cacheReadPerMTokens: 0.125
+  },
   'gpt-5-mini': {
+    inputPerMTokens: 0.25,
+    outputPerMTokens: 2,
+    cacheReadPerMTokens: 0.025
+  },
+  'gpt-5-nano': {
+    inputPerMTokens: 0.05,
+    outputPerMTokens: 0.4,
+    cacheReadPerMTokens: 0.005
+  },
+  'gpt-5-pro': {
+    inputPerMTokens: 15,
+    outputPerMTokens: 120
+  },
+  'gpt-5.1': {
+    inputPerMTokens: 1.25,
+    outputPerMTokens: 10,
+    cacheReadPerMTokens: 0.125
+  },
+  'gpt-5.1-codex': {
+    inputPerMTokens: 1.25,
+    outputPerMTokens: 10,
+    cacheReadPerMTokens: 0.125
+  },
+  'gpt-5.1-codex-max': {
+    inputPerMTokens: 1.25,
+    outputPerMTokens: 10,
+    cacheReadPerMTokens: 0.125
+  },
+  'gpt-5.1-codex-mini': {
     inputPerMTokens: 0.25,
     outputPerMTokens: 2,
     cacheReadPerMTokens: 0.025

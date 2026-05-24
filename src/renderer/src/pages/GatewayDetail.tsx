@@ -115,6 +115,8 @@ export default function GatewayDetail(): React.JSX.Element {
   const gateway = useMemo(() => status?.providers.find((p) => p.name === name), [status, name])
   const accounts = useMemo<Account[]>(() => gateway?.accounts ?? [], [gateway?.accounts])
   const isKiro = gateway?.providerType === 'kiro'
+  const isCodex = gateway?.providerType === 'codex'
+  const supportsAccounts = isKiro || isCodex
   const accountIdsKey = useMemo(() => accounts.map((a) => a.id).join(','), [accounts])
 
   const filteredAccounts = useMemo(() => {
@@ -141,41 +143,46 @@ export default function GatewayDetail(): React.JSX.Element {
     return { healthy, problematic, totalReqs, total: accounts.length }
   }, [accounts])
 
-  const fetchAccountInfo = useCallback(async (accountId: string) => {
-    setAccountInfoMap((prev) => ({ ...prev, [accountId]: { ...prev[accountId], loading: true } }))
-    try {
-      const info = await window.api.gateway.getAccountInfo(accountId)
-      setAccountInfoMap((prev) => {
-        const next = { ...prev, [accountId]: { data: info, loading: false } }
-        accountInfoCache[accountId] = next[accountId]
-        return next
-      })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      setAccountInfoMap((prev) => ({
-        ...prev,
-        [accountId]: { ...prev[accountId], loading: false, error: message }
-      }))
-    }
-  }, [])
+  const fetchAccountInfo = useCallback(
+    async (accountId: string) => {
+      setAccountInfoMap((prev) => ({ ...prev, [accountId]: { ...prev[accountId], loading: true } }))
+      try {
+        const info = isCodex
+          ? await window.api.gateway.getCodexAccountInfo(accountId)
+          : await window.api.gateway.getAccountInfo(accountId)
+        setAccountInfoMap((prev) => {
+          const next = { ...prev, [accountId]: { data: info, loading: false } }
+          accountInfoCache[accountId] = next[accountId]
+          return next
+        })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        setAccountInfoMap((prev) => ({
+          ...prev,
+          [accountId]: { ...prev[accountId], loading: false, error: message }
+        }))
+      }
+    },
+    [isCodex]
+  )
 
   const fetchAllUsage = useCallback(() => {
     accounts.filter((a) => a.enabled).forEach((acc) => fetchAccountInfo(acc.id))
   }, [accounts, fetchAccountInfo])
 
   useEffect(() => {
-    if (!isKiro) return
+    if (!supportsAccounts) return
     accounts
       .filter((a) => a.enabled && !accountInfoMap[a.id])
       .forEach((acc) => fetchAccountInfo(acc.id))
-  }, [accountIdsKey, accountInfoMap, accounts, fetchAccountInfo, isKiro])
+  }, [accountIdsKey, accountInfoMap, accounts, fetchAccountInfo, supportsAccounts])
 
   const pollRef = useRef<ReturnType<typeof setInterval>>(undefined)
   useEffect(() => {
-    if (!isKiro || !accounts.length) return
+    if (!supportsAccounts || !accounts.length) return
     pollRef.current = setInterval(fetchAllUsage, 5 * 60_000)
     return () => clearInterval(pollRef.current)
-  }, [accounts.length, fetchAllUsage, isKiro])
+  }, [accounts.length, fetchAllUsage, supportsAccounts])
 
   async function run(action: () => Promise<any>, success: string): Promise<void> {
     setBusy(true)
@@ -309,123 +316,140 @@ export default function GatewayDetail(): React.JSX.Element {
         )}
       </div>
 
-      {accounts.length === 0 ? (
-        <div className="card px-4 py-10 flex flex-col items-center gap-2">
-          <span className="i-ph-users-three text-[28px] text-charcoal" aria-hidden="true" />
-          <span className="text-fog text-[13px]">{t('gateway.noAccounts')}</span>
-        </div>
+      <SegmentedControl
+        value={tab}
+        onValueChange={(v) => setTab(v as 'overview' | 'usage')}
+        items={[
+          { value: 'overview', label: t('gateway.tabOverview') },
+          { value: 'usage', label: t('gateway.tabUsage') }
+        ]}
+      />
+
+      {tab === 'usage' && gateway?.providerType ? (
+        <Usage
+          provider={gateway.providerType}
+          hideHeader
+          accountLabels={Object.fromEntries(
+            accounts.map((a) => [a.id, accountInfoMap[a.id]?.data?.email || a.label || a.id])
+          )}
+        />
       ) : (
         <>
-          <SegmentedControl
-            value={tab}
-            onValueChange={(v) => setTab(v as 'overview' | 'usage')}
-            items={[
-              { value: 'overview', label: t('gateway.tabOverview') },
-              { value: 'usage', label: t('gateway.tabUsage') }
-            ]}
-          />
+          <div className="grid grid-cols-3 gap-3">
+            <div className="card px-3 py-2 flex flex-col gap-1">
+              <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
+                {t('gateway.healthy')}
+              </span>
+              <span className="text-[17px] font-[650] text-emerald tabular-nums leading-none">
+                {accountStats.healthy}{' '}
+                <span className="text-[12px] text-fog font-normal">/ {accountStats.total}</span>
+              </span>
+            </div>
+            <div className="card px-3 py-2 flex flex-col gap-1">
+              <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
+                {t('gateway.requests')}
+              </span>
+              <span className="text-[17px] font-[650] text-porcelain tabular-nums leading-none">
+                {accountStats.totalReqs}
+              </span>
+            </div>
+            <div className="card px-3 py-2 flex flex-col gap-1">
+              <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
+                {t('gateway.successRate')}
+              </span>
+              <span
+                className={`text-[17px] font-[650] tabular-nums leading-none ${accountStats.problematic > 0 ? 'text-warning' : 'text-emerald'}`}
+              >
+                {accountStats.totalReqs > 0
+                  ? `${Math.round((accounts.reduce((s, a) => s + (a.stats?.successfulRequests ?? 0), 0) / accountStats.totalReqs) * 100)}%`
+                  : '100%'}
+              </span>
+            </div>
+          </div>
 
-          {tab === 'usage' && gateway?.providerType ? (
-            <Usage
-              provider={gateway.providerType}
-              hideHeader
-              accountLabels={Object.fromEntries(
-                accounts.map((a) => [a.id, accountInfoMap[a.id]?.data?.email || a.label || a.id])
-              )}
+          <div className="flex items-center justify-between gap-3">
+            <SegmentedControl
+              value={filter}
+              onValueChange={(v) => setFilter(v as AccountFilter)}
+              items={[
+                { value: 'all', label: `${t('logs.all')} (${accounts.length})` },
+                {
+                  value: 'available',
+                  label: `${t('gateway.statusAvailable')} (${accountStats.healthy})`
+                },
+                {
+                  value: 'problematic',
+                  label: `${t('logs.error')} (${accountStats.problematic})`
+                }
+              ]}
             />
+            {supportsAccounts && (
+              <Button size="sm" variant="primary" onClick={() => setDialogOpen(true)}>
+                {t('gateway.addAccount')}
+              </Button>
+            )}
+          </div>
+
+          {accounts.length === 0 ? (
+            <div className="card px-4 py-10 flex flex-col items-center gap-3">
+              <span className="i-ph-users-three text-[28px] text-charcoal" aria-hidden="true" />
+              <span className="text-fog text-[13px]">{t('gateway.noAccounts')}</span>
+              {supportsAccounts && (
+                <Button size="sm" variant="primary" onClick={() => setDialogOpen(true)}>
+                  {t('gateway.addAccount')}
+                </Button>
+              )}
+            </div>
           ) : (
-            <>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="card px-3 py-2 flex flex-col gap-1">
-                  <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
-                    {t('gateway.healthy')}
-                  </span>
-                  <span className="text-[17px] font-[650] text-emerald tabular-nums leading-none">
-                    {accountStats.healthy}{' '}
-                    <span className="text-[12px] text-fog font-normal">/ {accountStats.total}</span>
-                  </span>
-                </div>
-                <div className="card px-3 py-2 flex flex-col gap-1">
-                  <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
-                    {t('gateway.requests')}
-                  </span>
-                  <span className="text-[17px] font-[650] text-porcelain tabular-nums leading-none">
-                    {accountStats.totalReqs}
-                  </span>
-                </div>
-                <div className="card px-3 py-2 flex flex-col gap-1">
-                  <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
-                    {t('gateway.successRate')}
-                  </span>
-                  <span
-                    className={`text-[17px] font-[650] tabular-nums leading-none ${accountStats.problematic > 0 ? 'text-warning' : 'text-emerald'}`}
-                  >
-                    {accountStats.totalReqs > 0
-                      ? `${Math.round((accounts.reduce((s, a) => s + (a.stats?.successfulRequests ?? 0), 0) / accountStats.totalReqs) * 100)}%`
-                      : '100%'}
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between gap-3">
-                <SegmentedControl
-                  value={filter}
-                  onValueChange={(v) => setFilter(v as AccountFilter)}
-                  items={[
-                    { value: 'all', label: `${t('logs.all')} (${accounts.length})` },
-                    {
-                      value: 'available',
-                      label: `${t('gateway.statusAvailable')} (${accountStats.healthy})`
-                    },
-                    {
-                      value: 'problematic',
-                      label: `${t('logs.error')} (${accountStats.problematic})`
-                    }
-                  ]}
+            <div className="card overflow-hidden">
+              {filteredAccounts.map((acc, i) => (
+                <AccountRow
+                  key={acc.id}
+                  account={acc}
+                  info={accountInfoMap[acc.id]}
+                  busy={busy}
+                  expanded={expandedId === acc.id}
+                  onToggleExpand={() => setExpandedId(expandedId === acc.id ? null : acc.id)}
+                  last={i === filteredAccounts.length - 1}
+                  onToggle={() =>
+                    run(
+                      () =>
+                        isCodex
+                          ? window.api.gateway.toggleCodexAccount(acc.id, !acc.enabled)
+                          : window.api.gateway.toggleKiroAccount(acc.id, !acc.enabled),
+                      acc.enabled ? t('gateway.disabled') : t('gateway.enabled')
+                    )
+                  }
+                  onRemove={() => setRemoveTarget({ id: acc.id, label: acc.label || acc.id })}
+                  onReset={() =>
+                    run(
+                      () =>
+                        isCodex
+                          ? window.api.gateway.resetCodexAccount(acc.id)
+                          : window.api.gateway.resetKiroAccount(acc.id),
+                      t('gateway.resetDone')
+                    )
+                  }
+                  onPauseToggle={() => {
+                    const isPaused = acc.status === 'manual_disabled'
+                    return run(
+                      () =>
+                        isCodex
+                          ? window.api.gateway.setCodexAccountStatus(
+                              acc.id,
+                              isPaused ? 'available' : 'manual_disabled'
+                            )
+                          : window.api.gateway.setKiroAccountStatus(
+                              acc.id,
+                              isPaused ? 'available' : 'manual_disabled'
+                            ),
+                      isPaused ? t('gateway.resumed') : t('gateway.paused')
+                    )
+                  }}
+                  onRefreshInfo={() => fetchAccountInfo(acc.id)}
                 />
-                {isKiro && (
-                  <Button size="sm" variant="primary" onClick={() => setDialogOpen(true)}>
-                    {t('gateway.addAccount')}
-                  </Button>
-                )}
-              </div>
-
-              <div className="card overflow-hidden">
-                {filteredAccounts.map((acc, i) => (
-                  <AccountRow
-                    key={acc.id}
-                    account={acc}
-                    info={accountInfoMap[acc.id]}
-                    busy={busy}
-                    expanded={expandedId === acc.id}
-                    onToggleExpand={() => setExpandedId(expandedId === acc.id ? null : acc.id)}
-                    last={i === filteredAccounts.length - 1}
-                    onToggle={() =>
-                      run(
-                        () => window.api.gateway.toggleKiroAccount(acc.id, !acc.enabled),
-                        acc.enabled ? t('gateway.disabled') : t('gateway.enabled')
-                      )
-                    }
-                    onRemove={() => setRemoveTarget({ id: acc.id, label: acc.label || acc.id })}
-                    onReset={() =>
-                      run(() => window.api.gateway.resetKiroAccount(acc.id), t('gateway.resetDone'))
-                    }
-                    onPauseToggle={() => {
-                      const isPaused = acc.status === 'manual_disabled'
-                      return run(
-                        () =>
-                          window.api.gateway.setKiroAccountStatus(
-                            acc.id,
-                            isPaused ? 'available' : 'manual_disabled'
-                          ),
-                        isPaused ? t('gateway.resumed') : t('gateway.paused')
-                      )
-                    }}
-                    onRefreshInfo={() => fetchAccountInfo(acc.id)}
-                  />
-                ))}
-              </div>
-            </>
+              ))}
+            </div>
           )}
         </>
       )}
@@ -436,6 +460,14 @@ export default function GatewayDetail(): React.JSX.Element {
           onOpenChange={setDialogOpen}
           busy={busy}
           onAdd={run}
+          onImported={refresh}
+        />
+      )}
+
+      {isCodex && (
+        <AddCodexAccountDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
           onImported={refresh}
         />
       )}
@@ -454,7 +486,10 @@ export default function GatewayDetail(): React.JSX.Element {
         onConfirm={() => {
           if (removeTarget) {
             run(
-              () => window.api.gateway.removeKiroAccount(removeTarget.id),
+              () =>
+                isCodex
+                  ? window.api.gateway.removeCodexAccount(removeTarget.id)
+                  : window.api.gateway.removeKiroAccount(removeTarget.id),
               t('gateway.removed')
             ).then(() => setRemoveTarget(null))
           }
@@ -1244,6 +1279,413 @@ function AddAccountDialog({
                   </div>
                 )}
               </>
+            )
+          }
+        ]}
+      />
+    </Modal>
+  )
+}
+
+function AddCodexAccountDialog({
+  open,
+  onOpenChange,
+  onImported
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  onImported: () => void
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const [tab, setTab] = useState('browser')
+
+  // Browser/device login state
+  const [loginState, setLoginState] = useState<
+    'idle' | 'pending' | 'authorize' | 'success' | 'failed'
+  >('idle')
+  const [loginMessage, setLoginMessage] = useState('')
+  const [authorizeUrl, setAuthorizeUrl] = useState('')
+  const [userCode, setUserCode] = useState('')
+  const [linkCopied, setLinkCopied] = useState(false)
+
+  // JSON paste tab
+  const [jsonText, setJsonText] = useState('')
+  const [jsonLoading, setJsonLoading] = useState(false)
+  const [jsonResult, setJsonResult] = useState<{
+    added: number
+    skipped: number
+    errors: string[]
+  } | null>(null)
+
+  // Discover tab (~/.codex/auth.json)
+  const [discoverLoading, setDiscoverLoading] = useState(false)
+  const [scanResult, setScanResult] = useState<{
+    candidates: Array<{
+      id: string
+      email?: string
+      label?: string
+      chatgptAccountId?: string
+      existing?: boolean
+      sourceType?: string
+    }>
+  } | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    if (!open) return
+    const unsub = window.api.gateway.onCodexLoginEvent((event) => {
+      if (event.kind === 'authorize') {
+        setLoginState('authorize')
+        setLoginMessage(event.message || '')
+        setAuthorizeUrl(event.authorizeUrl || '')
+        setUserCode(event.userCode || '')
+      } else if (event.kind === 'success') {
+        setLoginState('success')
+        setLoginMessage('')
+        onImported()
+        setTimeout(() => onOpenChange(false), 600)
+      } else if (event.kind === 'cancelled') {
+        setLoginState('idle')
+        setLoginMessage('')
+      } else if (event.kind === 'error') {
+        setLoginState('failed')
+        setLoginMessage(event.message || 'Login failed')
+      }
+    })
+    return unsub
+  }, [open, onImported, onOpenChange])
+
+  function resetLoginState(): void {
+    setLoginState('idle')
+    setLoginMessage('')
+    setAuthorizeUrl('')
+    setUserCode('')
+  }
+
+  async function handleBrowserLogin() {
+    setLoginState('pending')
+    setLoginMessage('')
+    setAuthorizeUrl('')
+    setUserCode('')
+    try {
+      await window.api.gateway.loginCodexBrowser()
+    } catch (err: any) {
+      setLoginState('failed')
+      setLoginMessage(err?.message || String(err))
+    }
+  }
+
+  async function handleDeviceLogin() {
+    setLoginState('pending')
+    setLoginMessage('')
+    setAuthorizeUrl('')
+    setUserCode('')
+    try {
+      await window.api.gateway.loginCodexDevice()
+    } catch (err: any) {
+      setLoginState('failed')
+      setLoginMessage(err?.message || String(err))
+    }
+  }
+
+  async function handleCancelLogin() {
+    await window.api.gateway.cancelCodexLogin()
+    setLoginState('idle')
+  }
+
+  async function handleCopyAuthorizeUrl() {
+    if (!authorizeUrl) return
+    await navigator.clipboard.writeText(authorizeUrl)
+    setLinkCopied(true)
+    window.setTimeout(() => setLinkCopied(false), 1500)
+  }
+
+  async function handleScan() {
+    setDiscoverLoading(true)
+    setScanResult(null)
+    setSelectedIds(new Set())
+    try {
+      const r = await window.api.gateway.scanCodexAccounts()
+      setScanResult(r)
+      const newIds = new Set(r.candidates.filter((c) => !c.existing).map((c) => c.id))
+      setSelectedIds(newIds)
+    } finally {
+      setDiscoverLoading(false)
+    }
+  }
+
+  async function handleImportSelected() {
+    if (selectedIds.size === 0) return
+    setDiscoverLoading(true)
+    try {
+      await window.api.gateway.importScannedCodexAccounts([...selectedIds])
+      setScanResult(null)
+      setSelectedIds(new Set())
+      onImported()
+      onOpenChange(false)
+    } finally {
+      setDiscoverLoading(false)
+    }
+  }
+
+  async function handleJson() {
+    if (!jsonText.trim()) return
+    setJsonLoading(true)
+    setJsonResult(null)
+    try {
+      const r = await window.api.gateway.importCodexJson(jsonText)
+      setJsonResult({ added: r.added, skipped: r.skipped, errors: r.errors })
+      if (r.added > 0) {
+        setJsonText('')
+        onImported()
+      }
+    } catch (err: any) {
+      setJsonResult({ added: 0, skipped: 0, errors: [err?.message || 'Unknown error'] })
+    } finally {
+      setJsonLoading(false)
+    }
+  }
+
+  return (
+    <Modal
+      open={open}
+      onOpenChange={async (v) => {
+        if (!v && (loginState === 'pending' || loginState === 'authorize')) {
+          await window.api.gateway.cancelCodexLogin()
+        }
+        if (!v) resetLoginState()
+        onOpenChange(v)
+      }}
+      title={t('addAccount.codexTitle')}
+    >
+      <TabGroup
+        value={tab}
+        onValueChange={setTab}
+        items={[
+          {
+            value: 'browser',
+            label: t('addAccount.tabs.codexBrowser'),
+            content: (
+              <div className="space-y-3">
+                <p className="text-[12px] text-fog">{t('addAccount.codexBrowserDesc')}</p>
+                {loginState === 'idle' && (
+                  <Button variant="primary" onClick={handleBrowserLogin}>
+                    {t('addAccount.codexLoginBrowser')}
+                  </Button>
+                )}
+                {loginState === 'pending' && (
+                  <p className="text-[12px] text-fog animate-pulse">
+                    {t('addAccount.codexAwaitingBrowser')}
+                  </p>
+                )}
+                {loginState === 'authorize' && (
+                  <div className="space-y-2">
+                    <p className="text-[12px] text-fog">
+                      {loginMessage || t('addAccount.codexBrowserOpened')}
+                    </p>
+                    {authorizeUrl && (
+                      <div className="flex items-center gap-2 rounded-[var(--radius-md)] bg-pitch px-2 py-1.5">
+                        <span className="flex-1 text-[12px] text-lime break-all select-all">
+                          {authorizeUrl}
+                        </span>
+                        <Button size="sm" onClick={handleCopyAuthorizeUrl}>
+                          {linkCopied ? t('common.copied') : t('common.copy')}
+                        </Button>
+                      </div>
+                    )}
+                    <Button onClick={handleCancelLogin}>{t('common.cancel')}</Button>
+                  </div>
+                )}
+                {loginState === 'success' && (
+                  <p className="text-[12px] text-emerald">{t('addAccount.codexLoginSuccess')}</p>
+                )}
+                {loginState === 'failed' && (
+                  <div className="space-y-2">
+                    <p className="text-[12px] text-red">{loginMessage}</p>
+                    <Button onClick={handleBrowserLogin}>{t('addAccount.codexRetry')}</Button>
+                  </div>
+                )}
+              </div>
+            )
+          },
+          {
+            value: 'device',
+            label: t('addAccount.tabs.codexDevice'),
+            content: (
+              <div className="space-y-3">
+                <p className="text-[12px] text-fog">{t('addAccount.codexDeviceDesc')}</p>
+                {loginState === 'idle' && (
+                  <Button variant="primary" onClick={handleDeviceLogin}>
+                    {t('addAccount.codexLoginDevice')}
+                  </Button>
+                )}
+                {loginState === 'pending' && (
+                  <p className="text-[12px] text-fog animate-pulse">
+                    {t('addAccount.codexRequestingCode')}
+                  </p>
+                )}
+                {loginState === 'authorize' && (
+                  <div className="space-y-2 text-center py-2">
+                    <p className="text-[12px] text-fog">{t('addAccount.codexDeviceCodeHint')}</p>
+                    {authorizeUrl && (
+                      <div className="flex items-center gap-2 rounded-[var(--radius-md)] bg-pitch px-2 py-1.5 text-left">
+                        <span className="flex-1 text-[12px] text-lime break-all select-all">
+                          {authorizeUrl}
+                        </span>
+                        <Button size="sm" onClick={handleCopyAuthorizeUrl}>
+                          {linkCopied ? t('common.copied') : t('common.copy')}
+                        </Button>
+                      </div>
+                    )}
+                    {userCode && (
+                      <p className="text-[22px] font-mono font-[700] text-porcelain tracking-[0.2em]">
+                        {userCode}
+                      </p>
+                    )}
+                    <Button onClick={handleCancelLogin}>{t('common.cancel')}</Button>
+                  </div>
+                )}
+                {loginState === 'success' && (
+                  <p className="text-[12px] text-emerald">{t('addAccount.codexLoginSuccess')}</p>
+                )}
+                {loginState === 'failed' && (
+                  <div className="space-y-2">
+                    <p className="text-[12px] text-red">{loginMessage}</p>
+                    <Button onClick={handleDeviceLogin}>{t('addAccount.codexRetry')}</Button>
+                  </div>
+                )}
+              </div>
+            )
+          },
+          {
+            value: 'json',
+            label: t('addAccount.tabs.json'),
+            content: (
+              <div className="space-y-2">
+                <p className="text-[12px] text-fog">{t('addAccount.codexJsonHint')}</p>
+                <textarea
+                  className="w-full min-h-[120px] text-[12px] font-mono bg-pitch rounded-[var(--radius-md)] p-2 text-storm"
+                  value={jsonText}
+                  onChange={(e) => setJsonText(e.target.value)}
+                  placeholder={t('addAccount.codexJsonPlaceholder')}
+                />
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="primary"
+                    onClick={handleJson}
+                    disabled={jsonLoading || !jsonText.trim()}
+                  >
+                    {jsonLoading ? t('addAccount.jsonImporting') : t('common.add')}
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      const input = document.createElement('input')
+                      input.type = 'file'
+                      input.accept = '.json,application/json'
+                      input.onchange = async () => {
+                        const file = input.files?.[0]
+                        if (!file) return
+                        const text = await file.text()
+                        setJsonText(text)
+                      }
+                      input.click()
+                    }}
+                  >
+                    {t('addAccount.jsonSelectFile')}
+                  </Button>
+                  {jsonResult && (
+                    <span className="text-[12px] text-fog">
+                      {t('addAccount.jsonResult', {
+                        added: jsonResult.added,
+                        skipped: jsonResult.skipped
+                      })}
+                      {jsonResult.errors.length > 0 && (
+                        <span className="text-red ml-2">
+                          {t('addAccount.jsonErrors', { count: jsonResult.errors.length })}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </div>
+                {jsonResult && jsonResult.errors.length > 0 && (
+                  <div className="text-[12px] text-red space-y-0.5">
+                    {jsonResult.errors.map((e, i) => (
+                      <p key={i} className="truncate opacity-80">
+                        {e}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          },
+          {
+            value: 'discover',
+            label: t('addAccount.tabs.discover'),
+            content: (
+              <div className="space-y-2">
+                <p className="text-[12px] text-fog">{t('addAccount.codexDiscoverDesc')}</p>
+                {!scanResult && (
+                  <Button variant="primary" onClick={handleScan} disabled={discoverLoading}>
+                    {discoverLoading ? t('addAccount.discoverRunning') : t('gateway.discover')}
+                  </Button>
+                )}
+                {scanResult && scanResult.candidates.length === 0 && (
+                  <p className="text-[12px] text-fog">{t('addAccount.discoverEmpty')}</p>
+                )}
+                {scanResult && scanResult.candidates.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="space-y-1 max-h-44 overflow-y-auto">
+                      {scanResult.candidates.map((c) => (
+                        <label
+                          key={c.id}
+                          className="flex items-center gap-2 px-2 py-1.5 rounded-[var(--radius-md)] bg-pitch hover:bg-charcoal cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(c.id)}
+                            disabled={c.existing}
+                            onChange={() => {
+                              const next = new Set(selectedIds)
+                              if (next.has(c.id)) next.delete(c.id)
+                              else next.add(c.id)
+                              setSelectedIds(next)
+                            }}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[12px] text-porcelain truncate">
+                              {c.label || c.email || c.id}
+                            </p>
+                            <p className="text-[12px] text-fog font-mono truncate">
+                              {c.email || c.chatgptAccountId || c.sourceType || c.id}
+                            </p>
+                          </div>
+                          <span className="tag text-[12px] !px-1 !py-0 shrink-0">
+                            {c.existing ? t('gateway.exists') : c.sourceType || 'codex'}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="primary"
+                        onClick={handleImportSelected}
+                        disabled={selectedIds.size === 0 || discoverLoading}
+                      >
+                        {t('common.add')} ({selectedIds.size})
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          setScanResult(null)
+                          setSelectedIds(new Set())
+                        }}
+                      >
+                        {t('common.cancel')}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
             )
           }
         ]}

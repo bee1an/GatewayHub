@@ -1,7 +1,9 @@
 import { dirname, join } from 'path'
 import { mkdir, readdir, readFile, rename, stat, unlink, writeFile } from 'fs/promises'
+import { homedir } from 'os'
 import type {
   ApiKeyEntry,
+  CodexAccountConfig,
   GatewayHubConfig,
   GatewayHubState,
   KiroAccountConfig,
@@ -13,6 +15,9 @@ import {
   SQLITE_REGISTRATION_KEYS,
   normalizeKiroModelId
 } from './providers/kiro/constants'
+import { DEFAULT_CODEX_SETTINGS } from './providers/codex/constants'
+import { buildCodexAccountFromAuth } from './providers/codex/normalize'
+import type { CodexAuthPayload } from './providers/codex/types'
 import { generateApiKey, readJsonFile, sha256Short, writeJsonFile, atomicWrite } from './core/utils'
 import { getPaths } from './core/paths'
 
@@ -29,6 +34,10 @@ export class GatewayConfigStore {
 
   accountsDir(): string {
     return join(dirname(this.configPath), 'kiro', 'accounts')
+  }
+
+  codexAccountsDir(): string {
+    return join(dirname(this.configPath), 'codex', 'accounts')
   }
 
   logsDir(): string {
@@ -80,8 +89,19 @@ export class GatewayConfigStore {
       await this.migrateAccountsToFiles(parsed)
     }
 
+    // v2 → v3: codex 从 placeholder 升级为正式 provider，旧配置可能遗留 enabled=false，自动开启
+    let migratedFromV2 = false
+    if ((parsed.version ?? 1) < 3) {
+      if (parsed.providers?.codex) {
+        parsed.providers.codex.enabled = true
+      }
+      parsed.version = 3
+      migratedFromV2 = true
+    }
+
     const config = this.normalizeConfig(parsed)
     const shouldSaveNormalizedConfig =
+      migratedFromV2 ||
       Boolean(parsed.providers?.kiro?.accounts) ||
       JSON.stringify(parsed.modelMappings ?? []) !== JSON.stringify(config.modelMappings)
 
@@ -238,9 +258,120 @@ export class GatewayConfigStore {
     return { candidates: result }
   }
 
+  // ============== Codex account file management ==============
+
+  async readCodexAccountFiles(): Promise<CodexAccountConfig[]> {
+    const dir = this.codexAccountsDir()
+    let files: string[]
+    try {
+      files = await readdir(dir)
+    } catch {
+      return []
+    }
+    const accounts: CodexAccountConfig[] = []
+    for (const file of files) {
+      if (!file.endsWith('.json') || file.startsWith('.')) continue
+      const filePath = join(dir, file)
+      try {
+        const data = await readJsonFile<any>(filePath)
+        if (data.enabled === undefined) data.enabled = true
+        data.path = filePath
+        accounts.push(data as CodexAccountConfig)
+      } catch (err) {
+        console.warn(`[GatewayHub] Skipping corrupt codex account file: ${file}`, err)
+      }
+    }
+    return accounts
+  }
+
+  async writeCodexAccountFile(data: CodexAccountConfig): Promise<string> {
+    const dir = this.codexAccountsDir()
+    await mkdir(dir, { recursive: true })
+    const fileBase = safeFileName(data.email || data.label || data.id) || 'account'
+    const targetPath = join(dir, `${fileBase}.json`)
+    const existing = await readJsonFile<any>(targetPath).catch(() => null)
+    if (existing && existing.id && existing.id !== data.id) {
+      const altPath = join(dir, `${fileBase}-${sha256Short(data.id)}.json`)
+      await atomicWrite(altPath, `${JSON.stringify(stripCodexPath(data), null, 2)}\n`)
+      return altPath
+    }
+    await atomicWrite(targetPath, `${JSON.stringify(stripCodexPath(data), null, 2)}\n`)
+    return targetPath
+  }
+
+  async deleteCodexAccountFile(accountId: string): Promise<boolean> {
+    const accounts = await this.readCodexAccountFiles()
+    const account = accounts.find((a) => a.id === accountId)
+    if (!account?.path) return false
+    await unlink(account.path)
+    return true
+  }
+
+  async updateCodexAccountFile(
+    accountId: string,
+    updates: Partial<CodexAccountConfig>
+  ): Promise<void> {
+    const accounts = await this.readCodexAccountFiles()
+    const account = accounts.find((a) => a.id === accountId)
+    if (!account?.path) throw new Error(`Codex account not found: ${accountId}`)
+    const data = await readJsonFile<any>(account.path)
+    Object.assign(data, updates)
+    await atomicWrite(account.path, `${JSON.stringify(data, null, 2)}\n`)
+    if (updates.email && updates.email !== account.email) {
+      const dir = dirname(account.path)
+      const newBase = safeFileName(updates.email)
+      if (newBase) {
+        const newPath = join(dir, `${newBase}.json`)
+        const conflict = await readJsonFile<any>(newPath).catch(() => null)
+        if (!conflict || conflict.id === accountId) {
+          await rename(account.path, newPath).catch(() => {})
+        }
+      }
+    }
+  }
+
+  /**
+   * 扫描本机已有的 Codex 凭据：
+   * 1. ~/.codex/auth.json — 官方 codex CLI 登录后的位置
+   */
+  async scanCodexAccounts(): Promise<{
+    candidates: Array<CodexAccountConfig & { existing?: boolean; sourceType?: string }>
+  }> {
+    const external = await this.scanExternalCodexAccounts()
+    const existing = await this.readCodexAccountFiles()
+    const existingKeys = new Set<string>()
+    for (const acc of existing) {
+      for (const k of codexIdentityKeys(acc)) existingKeys.add(k)
+    }
+    const result: Array<CodexAccountConfig & { existing?: boolean; sourceType?: string }> = []
+    for (const candidate of external) {
+      const keys = codexIdentityKeys(candidate)
+      const isExisting = keys.some((k) => existingKeys.has(k))
+      result.push({ ...candidate, existing: isExisting || undefined })
+    }
+    return { candidates: result }
+  }
+
+  private async scanExternalCodexAccounts(): Promise<
+    Array<CodexAccountConfig & { sourceType: string }>
+  > {
+    const candidates: Array<CodexAccountConfig & { sourceType: string }> = []
+    const home = homedir()
+    const codexAuth = join(home, '.codex', 'auth.json')
+    try {
+      const raw = await readFile(codexAuth, 'utf8')
+      const parsed = JSON.parse(raw) as CodexAuthPayload
+      const account = buildCodexAccountFromAuth(parsed, { label: 'codex CLI' })
+      if (account) candidates.push({ ...account, sourceType: 'codex_cli' })
+    } catch {
+      /* ignore */
+    }
+    return candidates
+  }
+
   defaultConfig(): GatewayHubConfig {
     return {
-      version: 2,
+      version: 3,
       server: {
         host: '127.0.0.1',
         port: 8000,
@@ -255,9 +386,9 @@ export class GatewayConfigStore {
           settings: { ...DEFAULT_KIRO_SETTINGS }
         },
         codex: {
-          enabled: false,
+          enabled: true,
           routeName: 'codex',
-          note: 'Reserved provider slot. Codex account gateway is not implemented in v1.'
+          settings: { ...DEFAULT_CODEX_SETTINGS }
         },
         gemini: {
           enabled: false,
@@ -274,6 +405,11 @@ export class GatewayConfigStore {
       version: 1,
       providers: {
         kiro: {
+          accounts: {},
+          currentAccountIndex: 0,
+          logs: []
+        },
+        codex: {
           accounts: {},
           currentAccountIndex: 0,
           logs: []
@@ -363,6 +499,11 @@ export class GatewayConfigStore {
 
   private normalizeConfig(input: any): GatewayHubConfig {
     const defaults = this.defaultConfig()
+    // 旧版本 codex 是 placeholder（含 note 字段），用 settings 合并时把它清掉
+    const inputCodex = input?.providers?.codex
+      ? { ...input.providers.codex, note: undefined }
+      : undefined
+    if (inputCodex) delete (inputCodex as any).note
     const config: GatewayHubConfig = {
       ...defaults,
       ...input,
@@ -381,8 +522,16 @@ export class GatewayConfigStore {
         },
         codex: {
           ...defaults.providers.codex,
-          ...(input?.providers?.codex ?? {}),
-          routeName: input?.providers?.codex?.routeName || defaults.providers.codex.routeName
+          ...(inputCodex ?? {}),
+          routeName: input?.providers?.codex?.routeName || defaults.providers.codex.routeName,
+          enabled:
+            typeof input?.providers?.codex?.enabled === 'boolean'
+              ? input.providers.codex.enabled
+              : defaults.providers.codex.enabled,
+          settings: {
+            ...defaults.providers.codex.settings,
+            ...(input?.providers?.codex?.settings ?? {})
+          }
         },
         gemini: {
           ...defaults.providers.gemini,
@@ -416,6 +565,14 @@ export class GatewayConfigStore {
           accounts: input?.providers?.kiro?.accounts ?? {},
           logs: Array.isArray(input?.providers?.kiro?.logs)
             ? input.providers.kiro.logs.slice(-1000)
+            : []
+        },
+        codex: {
+          ...defaults.providers.codex,
+          ...(input?.providers?.codex ?? {}),
+          accounts: input?.providers?.codex?.accounts ?? {},
+          logs: Array.isArray(input?.providers?.codex?.logs)
+            ? input.providers.codex.logs.slice(-1000)
             : []
         }
       }
@@ -477,6 +634,21 @@ function migrateApiKeys(serverInput: any): ApiKeyEntry[] {
 function stripPath(data: KiroAccountConfig): Omit<KiroAccountConfig, 'path'> {
   const { path: _, ...rest } = data
   return rest
+}
+
+function stripCodexPath(data: CodexAccountConfig): Omit<CodexAccountConfig, 'path'> {
+  const { path: _, ...rest } = data
+  return rest
+}
+
+function codexIdentityKeys(account: Partial<CodexAccountConfig>): string[] {
+  const keys: string[] = []
+  if (account.chatgptAccountId) keys.push(`codex-acct:${account.chatgptAccountId}`)
+  if (account.email) keys.push(`codex-email:${account.email.toLowerCase()}`)
+  if (account.refreshToken) keys.push(`codex-refresh:${sha256Short(account.refreshToken)}`)
+  if (!keys.length && account.accessToken)
+    keys.push(`codex-access:${sha256Short(account.accessToken)}`)
+  return keys
 }
 
 export function sanitizeModelMappings(

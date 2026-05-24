@@ -7,6 +7,8 @@ import { Button } from './ui/Button'
 import { TooltipWrapper } from './ui/Tooltip'
 import { UpdateModal } from './UpdateModal'
 import kiroIcon from '../assets/kiro-icon.svg'
+import codexIconDark from '../assets/codex-icon-dark.svg'
+import codexIconLight from '../assets/codex-icon-light.svg'
 
 type ProviderStatus = {
   name: string
@@ -23,11 +25,12 @@ type ServerInfo = {
   running: boolean
 }
 
-const GATEWAY_LOGOS: Record<string, string> = {
-  kiro: kiroIcon
+const GATEWAY_LOGOS: Record<string, { light: string; dark: string }> = {
+  kiro: { light: kiroIcon, dark: kiroIcon },
+  codex: { light: codexIconLight, dark: codexIconDark }
 }
 
-const PLACEHOLDER_PROVIDERS = ['codex', 'gemini']
+const PLACEHOLDER_PROVIDERS = ['gemini']
 
 export default function Sidebar(): React.JSX.Element {
   const { t, i18n } = useTranslation()
@@ -63,7 +66,7 @@ export default function Sidebar(): React.JSX.Element {
     return () => unsubs.forEach((fn) => fn())
   }, [])
 
-  const configuredGateways = gateways.filter((p) => p.enabled && p.configured)
+  const configuredGateways = gateways.filter((p) => p.enabled)
 
   function toggleLang(): void {
     changeLanguage(i18n.language === 'zh' ? 'en' : 'zh')
@@ -95,6 +98,7 @@ export default function Sidebar(): React.JSX.Element {
             displayName={gw.displayName}
             providerType={gw.providerType}
             status={gw.status}
+            theme={theme}
           />
         ))}
 
@@ -249,12 +253,14 @@ function GatewayNavItem({
   name,
   displayName,
   providerType,
-  status
+  status,
+  theme
 }: {
   name: string
   displayName?: string
   providerType: string
   status: string
+  theme: 'light' | 'dark'
 }): React.JSX.Element {
   const dotClass =
     status === 'ready' || status === 'running'
@@ -262,7 +268,8 @@ function GatewayNavItem({
       : status === 'error'
         ? 'pulse-dot-red'
         : 'pulse-dot-gray'
-  const logo = GATEWAY_LOGOS[providerType]
+  const logoSet = GATEWAY_LOGOS[providerType]
+  const logo = logoSet ? logoSet[theme] : undefined
   const label = displayName || providerType
 
   return (

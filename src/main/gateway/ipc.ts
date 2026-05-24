@@ -1,6 +1,7 @@
-import { ipcMain } from 'electron'
+import { ipcMain, BrowserWindow } from 'electron'
 import { gatewayHubService } from './service'
 import type { AccountStatus, LogCategory, ModelMapping } from './types'
+import type { CodexLoginEvent } from './providers/codex/types'
 
 export function registerGatewayIpc(): void {
   ipcMain.handle('gateway:status', () => gatewayHubService.getStatus())
@@ -107,4 +108,57 @@ export function registerGatewayIpc(): void {
     ) => gatewayHubService.readUsage(options)
   )
   ipcMain.handle('gateway:clearUsage', () => gatewayHubService.clearUsage())
+
+  // ============== Codex ==============
+
+  ipcMain.handle('gateway:scanCodexAccounts', () => gatewayHubService.scanCodexAccounts())
+  ipcMain.handle('gateway:importScannedCodexAccounts', (_event, ids: string[]) =>
+    gatewayHubService.importScannedCodexAccounts(ids)
+  )
+  ipcMain.handle('gateway:testCodexAccount', (_event, accountId: string) =>
+    gatewayHubService.testCodexAccount(accountId)
+  )
+  ipcMain.handle('gateway:toggleCodexAccount', (_event, accountId: string, enabled: boolean) =>
+    gatewayHubService.toggleCodexAccount(accountId, enabled)
+  )
+  ipcMain.handle('gateway:removeCodexAccount', (_event, accountId: string) =>
+    gatewayHubService.removeCodexAccount(accountId)
+  )
+  ipcMain.handle('gateway:getCodexAccountInfo', (_event, accountId: string) =>
+    gatewayHubService.getCodexAccountInfo(accountId)
+  )
+  ipcMain.handle('gateway:resetCodexAccount', (_event, accountId: string) =>
+    gatewayHubService.resetCodexAccount(accountId)
+  )
+  ipcMain.handle(
+    'gateway:setCodexAccountStatus',
+    (_event, accountId: string, status: string, reason?: string) =>
+      gatewayHubService.setCodexAccountStatus(accountId, status as AccountStatus, reason)
+  )
+  ipcMain.handle('gateway:getCodexSettings', () => gatewayHubService.getCodexSettings())
+  ipcMain.handle('gateway:updateCodexSettings', (_event, settings: Record<string, any>) =>
+    gatewayHubService.updateCodexSettings(settings)
+  )
+  ipcMain.handle('gateway:importCodexJson', (_event, text: string) =>
+    gatewayHubService.importCodexAuthJson(text)
+  )
+  ipcMain.handle('gateway:loginCodexBrowser', async (event) => {
+    const sender = BrowserWindow.fromWebContents(event.sender)
+    const emit = makeCodexLoginEmitter(sender)
+    await gatewayHubService.startCodexBrowserLogin(emit)
+  })
+  ipcMain.handle('gateway:loginCodexDevice', async (event) => {
+    const sender = BrowserWindow.fromWebContents(event.sender)
+    const emit = makeCodexLoginEmitter(sender)
+    await gatewayHubService.startCodexDeviceLogin(emit)
+  })
+  ipcMain.handle('gateway:cancelCodexLogin', () => gatewayHubService.cancelCodexLogin())
+}
+
+function makeCodexLoginEmitter(window: BrowserWindow | null): (event: CodexLoginEvent) => void {
+  return (event) => {
+    if (window && !window.isDestroyed()) {
+      window.webContents.send('gateway:codexLoginEvent', event)
+    }
+  }
 }

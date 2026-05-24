@@ -75,6 +75,36 @@ const api = {
       return () => {
         ipcRenderer.removeAllListeners('gateway:cliLoginOutput')
       }
+    },
+    // ========== Codex ==========
+    scanCodexAccounts: () => ipcRenderer.invoke('gateway:scanCodexAccounts'),
+    importScannedCodexAccounts: (ids: string[]) =>
+      ipcRenderer.invoke('gateway:importScannedCodexAccounts', ids),
+    testCodexAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:testCodexAccount', accountId),
+    toggleCodexAccount: (accountId: string, enabled: boolean) =>
+      ipcRenderer.invoke('gateway:toggleCodexAccount', accountId, enabled),
+    removeCodexAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:removeCodexAccount', accountId),
+    getCodexAccountInfo: (accountId: string) =>
+      ipcRenderer.invoke('gateway:getCodexAccountInfo', accountId),
+    resetCodexAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:resetCodexAccount', accountId),
+    setCodexAccountStatus: (accountId: string, status: string, reason?: string) =>
+      ipcRenderer.invoke('gateway:setCodexAccountStatus', accountId, status, reason),
+    getCodexSettings: () => ipcRenderer.invoke('gateway:getCodexSettings'),
+    updateCodexSettings: (settings: Record<string, any>) =>
+      ipcRenderer.invoke('gateway:updateCodexSettings', settings),
+    importCodexJson: (text: string) => ipcRenderer.invoke('gateway:importCodexJson', text),
+    loginCodexBrowser: () => ipcRenderer.invoke('gateway:loginCodexBrowser'),
+    loginCodexDevice: () => ipcRenderer.invoke('gateway:loginCodexDevice'),
+    cancelCodexLogin: () => ipcRenderer.invoke('gateway:cancelCodexLogin'),
+    onCodexLoginEvent: (cb: (event: any) => void) => {
+      const listener = (_e: unknown, data: any): void => cb(data)
+      ipcRenderer.on('gateway:codexLoginEvent', listener)
+      return () => {
+        ipcRenderer.removeListener('gateway:codexLoginEvent', listener)
+      }
     }
   },
   updater: {

@@ -1,5 +1,6 @@
 import type {
   AccountStatus,
+  CodexAccountConfig,
   GatewayHubConfig,
   GatewayRequestContext,
   GatewayResponse,
@@ -12,6 +13,7 @@ import type {
 } from './types'
 import { GatewayLogger } from './core/logger'
 import { KiroProvider } from './providers/kiro/provider'
+import { CodexProvider } from './providers/codex/provider'
 import type { GatewayHubState } from './types'
 
 class PlaceholderProvider implements ProviderAdapter {
@@ -61,7 +63,11 @@ export class ProviderRegistry {
     private readonly config: GatewayHubConfig,
     private readonly state: GatewayHubState,
     private readonly logger: GatewayLogger,
-    private readonly onStateChanged: () => void
+    private readonly onStateChanged: () => void,
+    private readonly persistCodexAccount?: (
+      accountId: string,
+      updates: Partial<CodexAccountConfig>
+    ) => Promise<void>
   ) {
     for (const mapping of config.modelMappings ?? []) {
       if (!mapping.enabled) continue
@@ -70,7 +76,10 @@ export class ProviderRegistry {
     }
   }
 
-  async initialize(accountFiles: KiroAccountConfig[]): Promise<void> {
+  async initialize(
+    accountFiles: KiroAccountConfig[],
+    codexAccountFiles: CodexAccountConfig[] = []
+  ): Promise<void> {
     const kiro = new KiroProvider(
       this.config.providers.kiro,
       this.state.providers.kiro,
@@ -79,11 +88,17 @@ export class ProviderRegistry {
     )
     await kiro.initialize(accountFiles)
     this.registerProvider('kiro', kiro, this.config.providers.kiro.routeName || 'kiro')
-    this.registerProvider(
-      'codex',
-      new PlaceholderProvider('codex', this.config.providers.codex.note),
-      this.config.providers.codex.routeName || 'codex'
+
+    const codex = new CodexProvider(
+      this.config.providers.codex,
+      this.state.providers.codex,
+      this.logger,
+      this.onStateChanged,
+      this.persistCodexAccount
     )
+    await codex.initialize(codexAccountFiles)
+    this.registerProvider('codex', codex, this.config.providers.codex.routeName || 'codex')
+
     this.registerProvider(
       'gemini',
       new PlaceholderProvider('gemini', this.config.providers.gemini.note),

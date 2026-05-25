@@ -63,3 +63,9 @@ export function codexUsageUrl(baseUrl: string): string {
   if (base.endsWith('/backend-api')) return `${base}/wham/usage`
   return `${base}/api/wham/usage`
 }
+
+export function codexModelsUrl(baseUrl: string): string {
+  const base = baseUrl.replace(/\/+$/, '')
+  if (base.endsWith('/backend-api')) return `${base}/codex/models`
+  return `${base}/codex/models`
+}

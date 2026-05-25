@@ -134,11 +134,48 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+      - name: Extract release notes from CHANGELOG.md
+        id: notes
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          OUT=release-notes.md
+          : > "$OUT"
+
+          if [ -f CHANGELOG.md ]; then
+            awk -v v="$VERSION" '
+              function starts_with(s, p) { return index(s, p) == 1 }
+              /^## / {
+                if (found) exit
+                h = $0
+                sub(/^## /, "", h)        # drop "## "
+                sub(/^v/, "", h)          # drop optional "v" prefix
+                sub(/^\[/, "", h)         # drop optional "[" for keep-a-changelog
+                if (starts_with(h, v)) {
+                  tail = substr(h, length(v) + 1)
+                  # version segment must end here; accept eol or whitespace/closing-bracket separator
+                  if (tail == "" || tail ~ /^[\] \t]/) { found = 1; next }
+                }
+                next
+              }
+              found { buf = buf $0 "\n" }
+              END {
+                sub(/^\n+/, "", buf)
+                sub(/\n+$/, "\n", buf)
+                printf "%s", buf
+              }
+            ' CHANGELOG.md > "$OUT"
+          fi
+
+          if [ ! -s "$OUT" ]; then
+            echo "::warning::No release notes found for ${VERSION}; release body will be empty"
+          fi
+          echo "path=$OUT" >> "$GITHUB_OUTPUT"
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           generate_release_notes: false
+          body_path: ${{ steps.notes.outputs.path }}
           files: artifacts/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

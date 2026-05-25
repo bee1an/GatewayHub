@@ -17,6 +17,8 @@ interface SelectProps {
   size?: 'sm' | 'md'
   className?: string
   mono?: boolean
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
 export const Select = forwardRef<HTMLButtonElement, SelectProps>(
@@ -30,7 +32,9 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
       error,
       size = 'md',
       className,
-      mono
+      mono,
+      open,
+      onOpenChange
     },
     ref
   ) => {
@@ -43,6 +47,8 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
         value={value || undefined}
         onValueChange={onValueChange}
         disabled={disabled}
+        open={open}
+        onOpenChange={onOpenChange}
       >
         <SelectPrimitive.Trigger
           ref={ref}

@@ -140,7 +140,18 @@ export class GatewayHubService {
       await this.rebuildRuntime(false)
     }
 
-    if (this.config.server.autoStart && !options?.skipAutoStart) await this.start()
+    if (this.config.server.autoStart && !options?.skipAutoStart) {
+      try {
+        await this.start()
+      } catch (err) {
+        // 端口被占用等启动失败时，不要让应用初始化整体失败：
+        // server.start 已经写过 error 日志，UI 通过 status() 看到 running=false 即可。
+        this.logger.error(
+          `Auto-start failed: ${err instanceof Error ? err.message : String(err)}`,
+          { category: 'system' }
+        )
+      }
+    }
   }
 
   async start(): Promise<GatewayStatusSnapshot> {

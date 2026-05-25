@@ -34,15 +34,48 @@ export class GatewayServer {
   async start(): Promise<void> {
     if (this.running) return
     this.server = createServer((req, res) => void this.handle(req, res))
-    await new Promise<void>((resolve, reject) => {
-      const onError = (error: Error) => reject(error)
-      this.server!.once('error', onError)
-      this.server!.listen(this.config.server.port, this.config.server.host, () => {
-        this.server!.off('error', onError)
-        resolve()
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const onError = (error: Error) => reject(error)
+        this.server!.once('error', onError)
+        this.server!.listen(this.config.server.port, this.config.server.host, () => {
+          this.server!.off('error', onError)
+          resolve()
+        })
       })
-    })
+    } catch (err) {
+      const friendly = this.translateListenError(err)
+      this.server = undefined
+      this.logger.error(friendly.message, { category: 'system' })
+      const wrapped = new Error(friendly.message) as Error & { code?: string }
+      if (friendly.code) wrapped.code = friendly.code
+      throw wrapped
+    }
     this.logger.info(`Gateway server listening on ${this.url}`, { category: 'system' })
+  }
+
+  private translateListenError(err: unknown): { message: string; code?: string } {
+    const e = err as NodeJS.ErrnoException
+    const { host, port } = this.config.server
+    if (e?.code === 'EADDRINUSE') {
+      return {
+        code: 'EADDRINUSE',
+        message: `Port ${port} on ${host} is already in use. Stop the other process or change the port in Settings.`
+      }
+    }
+    if (e?.code === 'EACCES') {
+      return {
+        code: 'EACCES',
+        message: `Permission denied to bind ${host}:${port}. Try a port above 1024 or run with elevated permissions.`
+      }
+    }
+    if (e?.code === 'EADDRNOTAVAIL') {
+      return {
+        code: 'EADDRNOTAVAIL',
+        message: `Host ${host} is not available on this machine. Update the host in Settings.`
+      }
+    }
+    return { message: e?.message || 'Failed to start gateway server' }
   }
 
   async stop(): Promise<void> {

@@ -57,6 +57,7 @@ type GatewayStatus = {
     configured: boolean
     status: string
     models: string[]
+    accounts?: Array<{ id: string; email?: string; label?: string }>
   }>
   logs: LogEntry[]
 }
@@ -125,6 +126,17 @@ export default function Logs(): React.JSX.Element {
   )
   const parentRef = useRef<HTMLDivElement>(null)
 
+  const accountLabels = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const p of status?.providers ?? []) {
+      for (const a of p.accounts ?? []) {
+        const friendly = a.email || a.label
+        if (friendly) map[a.id] = friendly
+      }
+    }
+    return map
+  }, [status?.providers])
+
   const logs = useMemo(() => {
     const raw = status?.logs ?? []
     const threshold = getTimeThreshold(timeRange)
@@ -140,13 +152,16 @@ export default function Logs(): React.JSX.Element {
         !l.message.toLowerCase().includes(searchLower) &&
         !(l.provider ?? '').toLowerCase().includes(searchLower) &&
         !(l.accountId ?? '').toLowerCase().includes(searchLower) &&
+        !(l.accountId ? (accountLabels[l.accountId] ?? '') : '')
+          .toLowerCase()
+          .includes(searchLower) &&
         !(l.requestId ?? '').toLowerCase().includes(searchLower) &&
         !(l.category ?? '').toLowerCase().includes(searchLower)
       )
         return false
       return true
     })
-  }, [status?.logs, filter, categoryFilter, search, timeRange, requestIdFilter])
+  }, [status?.logs, filter, categoryFilter, search, timeRange, requestIdFilter, accountLabels])
 
   const atMax = (status?.logs?.length ?? 0) >= MAX_LOG_ENTRIES
 
@@ -291,6 +306,7 @@ export default function Logs(): React.JSX.Element {
                   <LogRow
                     log={log}
                     expanded={isExpanded}
+                    accountLabel={log.accountId ? accountLabels[log.accountId] : undefined}
                     onClick={() => setExpandedIndex(isExpanded ? null : virtualRow.index)}
                     onRequestIdClick={handleRequestIdClick}
                   />
@@ -312,11 +328,13 @@ export default function Logs(): React.JSX.Element {
 function LogRow({
   log,
   expanded,
+  accountLabel,
   onClick,
   onRequestIdClick
 }: {
   log: LogEntry
   expanded: boolean
+  accountLabel?: string
   onClick: () => void
   onRequestIdClick: (rid: string) => void
 }): React.JSX.Element {
@@ -405,9 +423,9 @@ function LogRow({
         {log.accountId && (
           <span
             className="shrink-0 max-w-[160px] truncate text-[11px] font-mono text-fog tabular-nums"
-            title={log.accountId}
+            title={accountLabel ? `${accountLabel} (${log.accountId})` : log.accountId}
           >
-            {log.accountId}
+            {accountLabel ?? log.accountId}
           </span>
         )}
         {log.provider && <span className="shrink-0 tag text-[11px]">{log.provider}</span>}
@@ -559,7 +577,12 @@ function LogRow({
             {log.accountId && (
               <>
                 <span className="text-fog">{t('logs.account')}</span>
-                <span className="font-mono text-steel break-all">{log.accountId}</span>
+                <span className="font-mono text-steel break-all" title={log.accountId}>
+                  {accountLabel ?? log.accountId}
+                  {accountLabel && (
+                    <span className="text-fog ml-2 text-[10px]">{log.accountId}</span>
+                  )}
+                </span>
               </>
             )}
             {log.error?.stack && (

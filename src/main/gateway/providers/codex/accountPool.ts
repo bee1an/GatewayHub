@@ -12,6 +12,7 @@ import { toErrorMessage } from '../../core/utils'
 import { CodexAuthManager, type CodexAccountSnapshot } from './auth'
 import { FALLBACK_CODEX_MODELS, normalizeCodexModel } from './constants'
 import { summarizeAccount } from './normalize'
+import { fetchCodexRateLimits } from './rateLimits'
 import type { CodexAccountInfo } from './types'
 
 export interface CodexAccountRuntime {
@@ -145,7 +146,18 @@ export class CodexAccountPool {
     const account = this.accounts.find((item) => item.config.id === accountId)
     if (!account) throw new Error('Account not found')
     await this.ensureInitialized(account)
-    return summarizeAccount(account.config)
+    const base = summarizeAccount(account.config)
+    try {
+      const rateLimits = await fetchCodexRateLimits(account.auth!, this.config.settings)
+      return { ...base, rateLimits }
+    } catch (error) {
+      this.logger.warn(`Failed to fetch Codex rate limits: ${toErrorMessage(error)}`, {
+        provider: 'codex',
+        accountId: this.accountLabel(account),
+        category: 'account'
+      })
+      return base
+    }
   }
 
   async reportSuccess(account: CodexAccountRuntime): Promise<void> {

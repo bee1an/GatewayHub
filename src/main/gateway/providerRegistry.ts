@@ -89,6 +89,10 @@ export class ProviderRegistry {
     await kiro.initialize(accountFiles)
     this.registerProvider('kiro', kiro, this.config.providers.kiro.routeName || 'kiro')
 
+    // Settings 页"代理"是全局字段（持久化在 kiro.settings.vpnProxyUrl 上），运行时同步给 codex
+    this.config.providers.codex.settings.vpnProxyUrl =
+      this.config.providers.kiro.settings.vpnProxyUrl
+
     const codex = new CodexProvider(
       this.config.providers.codex,
       this.state.providers.codex,

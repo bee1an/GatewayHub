@@ -117,6 +117,9 @@ const zh = {
     overages: '超额',
     overageCharges: '费用',
     resetDate: '配额重置',
+    rateLimitPrimary: '第一窗口',
+    rateLimitSecondary: '第二窗口',
+    resetsIn: '重置',
     refreshInfo: '刷新信息',
     loadingInfo: '加载中...',
     infoError: '加载失败',
@@ -318,9 +321,19 @@ const zh = {
     later: '稍后',
     upgradeBrew: '使用 Homebrew 更新',
     openDownload: '前往下载页',
-    brewHint:
-      '点击「使用 Homebrew 更新」会打开终端执行 brew upgrade --cask gatewayhub，应用会自动重启。',
-    manualHint: '当前版本不是通过 Homebrew 安装，点击会跳转到 GitHub Release 页面手动下载。'
+    brewHint: '点击「使用 Homebrew 更新」会在后台下载新版本，下载完成后应用会自动重启。',
+    manualHint: '当前版本不是通过 Homebrew 安装，点击会跳转到 GitHub Release 页面手动下载。',
+    progress: {
+      title: '正在更新 GatewayHub',
+      phaseDownload: '正在通过 Homebrew 下载新版本…',
+      phaseInstall: '下载完成，正在安装并重启…',
+      phaseError: '更新失败',
+      preparing: '正在准备…',
+      downloadingHint: '请保持网络连通',
+      restartingHint: '应用即将自动重启',
+      openReleases: '打开 Releases 页',
+      close: '关闭'
+    }
   },
   usage: {
     title: '用量统计',

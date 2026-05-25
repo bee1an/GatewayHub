@@ -104,7 +104,13 @@ export function registerGatewayIpc(): void {
     'gateway:readUsage',
     (
       _event,
-      options?: { sinceKey?: string; untilKey?: string; accountId?: string; model?: string }
+      options?: {
+        sinceKey?: string
+        untilKey?: string
+        accountId?: string
+        model?: string
+        provider?: string
+      }
     ) => gatewayHubService.readUsage(options)
   )
   ipcMain.handle('gateway:clearUsage', () => gatewayHubService.clearUsage())

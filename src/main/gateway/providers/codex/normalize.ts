@@ -173,7 +173,7 @@ export function createPkceChallenge(verifier: string): string {
   return createHash('sha256').update(verifier).digest('base64url')
 }
 
-/** 解析用户粘贴的 auth.json 文本，可能是单对象或数组 */
+/** 解析用户粘贴的 auth.json 文本，可能是单对象、数组或 codexdock 导出包装 */
 export function parseCodexAuthInput(text: string): CodexAuthPayload[] {
   const trimmed = text.trim()
   if (!trimmed) return []
@@ -183,9 +183,50 @@ export function parseCodexAuthInput(text: string): CodexAuthPayload[] {
   } catch {
     return []
   }
-  if (Array.isArray(parsed)) return parsed.filter(isAuthPayload) as CodexAuthPayload[]
-  if (isAuthPayload(parsed)) return [parsed]
+  return collectAuthPayloads(parsed)
+}
+
+function collectAuthPayloads(value: unknown): CodexAuthPayload[] {
+  if (!value) return []
+  if (Array.isArray(value)) return value.flatMap(collectAuthPayloads)
+  if (typeof value !== 'object') return []
+
+  // 标准 auth.json 格式：{ tokens: {...} }
+  if (isAuthPayload(value)) return [value as CodexAuthPayload]
+
+  const obj = value as Record<string, unknown>
+
+  // codexdock 导出包装：{ accounts: [...] }
+  if (Array.isArray(obj.accounts)) return collectAuthPayloads(obj.accounts)
+
+  // codexdock 单账户节点：{ credentials: {...} }
+  const adapted = adaptCodexDockAccount(obj)
+  if (adapted) return [adapted]
+
   return []
+}
+
+/** 把 codexdock 导出的 account 节点转换为 CodexAuthPayload */
+function adaptCodexDockAccount(node: Record<string, unknown>): CodexAuthPayload | null {
+  const creds = node.credentials
+  if (!creds || typeof creds !== 'object') return null
+  const c = creds as Record<string, unknown>
+  const accessToken = typeof c.access_token === 'string' ? c.access_token : undefined
+  const refreshToken = typeof c.refresh_token === 'string' ? c.refresh_token : undefined
+  const idToken = typeof c.id_token === 'string' ? c.id_token : undefined
+  if (!accessToken && !refreshToken) return null
+  const accountId = typeof c.chatgpt_account_id === 'string' ? c.chatgpt_account_id : undefined
+  return {
+    auth_mode: 'chatgpt',
+    OPENAI_API_KEY: null,
+    last_refresh: typeof c.last_refresh === 'string' ? c.last_refresh : undefined,
+    tokens: {
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      id_token: idToken,
+      account_id: accountId
+    }
+  }
 }
 
 function isAuthPayload(value: unknown): value is CodexAuthPayload {

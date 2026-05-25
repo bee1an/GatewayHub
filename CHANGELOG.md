@@ -2,6 +2,39 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.1.1 - 2026-05-25
+
+Reworked the Homebrew auto-update flow and added Codex rate-limit visibility plus broader auth-import support.
+
+- Replaced the Terminal-based brew upgrade flow with an in-app progress window that streams brew output live; the app downloads the new version, then quits and relaunches automatically
+- Added macOS notification + Releases page fallback when the upgrade fails, with the inline error visible in the progress window; brew upgrade logs land at `~/.config/gatewayhub/Logs/brew-upgrade.log`
+- Added Codex 5h primary / weekly secondary rate-limit bars to the account expanded view, with peak percentage shown in the row header
+- Accepted codexdock-exported `accounts[].credentials` JSON when adding Codex accounts (in addition to the standard `~/.codex/auth.json` format), with friendlier error messages for malformed input
+- Synced the global VPN proxy setting from Kiro to Codex at runtime, so Codex respects the proxy configured in Settings
+- Used Codex account email as the primary label when available
+- Filtered Usage tab by gateway provider so per-gateway views only show their own usage
+
+## 0.1.0 - 2026-05-24
+
+Added Codex (ChatGPT OAuth) as a new provider with full account-pool, login, and usage support.
+
+- Added new Codex provider with PKCE browser/device login flows, token refresh, and account-pool failover
+- Added Codex SSE transformers that translate upstream events into both OpenAI and Anthropic response formats
+- Added "Add Codex account" dialog with browser, device, JSON file picker, and `~/.codex/auth.json` auto-discover tabs
+- Added gpt-5 family pricing entries (codex / nano / pro / 5.1 variants) so usage tracking works out of the box
+- Improved gateway detail page so tabs, cards, and usage stay visible even before any account is added
+- Migrated config v2 → v3, auto-enabling codex on existing installs
+
+## 0.0.6 - 2026-05-24
+
+Added per-gateway usage tracking with credit-based pricing for Kiro.
+
+- Added per-gateway Usage sub-tab and removed the global /usage route
+- Added credit-based pricing alongside token-based pricing; Kiro now reports real upstream credits ($0.02/credit) instead of estimated tokens
+- Improved Kiro per-account breakdown chart to use account email labels
+- Persisted usage to `~/.config/gatewayhub/usage.json` with daily aggregation
+- Hidden token count and cache-hit-rate UI in credit mode where the estimates were misleading
+
 ## 0.0.6-beta.3 - 2026-05-23
 
 Switched macOS auto-update to a Homebrew-based flow and stopped CI from auto-injecting Full Changelog into release notes.

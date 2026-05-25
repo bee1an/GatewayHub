@@ -131,7 +131,7 @@ export class CodexProvider implements ProviderAdapter {
   async getStatus(): Promise<ProviderStatus & { accounts: any[] }> {
     const accounts = this.pool.listAccounts().map((account) => ({
       id: account.config.id,
-      label: account.config.label || account.config.email,
+      label: account.config.email || account.config.label,
       email: account.config.email,
       enabled: account.config.enabled !== false,
       failures: account.state.failures,

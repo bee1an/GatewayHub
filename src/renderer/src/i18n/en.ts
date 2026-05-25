@@ -117,6 +117,9 @@ const en = {
     overages: 'Overages',
     overageCharges: 'Charges',
     resetDate: 'Quota Resets',
+    rateLimitPrimary: 'Primary Window',
+    rateLimitSecondary: 'Secondary Window',
+    resetsIn: 'resets in',
     refreshInfo: 'Refresh Info',
     loadingInfo: 'Loading...',
     infoError: 'Failed to load',
@@ -323,9 +326,20 @@ const en = {
     upgradeBrew: 'Upgrade via Homebrew',
     openDownload: 'Open Download Page',
     brewHint:
-      'Click "Upgrade via Homebrew" to open Terminal and run brew upgrade --cask gatewayhub. The app will restart automatically.',
+      'Click "Upgrade via Homebrew" to download the new version in the background. The app will restart automatically when ready.',
     manualHint:
-      'This installation was not managed by Homebrew. Click to open the GitHub Release page for manual download.'
+      'This installation was not managed by Homebrew. Click to open the GitHub Release page for manual download.',
+    progress: {
+      title: 'Updating GatewayHub',
+      phaseDownload: 'Downloading the new version via Homebrew…',
+      phaseInstall: 'Download complete. Installing and restarting…',
+      phaseError: 'Update failed',
+      preparing: 'Preparing…',
+      downloadingHint: 'Please keep your network connected',
+      restartingHint: 'The app will restart automatically',
+      openReleases: 'Open Releases page',
+      close: 'Close'
+    }
   },
   usage: {
     title: 'Usage',

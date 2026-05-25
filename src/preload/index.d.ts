@@ -194,6 +194,18 @@ declare global {
         ) => () => void
         onError: (cb: (message: string) => void) => () => void
       }
+      upgrade: {
+        onEvent: (
+          cb: (
+            event:
+              | { kind: 'phase'; phase: 'download' | 'install' | 'error' }
+              | { kind: 'log'; text: string }
+              | { kind: 'error'; message: string }
+          ) => void
+        ) => () => void
+        openReleases: () => Promise<void>
+        cancel: () => Promise<void>
+      }
     }
   }
 }

@@ -118,6 +118,15 @@ const api = {
       ipcRenderer.on('updater:error', (_e, message) => cb(message))
       return () => ipcRenderer.removeAllListeners('updater:error')
     }
+  },
+  upgrade: {
+    onEvent: (cb: (event: any) => void) => {
+      const listener = (_e: unknown, data: any): void => cb(data)
+      ipcRenderer.on('upgrade:event', listener)
+      return () => ipcRenderer.removeListener('upgrade:event', listener)
+    },
+    openReleases: () => ipcRenderer.invoke('upgrade:openReleases'),
+    cancel: () => ipcRenderer.invoke('upgrade:cancel')
   }
 }
 

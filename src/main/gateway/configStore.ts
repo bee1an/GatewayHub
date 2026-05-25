@@ -361,7 +361,7 @@ export class GatewayConfigStore {
     try {
       const raw = await readFile(codexAuth, 'utf8')
       const parsed = JSON.parse(raw) as CodexAuthPayload
-      const account = buildCodexAccountFromAuth(parsed, { label: 'codex CLI' })
+      const account = buildCodexAccountFromAuth(parsed)
       if (account) candidates.push({ ...account, sourceType: 'codex_cli' })
     } catch {
       /* ignore */

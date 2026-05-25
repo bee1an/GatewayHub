@@ -28,6 +28,22 @@ export interface CodexDeviceCodeResponse {
   expires_in?: number
 }
 
+export interface CodexRateLimitWindow {
+  /** 0–100 */
+  usedPercent: number
+  /** 5h / 7d 等窗口长度（分钟）；null 表示上游没给 */
+  windowDurationMins: number | null
+  /** 重置时刻（ms epoch）；null 表示上游没给 */
+  resetsAt: number | null
+}
+
+export interface CodexAccountRateLimits {
+  primary?: CodexRateLimitWindow
+  secondary?: CodexRateLimitWindow
+  planType?: string
+  fetchedAt: string
+}
+
 export interface CodexAccountInfo {
   id: string
   email?: string
@@ -36,6 +52,7 @@ export interface CodexAccountInfo {
   subscriptionActiveUntil?: string
   expiresAt?: number
   lastRefresh?: string
+  rateLimits?: CodexAccountRateLimits
 }
 
 /** OAuth 登录流程的进度通知（送给前端用） */

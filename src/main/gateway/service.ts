@@ -363,6 +363,7 @@ export class GatewayHubService {
     untilKey?: string
     accountId?: string
     model?: string
+    provider?: string
   }) {
     await this.ensureReady()
     return this.usageStore!.read(options)
@@ -691,8 +692,19 @@ export class GatewayHubService {
     text: string
   ): Promise<{ added: number; skipped: number; errors: string[]; status: GatewayStatusSnapshot }> {
     await this.ensureReady()
-    const payloads = parseCodexAuthInput(text)
-    if (!payloads.length) throw new Error('Invalid Codex auth.json input')
+    const trimmed = text.trim()
+    if (!trimmed) throw new Error('Empty Codex auth.json input')
+    try {
+      JSON.parse(trimmed)
+    } catch (err) {
+      throw new Error(`Invalid JSON: ${toErrorMessage(err)}`)
+    }
+    const payloads = parseCodexAuthInput(trimmed)
+    if (!payloads.length) {
+      throw new Error(
+        'No Codex credentials found in input. Expected ~/.codex/auth.json with `tokens.access_token` / `tokens.refresh_token`, or a codexdock export with `accounts[].credentials`.'
+      )
+    }
     let added = 0,
       updated = 0,
       skipped = 0

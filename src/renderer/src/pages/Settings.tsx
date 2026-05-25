@@ -96,7 +96,11 @@ export default function Settings(): React.JSX.Element {
 
   async function saveProxy(): Promise<void> {
     await run(
-      () => window.api.gateway.updateKiroSettings({ vpnProxyUrl: proxyUrl }),
+      () =>
+        Promise.all([
+          window.api.gateway.updateKiroSettings({ vpnProxyUrl: proxyUrl }),
+          window.api.gateway.updateCodexSettings({ vpnProxyUrl: proxyUrl })
+        ]),
       t('settings.saved')
     )
   }

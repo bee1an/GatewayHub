@@ -104,4 +104,52 @@ describe('codex/normalize', () => {
     const arr = JSON.stringify([{ tokens: { refresh_token: 'rt' } }, { foo: 'bar' }])
     expect(parseCodexAuthInput(arr)).toHaveLength(1)
   })
+
+  it('parses codexdock export with accounts[].credentials', () => {
+    const input = JSON.stringify({
+      exported_at: '2026-05-24T11:24:15.622Z',
+      proxies: [],
+      accounts: [
+        {
+          name: 'a@b.com',
+          platform: 'openai',
+          type: 'oauth',
+          credentials: {
+            access_token: 'at1',
+            refresh_token: 'rt1',
+            id_token: 'it1',
+            chatgpt_account_id: 'acct_dock'
+          }
+        },
+        {
+          name: 'c@d.com',
+          credentials: { access_token: 'at2' }
+        }
+      ]
+    })
+    const payloads = parseCodexAuthInput(input)
+    expect(payloads).toHaveLength(2)
+    expect(payloads[0].tokens).toMatchObject({
+      access_token: 'at1',
+      refresh_token: 'rt1',
+      id_token: 'it1',
+      account_id: 'acct_dock'
+    })
+    expect(payloads[1].tokens?.access_token).toBe('at2')
+  })
+
+  it('parses single codexdock account node', () => {
+    const input = JSON.stringify({
+      name: 'a@b.com',
+      credentials: { refresh_token: 'rt-only' }
+    })
+    expect(parseCodexAuthInput(input)).toHaveLength(1)
+  })
+
+  it('skips codexdock account nodes without usable tokens', () => {
+    const input = JSON.stringify({
+      accounts: [{ name: 'x', credentials: { plan_type: 'team' } }]
+    })
+    expect(parseCodexAuthInput(input)).toHaveLength(0)
+  })
 })

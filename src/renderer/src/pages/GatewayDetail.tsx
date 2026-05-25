@@ -53,6 +53,12 @@ type Account = {
   lastResponseKind?: string
 }
 
+type CodexRateLimitWindow = {
+  usedPercent: number
+  windowDurationMins: number | null
+  resetsAt: number | null
+}
+
 type AccountInfo = {
   subscription: { title: string; type: string }
   email?: string
@@ -67,6 +73,13 @@ type AccountInfo = {
   }
   models: Array<{ modelId: string; modelName: string; rateMultiplier: number; rateUnit: string }>
   error?: string
+  /** codex 专属：5h primary / weekly secondary 速率窗口 */
+  rateLimits?: {
+    primary?: CodexRateLimitWindow
+    secondary?: CodexRateLimitWindow
+    planType?: string
+    fetchedAt?: string
+  }
 }
 
 type GatewayStatus = {
@@ -327,6 +340,7 @@ export default function GatewayDetail(): React.JSX.Element {
 
       {tab === 'usage' && gateway?.providerType ? (
         <Usage
+          key={gateway.providerType}
           provider={gateway.providerType}
           hideHeader
           accountLabels={Object.fromEntries(
@@ -545,6 +559,18 @@ function AccountRow({
     : null
   const hasOverage = (accountInfo?.usage?.overages ?? 0) > 0
 
+  const rateLimits = accountInfo?.rateLimits
+  const rateLimitPeakPercent = rateLimits
+    ? Math.max(rateLimits.primary?.usedPercent ?? 0, rateLimits.secondary?.usedPercent ?? 0)
+    : null
+  const peakPercent = (() => {
+    const candidates = [usagePercent, rateLimitPeakPercent].filter(
+      (v): v is number => typeof v === 'number'
+    )
+    if (!candidates.length) return null
+    return Math.round(Math.max(...candidates))
+  })()
+
   const cooldownRemaining =
     acc.cooldownUntil && acc.cooldownUntil > now ? acc.cooldownUntil - now : null
 
@@ -601,14 +627,18 @@ function AccountRow({
             </span>
           )}
         </span>
-        {usagePercent !== null && usagePercent > 80 && (
+        {peakPercent !== null && peakPercent > 80 && (
           <TooltipWrapper
-            content={`${t('gateway.usage')}: ${accountInfo!.usage.used}/${accountInfo!.usage.limit}`}
+            content={
+              accountInfo?.usage
+                ? `${t('gateway.usage')}: ${accountInfo.usage.used}/${accountInfo.usage.limit}`
+                : `${t('gateway.usage')}: ${peakPercent}%`
+            }
           >
             <span
               className={`text-[10px] font-mono tabular-nums shrink-0 ${hasOverage ? 'text-red' : 'text-warning'}`}
             >
-              {usagePercent}%
+              {peakPercent}%
             </span>
           </TooltipWrapper>
         )}
@@ -728,6 +758,27 @@ function AccountRow({
 
       {expanded && (
         <div className="px-3 pb-3 pt-1 animate-slide-down space-y-3">
+          {(rateLimits?.primary || rateLimits?.secondary) && (
+            <div className="space-y-1.5">
+              {rateLimits.primary && (
+                <RateLimitBar
+                  label={t('gateway.rateLimitPrimary')}
+                  window={rateLimits.primary}
+                  now={now}
+                  resetsInLabel={t('gateway.resetsIn')}
+                />
+              )}
+              {rateLimits.secondary && (
+                <RateLimitBar
+                  label={t('gateway.rateLimitSecondary')}
+                  window={rateLimits.secondary}
+                  now={now}
+                  resetsInLabel={t('gateway.resetsIn')}
+                />
+              )}
+            </div>
+          )}
+
           {accountInfo?.usage && (
             <div className="flex items-center gap-2 text-[11px]">
               <div
@@ -1196,10 +1247,10 @@ function AddAccountDialog({
                   )}
                 </div>
                 {jsonResult && jsonResult.errors.length > 0 && (
-                  <div className="text-[12px] text-red space-y-0.5">
+                  <div className="text-[12px] text-red space-y-0.5 max-h-40 overflow-y-auto">
                     <p>{t('addAccount.jsonErrors', { count: jsonResult.errors.length })}</p>
                     {jsonResult.errors.map((e, i) => (
-                      <p key={i} className="truncate opacity-80">
+                      <p key={i} className="opacity-80 break-all whitespace-pre-wrap">
                         {e}
                       </p>
                     ))}
@@ -1608,9 +1659,9 @@ function AddCodexAccountDialog({
                   )}
                 </div>
                 {jsonResult && jsonResult.errors.length > 0 && (
-                  <div className="text-[12px] text-red space-y-0.5">
+                  <div className="text-[12px] text-red space-y-0.5 max-h-40 overflow-y-auto">
                     {jsonResult.errors.map((e, i) => (
-                      <p key={i} className="truncate opacity-80">
+                      <p key={i} className="opacity-80 break-all whitespace-pre-wrap">
                         {e}
                       </p>
                     ))}
@@ -1691,6 +1742,49 @@ function AddCodexAccountDialog({
         ]}
       />
     </Modal>
+  )
+}
+
+function RateLimitBar({
+  label,
+  window: w,
+  now,
+  resetsInLabel
+}: {
+  label: string
+  window: { usedPercent: number; windowDurationMins: number | null; resetsAt: number | null }
+  now: number
+  resetsInLabel: string
+}): React.JSX.Element {
+  const percent = Math.max(0, Math.min(100, Math.round(w.usedPercent)))
+  const barColor = percent > 95 ? 'bg-red' : percent > 80 ? 'bg-warning' : 'bg-emerald'
+  const valueColor = percent > 95 ? 'text-red' : percent > 80 ? 'text-warning' : 'text-storm'
+  const remainsMs = w.resetsAt && w.resetsAt > now ? w.resetsAt - now : null
+  return (
+    <div className="flex items-center gap-2 text-[11px]">
+      <span className="text-fog font-medium shrink-0 w-12">{label}</span>
+      <div
+        role="progressbar"
+        aria-valuenow={percent}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={label}
+        className="flex-1 h-1.5 rounded-full bg-charcoal/50 overflow-hidden"
+      >
+        <div
+          className={`h-full rounded-full transition-all duration-300 ${barColor}`}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+      <span className={`font-mono tabular-nums font-medium shrink-0 ${valueColor}`}>
+        {percent}%
+      </span>
+      {remainsMs !== null && (
+        <span className="text-fog tabular-nums shrink-0">
+          {resetsInLabel} {formatDuration(remainsMs)}
+        </span>
+      )}
+    </div>
   )
 }
 

@@ -29,6 +29,15 @@
   --c-amethyst: #8b5cf6;
   --c-warning: #fbbf24;
 
+  /* transitions-dev: number pop-in */
+  --digit-dur: 400ms;
+  --digit-distance: 6px;
+  --digit-stagger: 50ms;
+  --digit-blur: 2px;
+  --digit-ease: cubic-bezier(0.34, 1.45, 0.64, 1);
+  --digit-dir-x: 0;
+  --digit-dir-y: 1;
+
   /* Glow Shadows */
   --shadow-glow-emerald: 0 0 12px rgba(39, 166, 68, 0.15), 0 0 2px rgba(39, 166, 68, 0.2);
   --shadow-glow-aether: 0 0 12px rgba(94, 106, 210, 0.15), 0 0 2px rgba(94, 106, 210, 0.2);

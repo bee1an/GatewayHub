@@ -297,7 +297,7 @@ function StatCard({
 }): React.JSX.Element {
   return (
     <div
-      className="card px-3 py-2.5 flex flex-col gap-1.5 border-l-[2px]"
+      className="card card-lift px-3 py-2.5 flex flex-col gap-1.5 border-l-[2px]"
       style={{ borderLeftColor: `var(--c-${accent})` }}
     >
       <div className="flex items-center gap-1.5">
@@ -329,7 +329,7 @@ function MetricCard({
   accent: string
 }): React.JSX.Element {
   return (
-    <div className="card px-3 py-2.5 flex flex-col gap-1.5">
+    <div className="card card-lift px-3 py-2.5 flex flex-col gap-1.5">
       <div className="flex items-center gap-1.5">
         <span className={`${icon} text-[12px] text-${accent} opacity-60`} aria-hidden="true" />
         <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
@@ -337,8 +337,12 @@ function MetricCard({
         </span>
       </div>
       <div className="flex items-baseline gap-1">
-        <span className="text-[17px] font-[600] text-porcelain tracking-[-0.3px] tabular-nums leading-none">
-          {value}
+        <span className="text-[17px] font-[600] text-porcelain tracking-[-0.3px] tabular-nums leading-none t-digit-wrap">
+          {value.split('').map((ch, i) => (
+            <span key={`${ch}-${i}`} className="t-digit" style={{ animationDelay: `${i * 50}ms` }}>
+              {ch}
+            </span>
+          ))}
         </span>
         {unit && <span className="text-[11px] text-fog font-medium">{unit}</span>}
       </div>

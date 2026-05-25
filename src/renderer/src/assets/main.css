@@ -247,3 +247,77 @@ textarea:not(:disabled),
 [contenteditable='true'] {
   cursor: text;
 }
+
+/* transitions-dev: number pop-in */
+.t-digit-wrap {
+  display: inline-flex;
+  overflow: hidden;
+}
+
+.t-digit {
+  display: inline-block;
+  animation: digit-enter var(--digit-dur) var(--digit-ease) both;
+}
+
+@keyframes digit-enter {
+  from {
+    opacity: 0;
+    filter: blur(var(--digit-blur));
+    transform: translate(
+      calc(var(--digit-dir-x) * var(--digit-distance)),
+      calc(var(--digit-dir-y) * var(--digit-distance))
+    );
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translate(0, 0);
+  }
+}
+
+/* transitions-dev: card hover lift */
+.card-lift {
+  transition:
+    transform 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.card-lift:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.25),
+    0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+/* transitions-dev: icon swap (status dot) */
+.t-icon-swap {
+  transition:
+    transform 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 200ms ease-in-out,
+    background-color 200ms ease;
+}
+
+.t-icon-swap-enter {
+  animation: icon-swap-in 250ms cubic-bezier(0.34, 1.45, 0.64, 1) both;
+}
+
+@keyframes icon-swap-in {
+  from {
+    opacity: 0;
+    transform: scale(0.25);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-digit { animation: none !important; }
+  .card-lift { transition: none !important; }
+  .card-lift:hover { transform: none; }
+  .t-icon-swap { transition: none !important; }
+  .t-icon-swap-enter { animation: none !important; }
+}

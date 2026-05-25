@@ -23,7 +23,16 @@ const en = {
     running: 'Running',
     soon: 'soon',
     toggleLang: 'Toggle language',
-    toggleTheme: 'Toggle theme'
+    toggleTheme: 'Toggle theme',
+    startFailed: 'Failed to start gateway',
+    stopFailed: 'Failed to stop gateway',
+    serverError: {
+      EADDRINUSE:
+        'Port {{port}} is already in use. Stop the other process or change the port in Settings.',
+      EACCES:
+        'Permission denied to bind this port. Use a port above 1024 or run with elevated permissions.',
+      EADDRNOTAVAIL: 'Host is not available on this machine. Update the host in Settings.'
+    }
   },
   dashboard: {
     title: 'Dashboard',
@@ -256,6 +265,9 @@ const en = {
     edit: 'Edit',
     remove: 'Remove',
     removeConfirm: 'Remove this mapping?',
+    removeConfirmTitle: 'Remove Mapping',
+    removeConfirmDesc:
+      'Are you sure you want to remove the mapping "{{alias}}"? This cannot be undone.',
     fixErrorsFirst: 'Fix errors first'
   },
   addAccount: {

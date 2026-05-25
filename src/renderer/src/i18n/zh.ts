@@ -23,7 +23,14 @@ const zh = {
     running: '运行中',
     soon: '即将',
     toggleLang: '切换语言',
-    toggleTheme: '切换主题'
+    toggleTheme: '切换主题',
+    startFailed: '网关启动失败',
+    stopFailed: '网关停止失败',
+    serverError: {
+      EADDRINUSE: '端口 {{port}} 已被占用，请关闭占用的进程或在「设置」中修改端口',
+      EACCES: '没有权限绑定该端口，请改用大于 1024 的端口或以管理员身份运行',
+      EADDRNOTAVAIL: '主机地址在本机不可用，请在「设置」中修改 host'
+    }
   },
   dashboard: {
     title: '仪表盘',
@@ -255,6 +262,8 @@ const zh = {
     edit: '编辑',
     remove: '删除',
     removeConfirm: '确定删除这条映射?',
+    removeConfirmTitle: '删除映射',
+    removeConfirmDesc: '确定删除映射「{{alias}}」？此操作不可撤销。',
     fixErrorsFirst: '请先修复错误'
   },
   addAccount: {

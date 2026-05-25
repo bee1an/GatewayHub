@@ -5,6 +5,7 @@ import { useTheme } from './useTheme'
 import { changeLanguage } from '../i18n'
 import { Button } from './ui/Button'
 import { TooltipWrapper } from './ui/Tooltip'
+import { useToast } from './ui/ToastContext'
 import { UpdateModal } from './UpdateModal'
 import kiroIcon from '../assets/kiro-icon.svg'
 import codexIconDark from '../assets/codex-icon-dark.svg'
@@ -35,6 +36,7 @@ const PLACEHOLDER_PROVIDERS = ['gemini']
 export default function Sidebar(): React.JSX.Element {
   const { t, i18n } = useTranslation()
   const { theme, toggle } = useTheme()
+  const { toast } = useToast()
   const [gateways, setGateways] = useState<ProviderStatus[]>([])
   const [server, setServer] = useState<ServerInfo>({ running: false })
   const [updateInfo, setUpdateInfo] = useState<{
@@ -165,18 +167,35 @@ export default function Sidebar(): React.JSX.Element {
           aria-label={server.running ? t('sidebar.running') : t('sidebar.stopped')}
           className="flex items-center gap-2 px-2 py-0.5 outline-none focus-visible:ring-1 focus-visible:ring-accent/40"
           onClick={() => {
-            if (server.running) {
-              window.api.gateway.stop().then(refresh)
-            } else {
-              window.api.gateway.start().then(refresh)
-            }
+            const action = server.running ? window.api.gateway.stop() : window.api.gateway.start()
+            action.then(refresh).catch((err) => {
+              refresh()
+              const raw = err?.message ?? String(err)
+              const portMatch = raw.match(/(?:port|端口)\s*(\d+)/i)
+              const port = portMatch?.[1]
+              const code = /EADDRINUSE/.test(raw)
+                ? 'EADDRINUSE'
+                : /EACCES/.test(raw)
+                  ? 'EACCES'
+                  : /EADDRNOTAVAIL/.test(raw)
+                    ? 'EADDRNOTAVAIL'
+                    : null
+              const localized = code
+                ? t(`sidebar.serverError.${code}`, {
+                    defaultValue: raw,
+                    port: port ?? '?'
+                  })
+                : raw
+              const prefix = server.running ? t('sidebar.stopFailed') : t('sidebar.startFailed')
+              toast(`${prefix}: ${localized}`, 'error')
+            })
           }}
         >
           <div
             className={`relative w-7 h-4 rounded-full transition-colors duration-200 ${server.running ? 'bg-emerald' : 'bg-charcoal border border-ash/60'}`}
           >
             <div
-              className={`absolute top-0.5 w-3 h-3 rounded-full transition-[left,background-color] duration-200 shadow-sm ${server.running ? 'left-3.5 bg-white' : 'left-0.5 bg-fog'}`}
+              className={`absolute top-0.5 w-3 h-3 rounded-full transition-[left,background-color] duration-200 shadow-sm t-icon-swap ${server.running ? 'left-3.5 bg-white' : 'left-0.5 bg-fog'}`}
             />
           </div>
           <span

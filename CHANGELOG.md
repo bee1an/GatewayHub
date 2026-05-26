@@ -2,6 +2,18 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.1.3 - 2026-05-26
+
+Stabilized the macOS Homebrew in-app upgrade flow. The upgrade now opens a progress window that streams `brew upgrade --cask gatewayhub` output live, then lets the user choose when to relaunch.
+
+- Run `brew upgrade --cask gatewayhub` directly in the main process and stream stdout/stderr into the progress window in real time
+- Added a `success` phase with "Restart now" / "Later" so the app no longer auto-quits halfway through the install; "Restart now" uses Electron's `app.relaunch() + app.quit()` so the new bundle actually replaces the running process
+- Buffer progress events in main until the renderer signals it has registered listeners (`upgrade:ready`), so the install/log lines never get dropped on slow window creation
+- Refresh the local Homebrew tap (`brew update --quiet` before `brew fetch`) so the in-app upgrade no longer reports "already installed" against a stale cask cache
+- Fixed the upgrade window's terminal-output container so it has a fixed height and scrolls when log output overflows
+- Added a persistent updater log at `~/Library/Logs/GatewayHub/updater.log` covering feed selection, brew detection, fetch output, phase transitions, IPC traffic, and quit timing
+- Added a local-feed override (`dev-update-url.txt` in userData) that points electron-updater at a generic provider URL for offline testing
+
 ## 0.1.3-beta.11 - 2026-05-26
 
 Test build to validate the `app.relaunch()` fix from 0.1.3-beta.10.

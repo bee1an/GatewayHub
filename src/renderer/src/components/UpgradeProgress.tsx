@@ -62,7 +62,7 @@ export function UpgradeProgress(): React.JSX.Element {
   return (
     <div className="h-screen w-screen flex flex-col bg-pitch text-porcelain select-none">
       <div className="h-8 w-full" style={{ ['WebkitAppRegion' as string]: 'drag' }} />
-      <div className="flex-1 flex flex-col gap-3 px-5 pb-5">
+      <div className="flex-1 min-h-0 flex flex-col gap-3 px-5 pb-5">
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center w-9 h-9 rounded-[var(--radius-md)] bg-[color-mix(in_srgb,var(--c-emerald)_15%,transparent)]">
             <span className={iconClass} />
@@ -75,7 +75,7 @@ export function UpgradeProgress(): React.JSX.Element {
 
         <div
           ref={logRef}
-          className="flex-1 min-h-0 overflow-y-auto rounded-[var(--radius-md)] bg-slate border border-charcoal/60 p-2 text-[10px] font-mono text-steel leading-snug whitespace-pre-wrap break-all"
+          className="h-60 shrink-0 overflow-y-auto rounded-[var(--radius-md)] bg-slate border border-charcoal/60 p-2 text-[10px] font-mono text-steel leading-snug whitespace-pre-wrap break-all"
         >
           {logLines.length === 0 ? (
             <span className="text-fog">{t('updater.progress.preparing')}</span>

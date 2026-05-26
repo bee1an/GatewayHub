@@ -179,6 +179,19 @@ jobs:
           files: artifacts/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # electron-builder pre-creates the release during build jobs (with empty body),
+      # so softprops above only appends assets and leaves the body untouched.
+      # Force-overwrite the body here from CHANGELOG.md.
+      - name: Overwrite release body from CHANGELOG
+        if: hashFiles(steps.notes.outputs.path) != ''
+        run: |
+          if [ -s "${{ steps.notes.outputs.path }}" ]; then
+            gh release edit "$RELEASE_TAG" --notes-file "${{ steps.notes.outputs.path }}"
+          else
+            echo "release-notes.md is empty; skipping body overwrite"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   sync-homebrew-cask:
     needs: publish-release

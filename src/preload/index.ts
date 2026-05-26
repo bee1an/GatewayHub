@@ -125,6 +125,8 @@ const api = {
       ipcRenderer.on('upgrade:event', listener)
       return () => ipcRenderer.removeListener('upgrade:event', listener)
     },
+    notifyReady: () => ipcRenderer.send('upgrade:ready'),
+    notifyInstallRendered: () => ipcRenderer.send('upgrade:installRendered'),
     openReleases: () => ipcRenderer.invoke('upgrade:openReleases'),
     cancel: () => ipcRenderer.invoke('upgrade:cancel')
   }

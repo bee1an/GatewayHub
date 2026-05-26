@@ -10,6 +10,7 @@ export function UpgradeProgress(): React.JSX.Element {
   const [errorMessage, setErrorMessage] = useState<string>('')
   const [logLines, setLogLines] = useState<string[]>([])
   const logRef = useRef<HTMLDivElement>(null)
+  const installAckedRef = useRef(false)
 
   useEffect(() => {
     const off = window.api.upgrade.onEvent((event) => {
@@ -22,12 +23,25 @@ export function UpgradeProgress(): React.JSX.Element {
         setErrorMessage(event.message)
       }
     })
+    // 监听器已就绪，通知 main 开始派发缓冲事件
+    window.api.upgrade.notifyReady()
     return off
   }, [])
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
   }, [logLines])
+
+  // install phase 已 commit 到屏幕后通知 main，可以安全 quit
+  useEffect(() => {
+    if (phase !== 'install' || installAckedRef.current) return
+    installAckedRef.current = true
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        window.api.upgrade.notifyInstallRendered()
+      })
+    })
+  }, [phase])
 
   const isError = phase === 'error'
   const phaseLabel =

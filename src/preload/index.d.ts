@@ -203,6 +203,8 @@ declare global {
               | { kind: 'error'; message: string }
           ) => void
         ) => () => void
+        notifyReady: () => void
+        notifyInstallRendered: () => void
         openReleases: () => Promise<void>
         cancel: () => Promise<void>
       }

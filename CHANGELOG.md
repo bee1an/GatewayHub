@@ -2,6 +2,16 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.1.3-beta.1 - 2026-05-26
+
+Fixed the macOS Homebrew upgrade flow that closed the app without showing a progress window, and added structured updater logs for diagnostics.
+
+- Fixed brew upgrade race where the progress window was destroyed before it could render: main now buffers progress events until the renderer signals it has registered listeners (`upgrade:ready`)
+- Decoupled `app.quit` from the install timer: the app waits for the renderer to acknowledge it has painted the install phase (`upgrade:installRendered`, double-`requestAnimationFrame`) before quitting, with a dev/prod-aware timeout fallback
+- Raised the minimum visible time for the upgrade window from 800 ms to 1500 ms and re-anchored it to the renderer-ready timestamp so brew cache hits no longer skip the UI
+- Added a persistent updater log at `~/Library/Logs/GatewayHub/updater.log` covering feed selection, brew detection, fetch stdout/stderr, phase transitions, IPC traffic, and quit timing
+- Added a local-feed override: dropping `dev-update-url.txt` into the userData directory points electron-updater at a generic provider URL for offline testing
+
 ## 0.1.2 - 2026-05-26
 
 Added inline model-mapping editing, dynamic Codex model fetching, and improved error feedback with animations.

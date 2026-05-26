@@ -2,6 +2,15 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.1.3-beta.4 - 2026-05-26
+
+Streamed the actual `brew upgrade` output into the in-app progress window so users can see backing up, removing, and replacing the application bundle in real time.
+
+- Tail `brew-upgrade.log` from the main process and forward each line to the progress window during the install phase
+- Use a `[gh-marker]` protocol so the script signals "ready-to-replace" / "success" / "failed: ..." back to main; the app only quits once brew is about to touch the .app bundle
+- Truncate `brew-upgrade.log` at the start of each upgrade run so tailing only shows the current attempt
+- `upgrade:cancel` also kills the tail child to avoid leaks
+
 ## 0.1.3-beta.3 - 2026-05-26
 
 Test build to validate the brew upgrade flow end-to-end against a previously installed beta.

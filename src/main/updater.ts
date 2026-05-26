@@ -57,6 +57,7 @@ let initialized = false
 let pendingUpdateVersion: string | null = null
 let progressWindow: BrowserWindow | null = null
 let fetchChild: ChildProcess | null = null
+let tailChild: ChildProcess | null = null
 
 // ===== 事件 buffer 时序保证 =====
 // 问题：openProgressWindow 后窗口仍在 loadURL，React 还没 mount，
@@ -262,35 +263,43 @@ function runBrewFetch(brew: string): Promise<{ ok: boolean; stderr: string }> {
   })
 }
 
-function spawnDetachedInstall(brew: string): void {
+function spawnDetachedInstall(brew: string): { logPath: string } {
   const logDir = app.getPath('logs')
   const logPath = join(logDir, 'brew-upgrade.log')
   const releasesUrl = 'https://github.com/bee1an/GatewayHub/releases/latest'
   // 脚本要点：
   // 1. 记录开始时间和当前已装版本，方便事后对比；
   // 2. 升级前再 brew update 一次（detached 后台跑，不阻塞 UI），保证 tap 缓存最新；
-  // 3. 升级失败或 brew 报"already installed"都视为问题，弹通知并打开 Releases 页。
+  // 3. 输出关键 marker 行 `[gh-marker]` 系列：main 进程的 tail 监听器靠它判定退出 / 失败 / 完成时机；
+  // 4. 用 :> 截断 log 文件，避免上次升级的旧日志混入这次的实时尾随。
   const script = [
     '#!/bin/sh',
     `mkdir -p "${logDir}"`,
-    `exec >"${logPath}" 2>&1`,
+    `: > "${logPath}"`,
+    `exec >>"${logPath}" 2>&1`,
     'echo "=== brew upgrade started at $(date -Iseconds) ==="',
     `BEFORE=$("${brew}" list --cask --versions gatewayhub 2>/dev/null | awk '{print $2}')`,
     'echo "before version: $BEFORE"',
-    'sleep 1',
+    // 留一段时间让 main 端的 tail 把"准备中"的日志推到 UI；同时让 progressWindow 渲染稳定
+    'sleep 2',
     `"${brew}" update --quiet || echo "[warn] brew update failed, continuing"`,
+    // 这一行是 main 端"安全 quit"的信号：brew 即将动 .app bundle，必须让 main 进程退出
+    'echo "[gh-marker] ready-to-replace"',
+    'sleep 1',
     `if "${brew}" upgrade --cask gatewayhub; then`,
     `  AFTER=$("${brew}" list --cask --versions gatewayhub 2>/dev/null | awk '{print $2}')`,
     '  echo "after version: $AFTER"',
     '  if [ "$BEFORE" = "$AFTER" ]; then',
-    '    echo "[error] version did not change, brew thought it was already up to date"',
+    '    echo "[gh-marker] failed: version unchanged"',
     `    osascript -e 'display notification "Already on latest version reported by Homebrew. Tap may be stale; try \\"brew update\\" manually." with title "GatewayHub"'`,
     `    open "${releasesUrl}"`,
     '    exit 1',
     '  fi',
+    '  echo "[gh-marker] success"',
     '  open -a GatewayHub',
     '  exit 0',
     'fi',
+    'echo "[gh-marker] failed: brew upgrade exited non-zero"',
     `osascript -e 'display notification "Upgrade failed. Opening Releases page." with title "GatewayHub"'`,
     `open "${releasesUrl}"`
   ].join('\n')
@@ -298,6 +307,71 @@ function spawnDetachedInstall(brew: string): void {
   log('spawnDetachedInstall: script written, log at', logPath)
   const sh = spawn('/bin/sh', ['-c', script], { detached: true, stdio: 'ignore' })
   sh.unref()
+  return { logPath }
+}
+
+// 监听 brew-upgrade.log 的实时输出，转发到 progress window，并通过 marker 判定何时 quit。
+// 返回一个 promise，resolve 时附带是否需要 main 进程立即 quit 的信号。
+function streamBrewUpgradeLog(logPath: string): Promise<{ shouldQuit: boolean }> {
+  return new Promise((resolve) => {
+    let resolved = false
+    let pending = ''
+    const finish = (shouldQuit: boolean, reason: string): void => {
+      if (resolved) return
+      resolved = true
+      log('streamBrewUpgradeLog finish:', { shouldQuit, reason })
+      try {
+        tail.kill('SIGTERM')
+      } catch {
+        // ignore
+      }
+      resolve({ shouldQuit })
+    }
+
+    log('streamBrewUpgradeLog: tail -F', logPath)
+    // -F 在 macOS 上跟随 inode 变化，避免脚本 truncate 后丢日志
+    const tail = spawn('/usr/bin/tail', ['-n', '+1', '-F', logPath])
+    tailChild = tail
+
+    tail.stdout.on('data', (buf: Buffer) => {
+      pending += buf.toString()
+      let idx: number
+      while ((idx = pending.indexOf('\n')) >= 0) {
+        const line = pending.slice(0, idx)
+        pending = pending.slice(idx + 1)
+        if (!line) continue
+
+        if (line.startsWith('[gh-marker] ')) {
+          const marker = line.slice('[gh-marker] '.length).trim()
+          if (marker === 'ready-to-replace') {
+            // brew 即将动 .app bundle，main 进程现在必须让出
+            sendProgress({ kind: 'log', text: 'Replacing application bundle...\n' })
+            finish(true, 'ready-to-replace')
+          } else if (marker.startsWith('failed')) {
+            sendProgress({ kind: 'phase', phase: 'error' })
+            sendProgress({ kind: 'error', message: marker })
+            finish(false, marker)
+          } else if (marker === 'success') {
+            // 实际上 main 在 ready-to-replace 时已经 quit；这里到不了
+            finish(false, 'success')
+          }
+          continue
+        }
+
+        sendProgress({ kind: 'log', text: line + '\n' })
+      }
+    })
+    tail.on('error', (err) => {
+      log('tail error:', err.message)
+      finish(false, 'tail-error')
+    })
+    tail.on('exit', (code) => {
+      log('tail exit:', code)
+      finish(false, 'tail-exit')
+    })
+    // 兜底：万一 marker 一直没出现（脚本卡住或者 tail 没拿到数据），10s 后强制走 quit 流程
+    setTimeout(() => finish(true, 'fallback-timeout'), 15000)
+  })
 }
 
 function waitForInstallRendered(): Promise<void> {
@@ -354,12 +428,19 @@ async function startBrewUpgrade(): Promise<void> {
 
   sendProgress({ kind: 'phase', phase: 'install' })
 
-  // 先 spawn detached install（它会 sleep 1s 才真正跑 brew upgrade），
-  // 同时等 renderer 渲染完 install phase 一帧再 quit，避免窗口还没显示就被 app.quit 干掉。
-  spawnDetachedInstall(brew)
+  // 启动后台 brew upgrade（它会先打 [gh-marker] ready-to-replace 再动 .app），
+  // 同时本进程 tail brew-upgrade.log 把实时日志推到 progress window。
+  // 在看到 ready-to-replace marker 之前都不 quit，让用户能看到完整日志；
+  // 看到 marker 后再 quit，让出 .app 给 brew 替换。
+  const { logPath } = spawnDetachedInstall(brew)
   await waitForInstallRendered()
-  log('quitting app to let brew upgrade replace bundle')
-  app.quit()
+  const { shouldQuit } = await streamBrewUpgradeLog(logPath)
+  if (shouldQuit) {
+    log('quitting app to let brew upgrade replace bundle')
+    app.quit()
+  } else {
+    log('streaming finished without quit signal (likely error path)')
+  }
 }
 
 function openReleasePage(version?: string): void {
@@ -431,6 +512,10 @@ export function setupUpdater(_win: BrowserWindow): void {
     if (fetchChild) {
       fetchChild.kill('SIGTERM')
       fetchChild = null
+    }
+    if (tailChild) {
+      tailChild.kill('SIGTERM')
+      tailChild = null
     }
     closeProgressWindow()
   })

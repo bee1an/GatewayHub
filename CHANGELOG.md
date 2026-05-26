@@ -2,6 +2,12 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.1.3-beta.9 - 2026-05-26
+
+Test build to validate the in-app brew upgrade flow against a previously installed 0.1.3-beta.7+ build.
+
+- No code changes
+
 ## 0.1.3-beta.8 - 2026-05-26
 
 Test build to validate the new in-app upgrade UX shipped in 0.1.3-beta.7.

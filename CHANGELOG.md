@@ -2,6 +2,15 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.1.3-beta.7 - 2026-05-26
+
+Reworked the brew upgrade flow so the app stays open through the whole install and the user decides when to restart, instead of the app auto-quitting halfway.
+
+- Run `brew upgrade --cask gatewayhub` directly in the main process and stream stdout/stderr into the progress window in real time
+- Add a `success` phase that shows a green confirmation card with two buttons: "Restart now" relaunches into the new bundle via `open /Applications/GatewayHub.app`; "Later" closes the window and the new version takes effect on the next manual restart
+- Drop the detached shell, the `[gh-marker]` protocol, the `tail -F` log streamer, and the early `app.quit()` — they were workarounds for the older "quit then upgrade" model and are no longer needed
+- Update brew hint and progress copy to reflect the new "install, then restart at your convenience" UX
+
 ## 0.1.3-beta.6 - 2026-05-26
 
 Use an absolute path when relaunching after a brew upgrade so LaunchServices can't pick a stale dev build with the same bundle id.

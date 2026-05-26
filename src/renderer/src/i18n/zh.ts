@@ -330,16 +330,21 @@ const zh = {
     later: '稍后',
     upgradeBrew: '使用 Homebrew 更新',
     openDownload: '前往下载页',
-    brewHint: '点击「使用 Homebrew 更新」会在后台下载新版本，下载完成后应用会自动重启。',
+    brewHint: '点击「使用 Homebrew 更新」会安装新版本，安装完成后可重启应用启用新版。',
     manualHint: '当前版本不是通过 Homebrew 安装，点击会跳转到 GitHub Release 页面手动下载。',
     progress: {
       title: '正在更新 GatewayHub',
       phaseDownload: '正在通过 Homebrew 下载新版本…',
-      phaseInstall: '下载完成，正在安装并重启…',
+      phaseInstall: '正在安装新版本…',
+      phaseSuccess: '安装完成',
       phaseError: '更新失败',
       preparing: '正在准备…',
       downloadingHint: '请保持网络连通',
+      installingHint: '正在安装，请不要关闭窗口',
       restartingHint: '应用即将自动重启',
+      successHint: '新版本已安装，立即重启即可启用。',
+      restartNow: '立即重启',
+      restartLater: '稍后',
       openReleases: '打开 Releases 页',
       close: '关闭'
     }

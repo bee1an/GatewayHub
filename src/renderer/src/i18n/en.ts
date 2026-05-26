@@ -338,17 +338,22 @@ const en = {
     upgradeBrew: 'Upgrade via Homebrew',
     openDownload: 'Open Download Page',
     brewHint:
-      'Click "Upgrade via Homebrew" to download the new version in the background. The app will restart automatically when ready.',
+      'Click "Upgrade via Homebrew" to install the new version. After it\'s installed you can restart the app to start using it.',
     manualHint:
       'This installation was not managed by Homebrew. Click to open the GitHub Release page for manual download.',
     progress: {
       title: 'Updating GatewayHub',
       phaseDownload: 'Downloading the new version via Homebrew…',
-      phaseInstall: 'Download complete. Installing and restarting…',
+      phaseInstall: 'Installing the new version…',
+      phaseSuccess: 'Update installed',
       phaseError: 'Update failed',
       preparing: 'Preparing…',
       downloadingHint: 'Please keep your network connected',
+      installingHint: 'Installing — do not close the window',
       restartingHint: 'The app will restart automatically',
+      successHint: 'The new version is installed. Restart now to start using it.',
+      restartNow: 'Restart now',
+      restartLater: 'Later',
       openReleases: 'Open Releases page',
       close: 'Close'
     }

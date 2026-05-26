@@ -128,7 +128,8 @@ const api = {
     notifyReady: () => ipcRenderer.send('upgrade:ready'),
     notifyInstallRendered: () => ipcRenderer.send('upgrade:installRendered'),
     openReleases: () => ipcRenderer.invoke('upgrade:openReleases'),
-    cancel: () => ipcRenderer.invoke('upgrade:cancel')
+    cancel: () => ipcRenderer.invoke('upgrade:cancel'),
+    restart: () => ipcRenderer.invoke('upgrade:restart')
   }
 }
 

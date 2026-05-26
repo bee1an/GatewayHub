@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from './ui/Button'
 
-type Phase = 'download' | 'install' | 'error'
+type Phase = 'download' | 'install' | 'success' | 'error'
 
 export function UpgradeProgress(): React.JSX.Element {
   const { t } = useTranslation()
@@ -32,7 +32,7 @@ export function UpgradeProgress(): React.JSX.Element {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
   }, [logLines])
 
-  // install phase 已 commit 到屏幕后通知 main，可以安全 quit
+  // install phase 已 commit 到屏幕后通知 main，可以开始跑 brew upgrade
   useEffect(() => {
     if (phase !== 'install' || installAckedRef.current) return
     installAckedRef.current = true
@@ -44,12 +44,20 @@ export function UpgradeProgress(): React.JSX.Element {
   }, [phase])
 
   const isError = phase === 'error'
-  const phaseLabel =
-    phase === 'download'
-      ? t('updater.progress.phaseDownload')
+  const isSuccess = phase === 'success'
+  const phaseLabel = isError
+    ? t('updater.progress.phaseError')
+    : isSuccess
+      ? t('updater.progress.phaseSuccess')
       : phase === 'install'
         ? t('updater.progress.phaseInstall')
-        : t('updater.progress.phaseError')
+        : t('updater.progress.phaseDownload')
+
+  const iconClass = isError
+    ? 'i-ph-warning-circle-bold text-rose text-lg'
+    : isSuccess
+      ? 'i-ph-check-circle-bold text-emerald text-lg'
+      : 'i-ph-arrow-circle-up-bold text-emerald text-lg animate-pulse'
 
   return (
     <div className="h-screen w-screen flex flex-col bg-pitch text-porcelain select-none">
@@ -57,11 +65,7 @@ export function UpgradeProgress(): React.JSX.Element {
       <div className="flex-1 flex flex-col gap-3 px-5 pb-5">
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center w-9 h-9 rounded-[var(--radius-md)] bg-[color-mix(in_srgb,var(--c-emerald)_15%,transparent)]">
-            {isError ? (
-              <span className="i-ph-warning-circle-bold text-rose text-lg" />
-            ) : (
-              <span className="i-ph-arrow-circle-up-bold text-emerald text-lg animate-pulse" />
-            )}
+            <span className={iconClass} />
           </div>
           <div className="flex flex-col">
             <span className="text-[13px] font-medium">{t('updater.progress.title')}</span>
@@ -86,6 +90,12 @@ export function UpgradeProgress(): React.JSX.Element {
           </div>
         )}
 
+        {isSuccess && (
+          <div className="rounded-[var(--radius-md)] bg-pitch border border-emerald/40 p-2 text-[11px] text-emerald leading-relaxed">
+            {t('updater.progress.successHint')}
+          </div>
+        )}
+
         <div className="flex justify-end gap-2">
           {isError ? (
             <>
@@ -96,10 +106,19 @@ export function UpgradeProgress(): React.JSX.Element {
                 {t('updater.progress.openReleases')}
               </Button>
             </>
+          ) : isSuccess ? (
+            <>
+              <Button variant="ghost" onClick={() => window.api.upgrade.cancel()}>
+                {t('updater.progress.restartLater')}
+              </Button>
+              <Button variant="primary" onClick={() => window.api.upgrade.restart()}>
+                {t('updater.progress.restartNow')}
+              </Button>
+            </>
           ) : (
             <span className="text-[11px] text-fog self-center">
               {phase === 'install'
-                ? t('updater.progress.restartingHint')
+                ? t('updater.progress.installingHint')
                 : t('updater.progress.downloadingHint')}
             </span>
           )}

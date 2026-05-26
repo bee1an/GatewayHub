@@ -198,7 +198,7 @@ declare global {
         onEvent: (
           cb: (
             event:
-              | { kind: 'phase'; phase: 'download' | 'install' | 'error' }
+              | { kind: 'phase'; phase: 'download' | 'install' | 'success' | 'error' }
               | { kind: 'log'; text: string }
               | { kind: 'error'; message: string }
           ) => void
@@ -207,6 +207,7 @@ declare global {
         notifyInstallRendered: () => void
         openReleases: () => Promise<void>
         cancel: () => Promise<void>
+        restart: () => Promise<void>
       }
     }
   }

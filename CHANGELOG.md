@@ -2,6 +2,12 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.1.3-beta.5 - 2026-05-26
+
+Test build to validate the in-app realtime upgrade log streaming added in 0.1.3-beta.4.
+
+- No code changes; published so users on 0.1.3-beta.4 can trigger the in-app upgrade flow and verify the progress window now shows live brew upgrade output (Updating Homebrew, Backing App, Removing App, Moving App, Purging files)
+
 ## 0.1.3-beta.4 - 2026-05-26
 
 Streamed the actual `brew upgrade` output into the in-app progress window so users can see backing up, removing, and replacing the application bundle in real time.

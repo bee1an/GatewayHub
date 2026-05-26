@@ -2,6 +2,12 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.1.3-beta.8 - 2026-05-26
+
+Test build to validate the new in-app upgrade UX shipped in 0.1.3-beta.7.
+
+- No code changes; published so users on 0.1.3-beta.7 can trigger an in-app upgrade and verify the live brew log streaming and the manual "Restart now / Later" choice on the success phase
+
 ## 0.1.3-beta.7 - 2026-05-26
 
 Reworked the brew upgrade flow so the app stays open through the whole install and the user decides when to restart, instead of the app auto-quitting halfway.

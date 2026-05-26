@@ -2,6 +2,17 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.1.2 - 2026-05-26
+
+Added inline model-mapping editing, dynamic Codex model fetching, and improved error feedback with animations.
+
+- Added inline cell editing for model mappings with delete confirmation dialog
+- Fetched Codex models dynamically from the ChatGPT backend instead of using a hardcoded list
+- Added friendly error toast when gateway server fails to start or stop, with i18n support
+- Displayed account email instead of account ID in the logs page for readability
+- Added friendly error message when the gateway server fails to bind its listen port
+- Added number pop-in, card hover lift, and icon swap animations for smoother UI transitions
+
 ## 0.1.1 - 2026-05-25
 
 Reworked the Homebrew auto-update flow and added Codex rate-limit visibility plus broader auth-import support.

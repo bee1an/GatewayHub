@@ -2,6 +2,13 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.1.3-beta.10 - 2026-05-26
+
+Fixed "Restart now" not actually relaunching after a successful upgrade.
+
+- The previous build used `spawn('open', '/Applications/GatewayHub.app')` followed by `app.quit()`. Because the current GatewayHub instance was still running, `open` only foregrounded the existing process instead of launching a new one; the subsequent `app.quit()` then killed the only instance, leaving the user with no app at all
+- Switched to Electron's `app.relaunch() + app.quit()`. `relaunch` registers an atExit hook that spawns `process.execPath` after the current process actually exits, and brew has already replaced the binary at that path with the new version
+
 ## 0.1.3-beta.9 - 2026-05-26
 
 Test build to validate the in-app brew upgrade flow against a previously installed 0.1.3-beta.7+ build.

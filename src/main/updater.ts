@@ -448,14 +448,13 @@ export function setupUpdater(_win: BrowserWindow): void {
   ipcMain.handle('upgrade:restart', () => {
     log('ipc upgrade:restart')
     closeProgressWindow()
-    // 让 macOS 用现在 /Applications/GatewayHub.app 里的新 bundle 启动一个新进程，
-    // 旧进程退出。不能用 app.relaunch()，它会沿用当前 .app 路径
-    // 而 brew upgrade 已经替换了 bundle 内容；改成显式 open。
-    spawn('/usr/bin/open', ['/Applications/GatewayHub.app'], {
-      detached: true,
-      stdio: 'ignore'
-    }).unref()
-    setTimeout(() => app.quit(), 200)
+    // 必须用 app.relaunch + app.quit，不能用 spawn('open', ...)：
+    // 当前 GatewayHub 进程还在运行时，`open .app` 只会激活前台、不启动新进程，
+    // 紧接着 app.quit 把唯一实例关掉，结果就是 app 关了没有重启。
+    // app.relaunch 注册 atExit 钩子，进程真正退出后才 spawn process.execPath，
+    // 而 process.execPath 路径已经被 brew 升级时 mv 替换为新版本二进制。
+    app.relaunch()
+    app.quit()
   })
 
   // renderer 通知 main：监听器已就绪，可以开始派发事件

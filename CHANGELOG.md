@@ -2,6 +2,14 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.1.3-beta.2 - 2026-05-26
+
+Fixed the brew upgrade reporting "already installed" because the local tap cache was never refreshed during the in-app flow.
+
+- Run `brew update --quiet` before `brew fetch` so the tap reflects the latest cask version (the previous `HOMEBREW_NO_AUTO_UPDATE=1` env froze the tap cache and made every upgrade a no-op)
+- Detached installer now records before/after versions, runs `brew update` again, and surfaces a notification if `brew upgrade` claims "already installed"
+- Both update and fetch steps stream their stdout/stderr into the in-app upgrade window, so users see why an upgrade was skipped
+
 ## 0.1.3-beta.1 - 2026-05-26
 
 Fixed the macOS Homebrew upgrade flow that closed the app without showing a progress window, and added structured updater logs for diagnostics.

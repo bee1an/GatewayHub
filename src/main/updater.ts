@@ -194,11 +194,47 @@ function closeProgressWindow(): void {
   pendingEvents = []
 }
 
+function runBrewUpdate(brew: string): Promise<{ ok: boolean; stderr: string }> {
+  return new Promise((resolve) => {
+    log('runBrewUpdate start', brew)
+    sendProgress({ kind: 'log', text: '$ brew update\n' })
+    const child = spawn(brew, ['update', '--quiet'], {
+      env: { ...process.env, HOMEBREW_NO_ANALYTICS: '1' }
+    })
+    fetchChild = child
+    let stderrBuf = ''
+    child.stdout.on('data', (buf: Buffer) => {
+      const text = buf.toString()
+      log('brew update stdout:', text.trim())
+      sendProgress({ kind: 'log', text })
+    })
+    child.stderr.on('data', (buf: Buffer) => {
+      const text = buf.toString()
+      stderrBuf += text
+      log('brew update stderr:', text.trim())
+      sendProgress({ kind: 'log', text })
+    })
+    child.on('error', (err) => {
+      log('brew update error event:', err.message)
+      fetchChild = null
+      resolve({ ok: false, stderr: err.message })
+    })
+    child.on('exit', (code) => {
+      log('brew update exit code:', code)
+      fetchChild = null
+      resolve({ ok: code === 0, stderr: stderrBuf })
+    })
+  })
+}
+
 function runBrewFetch(brew: string): Promise<{ ok: boolean; stderr: string }> {
   return new Promise((resolve) => {
     log('runBrewFetch start', brew)
+    sendProgress({ kind: 'log', text: '$ brew fetch --cask gatewayhub\n' })
+    // 关键：不能再设 HOMEBREW_NO_AUTO_UPDATE，否则 brew 会用旧 tap 缓存判定"已是最新"。
+    // 上一步 runBrewUpdate 已经显式刷过 tap，这里只关掉 analytics。
     const child = spawn(brew, ['fetch', '--cask', 'gatewayhub'], {
-      env: { ...process.env, HOMEBREW_NO_AUTO_UPDATE: '1', HOMEBREW_NO_ANALYTICS: '1' }
+      env: { ...process.env, HOMEBREW_NO_ANALYTICS: '1' }
     })
     fetchChild = child
     let stderrBuf = ''
@@ -230,12 +266,28 @@ function spawnDetachedInstall(brew: string): void {
   const logDir = app.getPath('logs')
   const logPath = join(logDir, 'brew-upgrade.log')
   const releasesUrl = 'https://github.com/bee1an/GatewayHub/releases/latest'
+  // 脚本要点：
+  // 1. 记录开始时间和当前已装版本，方便事后对比；
+  // 2. 升级前再 brew update 一次（detached 后台跑，不阻塞 UI），保证 tap 缓存最新；
+  // 3. 升级失败或 brew 报"already installed"都视为问题，弹通知并打开 Releases 页。
   const script = [
     '#!/bin/sh',
     `mkdir -p "${logDir}"`,
     `exec >"${logPath}" 2>&1`,
+    'echo "=== brew upgrade started at $(date -Iseconds) ==="',
+    `BEFORE=$("${brew}" list --cask --versions gatewayhub 2>/dev/null | awk '{print $2}')`,
+    'echo "before version: $BEFORE"',
     'sleep 1',
+    `"${brew}" update --quiet || echo "[warn] brew update failed, continuing"`,
     `if "${brew}" upgrade --cask gatewayhub; then`,
+    `  AFTER=$("${brew}" list --cask --versions gatewayhub 2>/dev/null | awk '{print $2}')`,
+    '  echo "after version: $AFTER"',
+    '  if [ "$BEFORE" = "$AFTER" ]; then',
+    '    echo "[error] version did not change, brew thought it was already up to date"',
+    `    osascript -e 'display notification "Already on latest version reported by Homebrew. Tap may be stale; try \\"brew update\\" manually." with title "GatewayHub"'`,
+    `    open "${releasesUrl}"`,
+    '    exit 1',
+    '  fi',
     '  open -a GatewayHub',
     '  exit 0',
     'fi',
@@ -274,6 +326,15 @@ async function startBrewUpgrade(): Promise<void> {
 
   openProgressWindow()
   sendProgress({ kind: 'phase', phase: 'download' })
+
+  // 必须先 brew update，否则 tap 缓存里 cask 版本号没刷新，
+  // 后面 brew upgrade 会以为已是最新版直接放弃。
+  const updateResult = await runBrewUpdate(brew)
+  if (!updateResult.ok) {
+    // brew update 失败不一定阻塞，比如网络抖动；只把错误日志吐出来继续往后走，
+    // 让 brew fetch / upgrade 自己再尝试一次。
+    log('brew update returned non-zero, continuing:', updateResult.stderr.trim())
+  }
 
   const { ok, stderr } = await runBrewFetch(brew)
   if (!ok) {

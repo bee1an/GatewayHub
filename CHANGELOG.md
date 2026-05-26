@@ -2,6 +2,12 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.1.3-beta.11 - 2026-05-26
+
+Test build to validate the `app.relaunch()` fix from 0.1.3-beta.10.
+
+- No code changes
+
 ## 0.1.3-beta.10 - 2026-05-26
 
 Fixed "Restart now" not actually relaunching after a successful upgrade.

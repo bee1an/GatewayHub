@@ -2,6 +2,12 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.1.3-beta.3 - 2026-05-26
+
+Test build to validate the brew upgrade flow end-to-end against a previously installed beta.
+
+- No code changes; published so users on 0.1.3-beta.2 can confirm the in-app brew update + fetch path lands them on a newer build instead of "already installed"
+
 ## 0.1.3-beta.2 - 2026-05-26
 
 Fixed the brew upgrade reporting "already installed" because the local tap cache was never refreshed during the in-app flow.

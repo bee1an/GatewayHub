@@ -2,6 +2,12 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.1.3-beta.6 - 2026-05-26
+
+Use an absolute path when relaunching after a brew upgrade so LaunchServices can't pick a stale dev build with the same bundle id.
+
+- Replace `open -a GatewayHub` in the detached installer with `open /Applications/GatewayHub.app`; if a developer leaves a `dist/mac-arm64/GatewayHub.app` from `pnpm run build:mac` around, macOS would otherwise sometimes relaunch that older copy after upgrade
+
 ## 0.1.3-beta.5 - 2026-05-26
 
 Test build to validate the in-app realtime upgrade log streaming added in 0.1.3-beta.4.

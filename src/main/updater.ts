@@ -267,6 +267,10 @@ function spawnDetachedInstall(brew: string): { logPath: string } {
   const logDir = app.getPath('logs')
   const logPath = join(logDir, 'brew-upgrade.log')
   const releasesUrl = 'https://github.com/bee1an/GatewayHub/releases/latest'
+  // 用绝对路径而不是 `open -a GatewayHub`：当系统里同时存在多份带相同 bundle id 的
+  // GatewayHub.app（例如 dev 构建产物 dist/mac-arm64/GatewayHub.app）时，
+  // `open -a` 会让 LaunchServices 自己挑一份，可能误选旧的开发版本。
+  const appPath = '/Applications/GatewayHub.app'
   // 脚本要点：
   // 1. 记录开始时间和当前已装版本，方便事后对比；
   // 2. 升级前再 brew update 一次（detached 后台跑，不阻塞 UI），保证 tap 缓存最新；
@@ -296,7 +300,7 @@ function spawnDetachedInstall(brew: string): { logPath: string } {
     '    exit 1',
     '  fi',
     '  echo "[gh-marker] success"',
-    '  open -a GatewayHub',
+    `  open "${appPath}"`,
     '  exit 0',
     'fi',
     'echo "[gh-marker] failed: brew upgrade exited non-zero"',

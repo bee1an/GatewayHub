@@ -2,6 +2,14 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.1.5 - 2026-05-27
+
+Added streaming read timeout support for Kiro and fixed log viewer expansion bugs.
+
+- Added `streamingReadTimeoutSeconds` parameter to Kiro stream parsers, enabling per-chunk idle timeout after the first token arrives
+- Fixed log viewer expanding multiple rows simultaneously when logs shared the same requestId
+- Fixed log viewer layout corruption when new logs arrived while a row was expanded — the expanded row now stays open with a stable content-based key
+
 ## 0.1.4 - 2026-05-27
 
 Hardened the gateway server against network-layer attacks and added full tool-use support for the Codex provider.

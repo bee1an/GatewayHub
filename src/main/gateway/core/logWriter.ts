@@ -1,6 +1,7 @@
 import { appendFile, mkdir, rename, stat, unlink, writeFile } from 'fs/promises'
 import { join } from 'path'
 import type { GatewayLogEntry } from '../types'
+import { redactSecrets } from './redact'
 
 export interface LogWriterConfig {
   logDir: string
@@ -38,7 +39,8 @@ export class LogWriter {
   }
 
   write(entry: GatewayLogEntry): void {
-    this.pending.push(entry)
+    // 防御性二次脱敏：调用方一般已经在 logger 里跑过一次，这里兜底
+    this.pending.push(redactSecrets(entry))
     if (this.pending.length >= 50) {
       void this.flush()
     } else if (!this.flushTimer) {
@@ -67,10 +69,17 @@ export class LogWriter {
       }
       await appendFile(this.logFilePath, lines, 'utf8')
       this.currentFileSize += bytes
-    } catch {
-      // 写入失败时丢弃，避免阻塞
+    } catch (err) {
+      console.warn('[logWriter] flush failed', err)
     } finally {
       this.flushing = false
+      // 还有积压数据时，重新挂一次 timer，避免末批卡住
+      if (this.pending.length > 0 && !this.flushTimer) {
+        this.flushTimer = setTimeout(() => {
+          this.flushTimer = undefined
+          void this.flush()
+        }, this.config.flushIntervalMs)
+      }
     }
   }
 
@@ -104,7 +113,24 @@ export class LogWriter {
       await rename(from, to).catch(() => {})
     }
 
-    await rename(this.logFilePath, join(this.config.logDir, 'gateway.1.log')).catch(() => {})
-    this.currentFileSize = 0
+    let renamed = false
+    try {
+      await rename(this.logFilePath, join(this.config.logDir, 'gateway.1.log'))
+      renamed = true
+    } catch (err) {
+      console.warn('[logWriter] rotate rename failed', err)
+    }
+
+    if (renamed) {
+      this.currentFileSize = 0
+    } else {
+      // rename 失败时（例如目标被占用），重新拿一次真实大小，避免错误累计
+      try {
+        const s = await stat(this.logFilePath)
+        this.currentFileSize = s.size
+      } catch {
+        this.currentFileSize = 0
+      }
+    }
   }
 }

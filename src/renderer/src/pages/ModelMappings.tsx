@@ -25,6 +25,8 @@ type ProviderStatus = {
 
 type EditingCell = { row: number; field: 'alias' | 'provider' | 'model' | 'note' }
 
+type DialogState = { mode: 'add' } | { mode: 'edit'; idx: number } | null
+
 export default function ModelMappings(): React.JSX.Element {
   const { t } = useTranslation()
   const { toast } = useToast()
@@ -32,7 +34,7 @@ export default function ModelMappings(): React.JSX.Element {
   const [providers, setProviders] = useState<ProviderStatus[]>([])
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [dialogOpen, setDialogOpen] = useState(false)
+  const [dialogState, setDialogState] = useState<DialogState>(null)
   const [editing, setEditing] = useState<EditingCell | null>(null)
   const [draft, setDraft] = useState('')
   const [removeTarget, setRemoveTarget] = useState<number | null>(null)
@@ -131,7 +133,14 @@ export default function ModelMappings(): React.JSX.Element {
 
   async function handleAdd(mapping: ModelMapping): Promise<void> {
     const next = [...mappings, mapping]
-    setDialogOpen(false)
+    setDialogState(null)
+    persist(next)
+    toast(t('modelMappings.saved'), 'success')
+  }
+
+  async function handleEdit(idx: number, mapping: ModelMapping): Promise<void> {
+    const next = mappings.map((m, i) => (i === idx ? mapping : m))
+    setDialogState(null)
     persist(next)
     toast(t('modelMappings.saved'), 'success')
   }
@@ -154,7 +163,7 @@ export default function ModelMappings(): React.JSX.Element {
           <Button
             size="sm"
             variant="primary"
-            onClick={() => setDialogOpen(true)}
+            onClick={() => setDialogState({ mode: 'add' })}
             disabled={!loaded || busy}
           >
             {t('modelMappings.addRow')}
@@ -193,19 +202,21 @@ export default function ModelMappings(): React.JSX.Element {
                 onCancel={cancelEdit}
                 onToggle={handleToggle}
                 onRemove={(i) => setRemoveTarget(i)}
+                onEdit={(i) => setDialogState({ mode: 'edit', idx: i })}
               />
             ))}
           </div>
         )}
       </div>
 
-      <AddDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
+      <MappingDialog
+        state={dialogState}
+        onClose={() => setDialogState(null)}
         providerOptions={providerOptions}
         providers={providers}
-        existingAliases={mappings.map((m) => m.alias.trim())}
-        onSave={handleAdd}
+        mappings={mappings}
+        onAdd={handleAdd}
+        onEdit={handleEdit}
       />
 
       <ConfirmDialog
@@ -241,7 +252,8 @@ function MappingRow({
   onCommitSelect,
   onCancel,
   onToggle,
-  onRemove
+  onRemove,
+  onEdit
 }: {
   mapping: ModelMapping
   idx: number
@@ -257,6 +269,7 @@ function MappingRow({
   onCancel: () => void
   onToggle: (idx: number) => void
   onRemove: (idx: number) => void
+  onEdit: (idx: number) => void
 }): React.JSX.Element {
   const { t } = useTranslation()
   const isEditing = (field: EditingCell['field']) =>
@@ -381,8 +394,9 @@ function MappingRow({
       <div className="flex items-center justify-end gap-1">
         <button
           type="button"
-          onClick={() => onStartEdit(idx, 'alias')}
-          className="text-[11px] text-storm hover:text-porcelain transition-colors outline-none px-1.5 py-0.5 rounded-[var(--radius-sm)] hover:bg-charcoal/40"
+          onClick={() => onEdit(idx)}
+          className="text-[11px] text-storm hover:text-porcelain transition-colors outline-none px-1.5 py-0.5 rounded-[var(--radius-sm)] hover:bg-charcoal/40 disabled:opacity-40"
+          disabled={busy}
         >
           {t('modelMappings.edit')}
         </button>
@@ -439,20 +453,22 @@ function InlineInput({
   )
 }
 
-function AddDialog({
-  open,
-  onOpenChange,
+function MappingDialog({
+  state,
+  onClose,
   providerOptions,
   providers,
-  existingAliases,
-  onSave
+  mappings,
+  onAdd,
+  onEdit
 }: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
+  state: DialogState
+  onClose: () => void
   providerOptions: string[]
   providers: ProviderStatus[]
-  existingAliases: string[]
-  onSave: (mapping: ModelMapping) => void
+  mappings: ModelMapping[]
+  onAdd: (mapping: ModelMapping) => void
+  onEdit: (idx: number, mapping: ModelMapping) => void
 }): React.JSX.Element {
   const { t } = useTranslation()
   const [alias, setAlias] = useState('')
@@ -460,16 +476,29 @@ function AddDialog({
   const [model, setModel] = useState('')
   const [note, setNote] = useState('')
 
+  const isEdit = state?.mode === 'edit'
+  const editingIdx = state?.mode === 'edit' ? state.idx : -1
+  const open = state !== null
+
   useEffect(() => {
-    if (open) {
-      /* eslint-disable react-hooks/set-state-in-effect */
+    if (!open) return
+    /* eslint-disable react-hooks/set-state-in-effect */
+    if (state?.mode === 'edit') {
+      const target = mappings[state.idx]
+      if (target) {
+        setAlias(target.alias)
+        setProvider(target.provider)
+        setModel(target.model)
+        setNote(target.note ?? '')
+      }
+    } else {
       setAlias('')
       setProvider(providerOptions[0] ?? '')
       setModel('')
       setNote('')
-      /* eslint-enable react-hooks/set-state-in-effect */
     }
-  }, [open, providerOptions])
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [open, state, mappings, providerOptions])
 
   const providerSelectOptions: SelectOption[] = useMemo(
     () => providerOptions.map((p) => ({ value: p, label: p })),
@@ -490,7 +519,8 @@ function AddDialog({
     const trimmed = alias.trim()
     if (!trimmed) return 'aliasEmpty'
     if (/[\s/:]/.test(trimmed)) return 'aliasInvalid'
-    if (existingAliases.includes(trimmed)) return 'aliasDup'
+    const dup = mappings.some((m, i) => i !== editingIdx && m.alias.trim() === trimmed)
+    if (dup) return 'aliasDup'
     return null
   })()
 
@@ -499,17 +529,28 @@ function AddDialog({
   function handleSubmit(e: React.FormEvent): void {
     e.preventDefault()
     if (!canSubmit) return
-    onSave({
+    const mapping: ModelMapping = {
       alias: alias.trim(),
       provider,
       model: model.trim(),
-      enabled: true,
+      enabled: isEdit ? (mappings[editingIdx]?.enabled ?? true) : true,
       note: note.trim() || undefined
-    })
+    }
+    if (isEdit) onEdit(editingIdx, mapping)
+    else onAdd(mapping)
   }
 
+  const title = isEdit ? t('modelMappings.editRow') : t('modelMappings.addRow')
+
   return (
-    <Modal open={open} onOpenChange={onOpenChange} title={t('modelMappings.addRow')} width="420px">
+    <Modal
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) onClose()
+      }}
+      title={title}
+      width="420px"
+    >
       <form onSubmit={handleSubmit} className="space-y-3">
         <div>
           <label className="text-[11px] text-fog font-medium block mb-1">
@@ -578,7 +619,7 @@ function AddDialog({
           />
         </div>
         <div className="flex justify-end gap-2 pt-1">
-          <Button type="button" size="sm" onClick={() => onOpenChange(false)}>
+          <Button type="button" size="sm" onClick={onClose}>
             {t('common.cancel')}
           </Button>
           <Button type="submit" size="sm" variant="primary" disabled={!canSubmit}>

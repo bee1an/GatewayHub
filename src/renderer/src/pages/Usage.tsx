@@ -18,6 +18,7 @@ import {
 import { usePolling } from '../hooks/usePolling'
 import { Button } from '../components/ui/Button'
 import { ToggleFilter } from '../components/ui/ToggleFilter'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { formatCostUsd, formatCredits, formatTokens } from '../utils/format'
 
 type UsageDailyEntry = {
@@ -85,6 +86,7 @@ export default function Usage(props: UsageProps = {}): React.JSX.Element {
     10_000
   )
   const [busy, setBusy] = useState(false)
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
 
   const filtered = useMemo(() => {
     if (!detail) return [] as UsageDailyEntry[]
@@ -119,13 +121,13 @@ export default function Usage(props: UsageProps = {}): React.JSX.Element {
   const showCredits = monthCredits > 0 || (summary?.todayCredits ?? 0) > 0
 
   async function handleClear(): Promise<void> {
-    if (!window.confirm(t('usage.clearConfirm'))) return
     setBusy(true)
     try {
       await window.api.gateway.clearUsage()
       await refresh()
     } finally {
       setBusy(false)
+      setClearConfirmOpen(false)
     }
   }
 
@@ -154,7 +156,12 @@ export default function Usage(props: UsageProps = {}): React.JSX.Element {
             {t('usage.refresh')}
           </Button>
           {!provider && (
-            <Button onClick={handleClear} variant="ghost" size="sm" disabled={busy}>
+            <Button
+              onClick={() => setClearConfirmOpen(true)}
+              variant="ghost"
+              size="sm"
+              disabled={busy}
+            >
               <span className="i-ph-trash text-[13px]" aria-hidden="true" />
               {t('usage.clear')}
             </Button>
@@ -333,6 +340,18 @@ export default function Usage(props: UsageProps = {}): React.JSX.Element {
           />
         </>
       )}
+
+      <ConfirmDialog
+        open={clearConfirmOpen}
+        onOpenChange={setClearConfirmOpen}
+        title={t('usage.clear')}
+        description={t('usage.clearConfirm')}
+        confirmLabel={t('usage.clear')}
+        cancelLabel={t('common.cancel')}
+        variant="danger"
+        loading={busy}
+        onConfirm={handleClear}
+      />
     </div>
   )
 }

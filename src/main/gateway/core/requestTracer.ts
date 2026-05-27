@@ -29,33 +29,46 @@ export function wrapStreamForTracing(
       const iterator = stream[Symbol.asyncIterator]()
       let firstChunk = true
       let chunks = 0
+      let completed = false
+
+      const finalize = (): void => {
+        if (completed) return
+        completed = true
+        trace.chunkCount = chunks
+        trace.duration = Date.now() - trace.startedAt
+        try {
+          onComplete(trace)
+        } catch (err) {
+          console.warn('[requestTracer] onComplete failed', err)
+        }
+      }
 
       return {
         async next() {
-          const result = await iterator.next()
-          if (result.done) {
-            trace.chunkCount = chunks
-            trace.duration = Date.now() - trace.startedAt
-            onComplete(trace)
+          if (completed) return { done: true, value: undefined }
+          try {
+            const result = await iterator.next()
+            if (result.done) {
+              finalize()
+              return result
+            }
+            chunks++
+            if (firstChunk) {
+              firstChunk = false
+              trace.timeToFirstToken = Date.now() - trace.startedAt
+            }
             return result
+          } catch (err) {
+            finalize()
+            throw err
           }
-          chunks++
-          if (firstChunk) {
-            firstChunk = false
-            trace.timeToFirstToken = Date.now() - trace.startedAt
-          }
-          return result
         },
         async return(value?: any) {
-          trace.chunkCount = chunks
-          trace.duration = Date.now() - trace.startedAt
-          onComplete(trace)
+          finalize()
           return iterator.return?.(value) ?? { done: true, value: undefined }
         },
         async throw(err?: any) {
-          trace.chunkCount = chunks
-          trace.duration = Date.now() - trace.startedAt
-          onComplete(trace)
+          finalize()
           return iterator.throw?.(err) ?? { done: true, value: undefined }
         }
       }

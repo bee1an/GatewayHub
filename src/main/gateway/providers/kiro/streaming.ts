@@ -17,8 +17,31 @@ export type UsageSink = (usage: UsageStats) => void
 
 export class FirstTokenTimeoutError extends Error {}
 
+/** Stream 闲置超时（每次 read() 间隔超过 streamingReadTimeoutSeconds） */
+export class KiroStreamIdleTimeoutError extends Error {
+  constructor(seconds: number) {
+    super(`Kiro stream idle timeout after ${seconds}s without data`)
+    this.name = 'KiroStreamIdleTimeoutError'
+  }
+}
+
+/** Stream 解析协议错误（buffer 过大、永远拼不出合法 JSON 等） */
+export class KiroStreamProtocolError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'KiroStreamProtocolError'
+  }
+}
+
+/** AwsEventStreamParser 内部 buffer 软上限：超过则视为协议异常 */
+const PARSER_BUFFER_SOFT_LIMIT = 4 * 1024 * 1024 // 4 MB
+
+/** 短内容 token（≤ 此长度）不参与 lastContent 去重，避免误丢正常 token 流 */
+const DEDUPE_MIN_LENGTH = 8
+
 export class AwsEventStreamParser {
   private buffer = ''
+  /** 上次成功 emit 的 content（仅用于较长 payload 的去重） */
   private lastContent = ''
   private currentToolCall: any | undefined
   private currentToolInputs: any[] = []
@@ -27,20 +50,32 @@ export class AwsEventStreamParser {
 
   feed(chunk: Uint8Array): KiroEvent[] {
     this.buffer += this.decoder.decode(chunk, { stream: true })
+    if (this.buffer.length > PARSER_BUFFER_SOFT_LIMIT) {
+      throw new KiroStreamProtocolError(
+        `event-stream buffer overflow (${this.buffer.length} bytes > ${PARSER_BUFFER_SOFT_LIMIT})`
+      )
+    }
     const events: KiroEvent[] = []
+    let searchOffset = 0
     while (true) {
-      const next = this.findNextJson()
+      const next = this.findNextJsonFrom(searchOffset)
       if (!next) break
       const end = findMatchingBrace(this.buffer, next.pos)
-      if (end === -1) break
+      if (end === -1) {
+        // 等更多 chunk 才能拼出完整 JSON
+        break
+      }
       const json = this.buffer.slice(next.pos, end + 1)
-      this.buffer = this.buffer.slice(end + 1)
       try {
         const data = JSON.parse(json)
+        // 解析成功才消费 buffer，避免误吃下半段
+        this.buffer = this.buffer.slice(end + 1)
+        searchOffset = 0
         const processed = this.process(data, next.type)
         if (processed) events.push(processed)
       } catch {
-        // Ignore malformed fragments; the upstream stream may include binary event framing.
+        // 当前位置只是 LLM 内容里的子串，不消费 buffer，从 next.pos+1 继续找
+        searchOffset = next.pos + 1
       }
     }
     return events
@@ -54,7 +89,7 @@ export class AwsEventStreamParser {
     }))
   }
 
-  private findNextJson(): { pos: number; type: string } | undefined {
+  private findNextJsonFrom(offset: number): { pos: number; type: string } | undefined {
     // 注意：metering 走 {"unit": 模式（payload 形如 {"unit":"credit","usage":2.59}），
     // 必须排在 {"usage": 之前，否则会被当成 token usage 匹配。
     const patterns: Array<[string, string]> = [
@@ -68,7 +103,7 @@ export class AwsEventStreamParser {
     ]
     let best: { pos: number; type: string } | undefined
     for (const [pattern, type] of patterns) {
-      const pos = this.buffer.indexOf(pattern)
+      const pos = this.buffer.indexOf(pattern, offset)
       if (pos !== -1 && (!best || pos < best.pos)) best = { pos, type }
     }
     return best
@@ -78,7 +113,15 @@ export class AwsEventStreamParser {
     if (type === 'content') {
       if (data.followupPrompt) return undefined
       const content = data.content ?? ''
-      if (!content || content === this.lastContent) return undefined
+      if (!content) return undefined
+      // 仅当上次内容较长时才进行严格去重，避免短 token 流被误丢
+      if (
+        content === this.lastContent &&
+        this.lastContent.length >= DEDUPE_MIN_LENGTH &&
+        content.length >= DEDUPE_MIN_LENGTH
+      ) {
+        return undefined
+      }
       this.lastContent = content
       return { type: 'content', content }
     }
@@ -137,37 +180,71 @@ export class AwsEventStreamParser {
 
 export async function* parseKiroStream(
   body: ReadableStream<Uint8Array>,
-  firstTokenTimeoutSeconds: number
+  firstTokenTimeoutSeconds: number,
+  idleTimeoutSeconds = firstTokenTimeoutSeconds
 ): AsyncGenerator<KiroEvent> {
   const parser = new AwsEventStreamParser()
   const thinking = new ThinkingTagParser()
   const reader = body.getReader()
+  let cancelled = false
 
-  const first = await readWithTimeout(reader, firstTokenTimeoutSeconds * 1000)
-  if (first.done) return
-  for (const event of parser.feed(first.value))
-    for (const processed of thinking.process(event)) yield processed
-
-  while (true) {
-    const next = await reader.read()
-    if (next.done) break
-    for (const event of parser.feed(next.value))
+  try {
+    const first = await readWithTimeout(
+      reader,
+      firstTokenTimeoutSeconds * 1000,
+      () => new FirstTokenTimeoutError(`No Kiro token within ${firstTokenTimeoutSeconds}s`)
+    )
+    if (first.done) return
+    for (const event of parser.feed(first.value))
       for (const processed of thinking.process(event)) yield processed
+
+    while (true) {
+      const next = await readWithTimeout(
+        reader,
+        idleTimeoutSeconds * 1000,
+        () => new KiroStreamIdleTimeoutError(idleTimeoutSeconds)
+      )
+      if (next.done) break
+      for (const event of parser.feed(next.value))
+        for (const processed of thinking.process(event)) yield processed
+    }
+    for (const event of thinking.finish()) yield event
+    for (const event of parser.finish()) yield event
+  } catch (error) {
+    cancelled = true
+    try {
+      await reader.cancel()
+    } catch {
+      /* ignore */
+    }
+    throw error
+  } finally {
+    if (!cancelled) {
+      try {
+        reader.releaseLock()
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      await body.cancel()
+    } catch {
+      /* ignore */
+    }
   }
-  for (const event of thinking.finish()) yield event
-  for (const event of parser.finish()) yield event
 }
 
-async function readWithTimeout(reader: ReadableStreamDefaultReader<Uint8Array>, timeoutMs: number) {
+async function readWithTimeout(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  timeoutMs: number,
+  buildError: () => Error
+): Promise<ReadableStreamReadResult<Uint8Array>> {
   let timer: NodeJS.Timeout | undefined
   try {
     return await Promise.race([
       reader.read(),
       new Promise<ReadableStreamReadResult<Uint8Array>>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new FirstTokenTimeoutError(`No Kiro token within ${timeoutMs / 1000}s`)),
-          timeoutMs
-        )
+        timer = setTimeout(() => reject(buildError()), timeoutMs)
       })
     ])
   } finally {
@@ -227,12 +304,13 @@ class ThinkingTagParser {
 
 export async function collectKiroStream(
   body: ReadableStream<Uint8Array>,
-  firstTokenTimeoutSeconds: number
+  firstTokenTimeoutSeconds: number,
+  idleTimeoutSeconds = firstTokenTimeoutSeconds
 ) {
   let content = ''
   let thinking = ''
   const toolCalls: any[] = []
-  for await (const event of parseKiroStream(body, firstTokenTimeoutSeconds)) {
+  for await (const event of parseKiroStream(body, firstTokenTimeoutSeconds, idleTimeoutSeconds)) {
     if (event.type === 'content') content += event.content ?? ''
     else if (event.type === 'thinking') thinking += event.thinking ?? ''
     else if (event.type === 'tool_use') toolCalls.push(event.toolUse)
@@ -245,7 +323,8 @@ export async function* openAiSseFromKiro(
   model: string,
   requestBody: any,
   firstTokenTimeoutSeconds: number,
-  onUsage?: UsageSink
+  onUsage?: UsageSink,
+  idleTimeoutSeconds = firstTokenTimeoutSeconds
 ): AsyncGenerator<string> {
   const id = `chatcmpl-${randomUUID().replace(/-/g, '')}`
   const created = Math.floor(Date.now() / 1000)
@@ -256,49 +335,59 @@ export async function* openAiSseFromKiro(
   let upstreamUsage: any | undefined
   let credits = 0
 
-  for await (const event of parseKiroStream(body, firstTokenTimeoutSeconds)) {
-    if (event.type === 'usage' && event.usage) {
-      upstreamUsage = event.usage
-      continue
+  const events = parseKiroStream(body, firstTokenTimeoutSeconds, idleTimeoutSeconds)
+  try {
+    for await (const event of events) {
+      if (event.type === 'usage' && event.usage) {
+        upstreamUsage = event.usage
+        continue
+      }
+      if (event.type === 'metering' && typeof event.credits === 'number') {
+        credits += event.credits
+        continue
+      }
+      if (event.type === 'content' && event.content) {
+        content += event.content
+        yield sseData({
+          id,
+          object: 'chat.completion.chunk',
+          created,
+          model,
+          choices: [
+            {
+              index: 0,
+              delta: { ...(first ? { role: 'assistant' } : {}), content: event.content },
+              finish_reason: null
+            }
+          ]
+        })
+        first = false
+      } else if (event.type === 'thinking' && event.thinking) {
+        thinking += event.thinking
+        yield sseData({
+          id,
+          object: 'chat.completion.chunk',
+          created,
+          model,
+          choices: [
+            {
+              index: 0,
+              delta: { ...(first ? { role: 'assistant' } : {}), reasoning_content: event.thinking },
+              finish_reason: null
+            }
+          ]
+        })
+        first = false
+      } else if (event.type === 'tool_use' && event.toolUse) {
+        toolCalls.push(event.toolUse)
+      }
     }
-    if (event.type === 'metering' && typeof event.credits === 'number') {
-      credits += event.credits
-      continue
-    }
-    if (event.type === 'content' && event.content) {
-      content += event.content
-      yield sseData({
-        id,
-        object: 'chat.completion.chunk',
-        created,
-        model,
-        choices: [
-          {
-            index: 0,
-            delta: { ...(first ? { role: 'assistant' } : {}), content: event.content },
-            finish_reason: null
-          }
-        ]
-      })
-      first = false
-    } else if (event.type === 'thinking' && event.thinking) {
-      thinking += event.thinking
-      yield sseData({
-        id,
-        object: 'chat.completion.chunk',
-        created,
-        model,
-        choices: [
-          {
-            index: 0,
-            delta: { ...(first ? { role: 'assistant' } : {}), reasoning_content: event.thinking },
-            finish_reason: null
-          }
-        ]
-      })
-      first = false
-    } else if (event.type === 'tool_use' && event.toolUse) {
-      toolCalls.push(event.toolUse)
+  } finally {
+    // 显式 return() 触发 parseKiroStream 的 finally 释放上游 reader
+    try {
+      await events.return?.(undefined)
+    } catch {
+      /* ignore */
     }
   }
 
@@ -338,20 +427,30 @@ export async function openAiJsonFromKiro(
   model: string,
   requestBody: any,
   firstTokenTimeoutSeconds: number,
-  onUsage?: UsageSink
+  onUsage?: UsageSink,
+  idleTimeoutSeconds = firstTokenTimeoutSeconds
 ) {
   let upstreamUsage: any | undefined
   let credits = 0
   let content = ''
   let thinking = ''
   const toolCalls: any[] = []
-  for await (const event of parseKiroStream(body, firstTokenTimeoutSeconds)) {
-    if (event.type === 'usage' && event.usage) upstreamUsage = event.usage
-    else if (event.type === 'metering' && typeof event.credits === 'number')
-      credits += event.credits
-    else if (event.type === 'content') content += event.content ?? ''
-    else if (event.type === 'thinking') thinking += event.thinking ?? ''
-    else if (event.type === 'tool_use') toolCalls.push(event.toolUse)
+  const events = parseKiroStream(body, firstTokenTimeoutSeconds, idleTimeoutSeconds)
+  try {
+    for await (const event of events) {
+      if (event.type === 'usage' && event.usage) upstreamUsage = event.usage
+      else if (event.type === 'metering' && typeof event.credits === 'number')
+        credits += event.credits
+      else if (event.type === 'content') content += event.content ?? ''
+      else if (event.type === 'thinking') thinking += event.thinking ?? ''
+      else if (event.type === 'tool_use') toolCalls.push(event.toolUse)
+    }
+  } finally {
+    try {
+      await events.return?.(undefined)
+    } catch {
+      /* ignore */
+    }
   }
 
   const message: any = { role: 'assistant', content }
@@ -383,7 +482,8 @@ export async function* anthropicSseFromKiro(
   model: string,
   requestBody: any,
   firstTokenTimeoutSeconds: number,
-  onUsage?: UsageSink
+  onUsage?: UsageSink,
+  idleTimeoutSeconds = firstTokenTimeoutSeconds
 ): AsyncGenerator<string> {
   const id = `msg_${randomUUID().replace(/-/g, '')}`
 
@@ -436,32 +536,41 @@ export async function* anthropicSseFromKiro(
     return frames
   }
 
-  for await (const event of parseKiroStream(body, firstTokenTimeoutSeconds)) {
-    if (event.type === 'usage' && event.usage) {
-      upstreamUsage = event.usage
-      continue
+  const events = parseKiroStream(body, firstTokenTimeoutSeconds, idleTimeoutSeconds)
+  try {
+    for await (const event of events) {
+      if (event.type === 'usage' && event.usage) {
+        upstreamUsage = event.usage
+        continue
+      }
+      if (event.type === 'metering' && typeof event.credits === 'number') {
+        credits += event.credits
+        continue
+      }
+      if (event.type === 'thinking' && event.thinking) {
+        thinking += event.thinking
+        for (const frame of ensureBlock('thinking')) yield frame
+        yield sseEvent('content_block_delta', {
+          type: 'content_block_delta',
+          index,
+          delta: { type: 'thinking_delta', thinking: event.thinking }
+        })
+      } else if (event.type === 'content' && event.content) {
+        content += event.content
+        for (const frame of ensureBlock('text')) yield frame
+        yield sseEvent('content_block_delta', {
+          type: 'content_block_delta',
+          index,
+          delta: { type: 'text_delta', text: event.content }
+        })
+      } else if (event.type === 'tool_use' && event.toolUse) toolCalls.push(event.toolUse)
     }
-    if (event.type === 'metering' && typeof event.credits === 'number') {
-      credits += event.credits
-      continue
+  } finally {
+    try {
+      await events.return?.(undefined)
+    } catch {
+      /* ignore */
     }
-    if (event.type === 'thinking' && event.thinking) {
-      thinking += event.thinking
-      for (const frame of ensureBlock('thinking')) yield frame
-      yield sseEvent('content_block_delta', {
-        type: 'content_block_delta',
-        index,
-        delta: { type: 'thinking_delta', thinking: event.thinking }
-      })
-    } else if (event.type === 'content' && event.content) {
-      content += event.content
-      for (const frame of ensureBlock('text')) yield frame
-      yield sseEvent('content_block_delta', {
-        type: 'content_block_delta',
-        index,
-        delta: { type: 'text_delta', text: event.content }
-      })
-    } else if (event.type === 'tool_use' && event.toolUse) toolCalls.push(event.toolUse)
   }
   for (const frame of closeOpenBlock()) yield frame
   for (const tool of toolCalls) {
@@ -502,20 +611,30 @@ export async function anthropicJsonFromKiro(
   model: string,
   requestBody: any,
   firstTokenTimeoutSeconds: number,
-  onUsage?: UsageSink
+  onUsage?: UsageSink,
+  idleTimeoutSeconds = firstTokenTimeoutSeconds
 ) {
   let upstreamUsage: any | undefined
   let credits = 0
   let content = ''
   let thinking = ''
   const toolCalls: any[] = []
-  for await (const event of parseKiroStream(body, firstTokenTimeoutSeconds)) {
-    if (event.type === 'usage' && event.usage) upstreamUsage = event.usage
-    else if (event.type === 'metering' && typeof event.credits === 'number')
-      credits += event.credits
-    else if (event.type === 'content') content += event.content ?? ''
-    else if (event.type === 'thinking') thinking += event.thinking ?? ''
-    else if (event.type === 'tool_use') toolCalls.push(event.toolUse)
+  const events = parseKiroStream(body, firstTokenTimeoutSeconds, idleTimeoutSeconds)
+  try {
+    for await (const event of events) {
+      if (event.type === 'usage' && event.usage) upstreamUsage = event.usage
+      else if (event.type === 'metering' && typeof event.credits === 'number')
+        credits += event.credits
+      else if (event.type === 'content') content += event.content ?? ''
+      else if (event.type === 'thinking') thinking += event.thinking ?? ''
+      else if (event.type === 'tool_use') toolCalls.push(event.toolUse)
+    }
+  } finally {
+    try {
+      await events.return?.(undefined)
+    } catch {
+      /* ignore */
+    }
   }
 
   const contentBlocks: any[] = []

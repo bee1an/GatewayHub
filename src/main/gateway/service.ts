@@ -15,7 +15,7 @@ import type {
 } from './types'
 import { GatewayConfigStore, sanitizeModelMappings } from './configStore'
 import { GatewayLogger } from './core/logger'
-import { DEFAULT_LOG_WRITER_CONFIG } from './core/logWriter'
+import { DEFAULT_LOG_WRITER_CONFIG, type LogWriterConfig } from './core/logWriter'
 import { ProviderRegistry } from './providerRegistry'
 import { GatewayServer } from './server'
 import { PricingTable, loadPricingOverrides, type ModelPrice } from './core/pricing'
@@ -45,9 +45,13 @@ import {
 
 export class GatewayHubService {
   private readonly store = new GatewayConfigStore()
+  private readonly writerConfig: LogWriterConfig = {
+    logDir: '',
+    ...DEFAULT_LOG_WRITER_CONFIG
+  }
   private readonly logger = new GatewayLogger({
     maxEntries: 1000,
-    writer: { logDir: '', ...DEFAULT_LOG_WRITER_CONFIG }
+    writer: this.writerConfig
   })
   private pricing = new PricingTable()
   private usageStore?: UsageStore
@@ -58,6 +62,7 @@ export class GatewayHubService {
   private saveTimer?: NodeJS.Timeout
   private lastUsedMap = new Map<string, number>()
   private lastUsedFlushTimer?: NodeJS.Timeout
+  private initPromise?: Promise<void>
 
   get configPath(): string {
     return this.store.configPath
@@ -67,14 +72,24 @@ export class GatewayHubService {
     return this.store.statePath
   }
 
+  /** 幂等入口：直接调或经 ensureReady() 进来都共享同一个 initPromise，避免并发初始化死锁。 */
   async initialize(options?: { skipAutoStart?: boolean }): Promise<void> {
+    if (this.initPromise) return this.initPromise
+    this.initPromise = this.initializeImpl(options).catch((err) => {
+      this.initPromise = undefined // 失败后允许重试
+      throw err
+    })
+    return this.initPromise
+  }
+
+  private async initializeImpl(options?: { skipAutoStart?: boolean }): Promise<void> {
     await this.store.migrateIfNeeded()
     this.config = await this.store.loadConfig()
     this.state = await this.store.loadState()
     this.logger.replace(this.state.providers.kiro.logs ?? [])
 
     // Initialize log writer with resolved path
-    ;(this.logger as any).config.writer.logDir = this.store.logsDir()
+    this.writerConfig.logDir = this.store.logsDir()
     await this.logger.initialize()
 
     // 加载价格覆盖（~/.config/gatewayhub/pricing.json）
@@ -135,14 +150,22 @@ export class GatewayHubService {
 
     const accounts = await this.store.readAccountFiles()
     if (accounts.length === 0) {
-      await this.autoDiscoverKiroAccounts()
-    } else {
-      await this.rebuildRuntime(false)
+      // 内联自动发现逻辑：调 this.autoDiscoverKiroAccounts() 会经 ensureReady() 与本次 init 自死锁
+      const { candidates } = await this.store.scanKiroAccounts()
+      for (const candidate of candidates.filter((c) => !c.existing)) {
+        try {
+          await this.store.writeAccountFile(candidate)
+        } catch {
+          // skip failed writes
+        }
+      }
     }
+    await this.rebuildRuntime(false)
 
     if (this.config.server.autoStart && !options?.skipAutoStart) {
       try {
-        await this.start()
+        // 同理：不能调 this.start()，会 ensureReady() 自等待
+        await this.server!.start()
       } catch (err) {
         // 端口被占用等启动失败时，不要让应用初始化整体失败：
         // server.start 已经写过 error 日志，UI 通过 status() 看到 running=false 即可。
@@ -775,8 +798,8 @@ export class GatewayHubService {
     return browser || device
   }
 
-  private async ensureReady(): Promise<void> {
-    if (!this.config || !this.state || !this.registry || !this.server) await this.initialize()
+  private ensureReady(): Promise<void> {
+    return this.initialize()
   }
 
   private async rebuildRuntime(restartServer: boolean): Promise<void> {

@@ -1,5 +1,6 @@
 import type { GatewayLogEntry, LogCategory } from '../types'
 import { LogWriter, type LogWriterConfig } from './logWriter'
+import { redactSecrets } from './redact'
 
 export interface LoggerConfig {
   maxEntries: number
@@ -47,14 +48,14 @@ export class GatewayLogger {
   }
 
   add(level: GatewayLogEntry['level'], message: string, meta?: Partial<GatewayLogEntry>): void {
-    const entry: GatewayLogEntry = {
+    const { ts: _ts, ...rest } = meta ?? {}
+    const rawEntry: GatewayLogEntry = {
       ts: Date.now(),
       level,
       message,
-      ...meta
+      ...rest
     }
-    delete (entry as any).ts
-    entry.ts = Date.now()
+    const entry = redactSecrets(rawEntry)
 
     this.entries.push(entry)
     if (this.entries.length > this.maxEntries)
@@ -75,15 +76,15 @@ export class GatewayLogger {
   }
 
   getEntries(): GatewayLogEntry[] {
-    return [...this.entries]
+    return this.entries.map((e) => redactSecrets(e))
   }
 
   getEntriesByCategory(category: LogCategory): GatewayLogEntry[] {
-    return this.entries.filter((e) => e.category === category)
+    return this.entries.filter((e) => e.category === category).map((e) => redactSecrets(e))
   }
 
   getEntriesByRequestId(requestId: string): GatewayLogEntry[] {
-    return this.entries.filter((e) => e.requestId === requestId)
+    return this.entries.filter((e) => e.requestId === requestId).map((e) => redactSecrets(e))
   }
 
   getLogs(options?: {
@@ -97,15 +98,19 @@ export class GatewayLogger {
     if (options?.requestId) result = result.filter((e) => e.requestId === options.requestId)
     if (options?.level) result = result.filter((e) => e.level === options.level)
     if (options?.limit) result = result.slice(-options.limit)
-    return [...result]
+    return result.map((e) => redactSecrets(e))
   }
 
   async exportLogs(format: 'json' | 'ndjson'): Promise<string> {
     if (!this.writer) throw new Error('Log writer not configured')
-    return this.writer.exportToFile(this.entries, format)
+    return this.writer.exportToFile(
+      this.entries.map((e) => redactSecrets(e)),
+      format
+    )
   }
 
   replace(entries: GatewayLogEntry[]): void {
-    this.entries.splice(0, this.entries.length, ...entries.slice(-this.maxEntries))
+    const sanitized = entries.slice(-this.maxEntries).map((e) => redactSecrets(e))
+    this.entries.splice(0, this.entries.length, ...sanitized)
   }
 }

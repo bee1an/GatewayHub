@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
+import { useState, useMemo, useRef, useCallback, useEffect, useDeferredValue } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { usePolling } from '../hooks/usePolling'
@@ -115,8 +115,9 @@ export default function Logs(): React.JSX.Element {
   const [filter, setFilter] = useState('all')
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [search, setSearch] = useState('')
+  const deferredSearch = useDeferredValue(search)
   const [timeRange, setTimeRange] = useState('all')
-  const [expandedIndex, setExpandedIndex] = useState<number | null>(null)
+  const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const [live, setLive] = useState(true)
   const [requestIdFilter, setRequestIdFilter] = useState<string | null>(null)
 
@@ -137,12 +138,21 @@ export default function Logs(): React.JSX.Element {
     return map
   }, [status?.providers])
 
-  const logs = useMemo(() => {
+  const reversed = useMemo(() => {
     const raw = status?.logs ?? []
-    const threshold = getTimeThreshold(timeRange)
-    const searchLower = search.toLowerCase()
+    return [...raw].reverse()
+  }, [status?.logs])
 
-    return [...raw].reverse().filter((l) => {
+  const getLogKey = useCallback(
+    (log: LogEntry): string => log.requestId ?? `${log.ts}:${log.level}:${log.provider ?? ''}`,
+    []
+  )
+
+  const logs = useMemo(() => {
+    const threshold = getTimeThreshold(timeRange)
+    const searchLower = deferredSearch.toLowerCase()
+
+    return reversed.filter((l) => {
       if (filter !== 'all' && l.level !== filter) return false
       if (categoryFilter !== 'all' && l.category !== categoryFilter) return false
       if (requestIdFilter && l.requestId !== requestIdFilter) return false
@@ -161,7 +171,7 @@ export default function Logs(): React.JSX.Element {
         return false
       return true
     })
-  }, [status?.logs, filter, categoryFilter, search, timeRange, requestIdFilter, accountLabels])
+  }, [reversed, filter, categoryFilter, deferredSearch, timeRange, requestIdFilter, accountLabels])
 
   const atMax = (status?.logs?.length ?? 0) >= MAX_LOG_ENTRIES
 
@@ -176,8 +186,8 @@ export default function Logs(): React.JSX.Element {
     count: logs.length,
     getScrollElement: () => parentRef.current,
     estimateSize: useCallback(
-      (index: number) => (index === expandedIndex ? 180 : 32),
-      [expandedIndex]
+      (index: number) => (getLogKey(logs[index]) === expandedKey ? 180 : 32),
+      [expandedKey, logs, getLogKey]
     ),
     overscan: 20
   })
@@ -289,7 +299,8 @@ export default function Logs(): React.JSX.Element {
           >
             {virtualizer.getVirtualItems().map((virtualRow) => {
               const log = logs[virtualRow.index]
-              const isExpanded = expandedIndex === virtualRow.index
+              const logKey = getLogKey(log)
+              const isExpanded = expandedKey === logKey
               return (
                 <div
                   key={virtualRow.key}
@@ -307,7 +318,7 @@ export default function Logs(): React.JSX.Element {
                     log={log}
                     expanded={isExpanded}
                     accountLabel={log.accountId ? accountLabels[log.accountId] : undefined}
-                    onClick={() => setExpandedIndex(isExpanded ? null : virtualRow.index)}
+                    onClick={() => setExpandedKey(isExpanded ? null : logKey)}
                     onRequestIdClick={handleRequestIdClick}
                   />
                 </div>

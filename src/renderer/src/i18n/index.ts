@@ -13,7 +13,8 @@ i18n.use(initReactI18next).init({
   },
   lng: savedLang || browserLang,
   fallbackLng: 'en',
-  interpolation: { escapeValue: false }
+  interpolation: { escapeValue: false },
+  react: { useSuspense: false }
 })
 
 export function changeLanguage(lang: string): void {

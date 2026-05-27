@@ -83,7 +83,19 @@ export class GatewayConfigStore {
       return config
     }
 
-    const parsed = JSON.parse(raw)
+    let parsed: any
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      console.warn(
+        `[GatewayHub] Config file is corrupt, renaming to broken backup: ${this.configPath}`
+      )
+      const brokenPath = `${this.configPath}.broken-${Date.now()}.json`
+      await rename(this.configPath, brokenPath).catch(() => {})
+      const config = this.defaultConfig()
+      await this.saveConfig(config)
+      return config
+    }
 
     if ((parsed.version ?? 1) < 2) {
       await this.migrateAccountsToFiles(parsed)
@@ -113,9 +125,10 @@ export class GatewayConfigStore {
   }
 
   async saveConfig(config: GatewayHubConfig): Promise<void> {
-    delete (config.providers?.kiro as any)?.accounts
+    const clone = JSON.parse(JSON.stringify(config))
+    delete (clone.providers?.kiro as any)?.accounts
     await mkdir(dirname(this.configPath), { recursive: true })
-    await atomicWrite(this.configPath, `${JSON.stringify(config, null, 2)}\n`)
+    await atomicWrite(this.configPath, `${JSON.stringify(clone, null, 2)}\n`)
   }
 
   async loadState(): Promise<GatewayHubState> {

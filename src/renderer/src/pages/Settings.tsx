@@ -173,10 +173,15 @@ export default function Settings(): React.JSX.Element {
             aria-checked={autoStart}
             disabled={!autoStartLoaded}
             className="outline-none focus-visible:ring-1 focus-visible:ring-accent/40 disabled:opacity-40"
-            onClick={() => {
+            onClick={async () => {
               const next = !autoStart
               setAutoStart(next)
-              window.api.gateway.setAutoStart(next)
+              try {
+                await window.api.gateway.setAutoStart(next)
+              } catch (err) {
+                setAutoStart(!next)
+                toast(err instanceof Error ? err.message : String(err), 'error')
+              }
             }}
           >
             <div
@@ -251,7 +256,7 @@ export default function Settings(): React.JSX.Element {
             <a
               href="https://github.com/bee1an/GatewayHub"
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               className="text-storm hover:text-porcelain transition-colors font-mono truncate"
             >
               bee1an/GatewayHub

@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
+import { randomBytes } from 'crypto'
 import type {
   ProviderName,
   UsageDailyEntry,
@@ -9,6 +10,8 @@ import type {
   UsageSummary
 } from '../types'
 import { PricingTable, normalizeModelKey } from './pricing'
+// TODO: wrap record()/clear() with withLock for cross-process safety
+// import { withLock } from './lockfile'
 
 const STORE_VERSION = 1
 const RETENTION_DAYS = 30
@@ -111,7 +114,7 @@ function addDays(date: Date, days: number): Date {
 }
 
 function normalizeStore(value: unknown): UsageStoreFile {
-  if (!isRecord(value) || value.version !== STORE_VERSION) return emptyStoreFile()
+  if (!isRecord(value)) return emptyStoreFile()
   const daysValue = isRecord(value.days) ? value.days : {}
   const days: DaysByDayKey = {}
   for (const [dayKey, accountsRaw] of Object.entries(daysValue)) {
@@ -162,6 +165,15 @@ function pruneOlderThan(store: UsageStoreFile, cutoffKey: string): boolean {
   return mutated
 }
 
+function isEnoent(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'code' in err &&
+    (err as { code?: unknown }).code === 'ENOENT'
+  )
+}
+
 export interface UsageStoreOptions {
   filePath: string
   pricing: PricingTable
@@ -189,19 +201,55 @@ export class UsageStore {
 
   private async loadStore(): Promise<UsageStoreFile> {
     if (this.cache) return this.cache
+    let raw: string
     try {
-      const raw = await readFile(this.options.filePath, 'utf8')
-      this.cache = normalizeStore(JSON.parse(raw))
-    } catch {
-      // 缺失或 JSON 损坏都退回空 store——不抛错，避免阻塞主流程
-      this.cache = emptyStoreFile()
+      raw = await readFile(this.options.filePath, 'utf8')
+    } catch (err) {
+      if (isEnoent(err)) {
+        this.cache = emptyStoreFile()
+        return this.cache
+      }
+      // 其它错误（权限、IO）不能掩盖；继续抛，避免「读失败 → 写空」覆盖链
+      throw err
     }
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      // JSON 损坏：和未识别版本一样备份到 .bak.<reason>.<ts> 后回退空 store
+      await this.backupCorruptStore('invalid-json')
+      this.cache = emptyStoreFile()
+      return this.cache
+    }
+
+    if (!isRecord(parsed) || parsed.version !== STORE_VERSION) {
+      const versionTag =
+        isRecord(parsed) &&
+        (typeof parsed.version === 'number' || typeof parsed.version === 'string')
+          ? String(parsed.version)
+          : 'unknown'
+      await this.backupCorruptStore(versionTag)
+      this.cache = emptyStoreFile()
+      return this.cache
+    }
+
+    this.cache = normalizeStore(parsed)
     return this.cache
+  }
+
+  private async backupCorruptStore(tag: string): Promise<void> {
+    const backupPath = `${this.options.filePath}.bak.${tag}.${Date.now()}`
+    try {
+      await rename(this.options.filePath, backupPath)
+    } catch (err) {
+      console.warn('[usageStore] failed to back up incompatible store', err)
+    }
   }
 
   private async persistStore(store: UsageStoreFile): Promise<void> {
     await mkdir(dirname(this.options.filePath), { recursive: true })
-    const tmpFile = `${this.options.filePath}.tmp`
+    const tmpFile = `${this.options.filePath}.${randomBytes(4).toString('hex')}.tmp`
     await writeFile(tmpFile, `${JSON.stringify(store)}\n`, 'utf8')
     await rename(tmpFile, this.options.filePath)
   }

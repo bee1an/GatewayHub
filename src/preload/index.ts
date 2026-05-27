@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
 
 const appVersion: string = ipcRenderer.sendSync('app:version')
 
@@ -40,7 +39,7 @@ const api = {
       ipcRenderer.invoke('gateway:loginWithKiroCli', options),
     cancelKiroCliLogin: () => ipcRenderer.invoke('gateway:cancelKiroCliLogin'),
     getModelMappings: () => ipcRenderer.invoke('gateway:getModelMappings'),
-    updateModelMappings: (mappings: any) =>
+    updateModelMappings: (mappings: { alias: string; provider: string; model: string }[]) =>
       ipcRenderer.invoke('gateway:updateModelMappings', mappings),
     generateApiKey: (options: { name: string; expiresAt?: number; scopes?: string[] }) =>
       ipcRenderer.invoke('gateway:generateApiKey', options),
@@ -71,9 +70,10 @@ const api = {
     }) => ipcRenderer.invoke('gateway:readUsage', options),
     clearUsage: () => ipcRenderer.invoke('gateway:clearUsage'),
     onCliLoginOutput: (cb: (data: any) => void) => {
-      ipcRenderer.on('gateway:cliLoginOutput', (_e, data) => cb(data))
+      const listener = (_e: unknown, data: any): void => cb(data)
+      ipcRenderer.on('gateway:cliLoginOutput', listener)
       return () => {
-        ipcRenderer.removeAllListeners('gateway:cliLoginOutput')
+        ipcRenderer.removeListener('gateway:cliLoginOutput', listener)
       }
     },
     // ========== Codex ==========
@@ -111,12 +111,14 @@ const api = {
     check: () => ipcRenderer.invoke('updater:check'),
     install: () => ipcRenderer.invoke('updater:install'),
     onUpdateAvailable: (cb: (data: any) => void) => {
-      ipcRenderer.on('updater:update-available', (_e, data) => cb(data))
-      return () => ipcRenderer.removeAllListeners('updater:update-available')
+      const listener = (_e: unknown, data: any): void => cb(data)
+      ipcRenderer.on('updater:update-available', listener)
+      return () => ipcRenderer.removeListener('updater:update-available', listener)
     },
     onError: (cb: (message: string) => void) => {
-      ipcRenderer.on('updater:error', (_e, message) => cb(message))
-      return () => ipcRenderer.removeAllListeners('updater:error')
+      const listener = (_e: unknown, message: string): void => cb(message)
+      ipcRenderer.on('updater:error', listener)
+      return () => ipcRenderer.removeListener('updater:error', listener)
     }
   },
   upgrade: {
@@ -135,14 +137,11 @@ const api = {
 
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', api)
   } catch (error) {
     console.error(error)
   }
 } else {
-  // @ts-ignore (define in dts)
-  window.electron = electronAPI
   // @ts-ignore (define in dts)
   window.api = api
 }

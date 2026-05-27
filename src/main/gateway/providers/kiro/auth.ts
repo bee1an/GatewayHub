@@ -1,10 +1,12 @@
 import { randomUUID } from 'crypto'
-import { readFile, writeFile } from 'fs/promises'
+import { readFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import { mkdir } from 'fs/promises'
+import { ProxyAgent, fetch as undiciFetch } from 'undici'
 import type { KiroAccountConfig, KiroProviderSettings } from '../../types'
 import { apiUrl, awsSsoOidcUrl, kiroRefreshUrl, runtimeUrl } from './constants'
 import {
+  atomicWrite,
   expandHome,
   machineFingerprint,
   parseIsoDate,
@@ -13,6 +15,32 @@ import {
 } from '../../core/utils'
 
 export type KiroAuthType = 'kiro_desktop' | 'aws_sso_oidc'
+
+/** Kiro UA 中的 os/{platform} 段：darwin/linux/windows，其余原样透传 */
+function osTokenForUserAgent(): string {
+  const platform = process.platform
+  if (platform === 'win32') return 'windows'
+  return platform // darwin, linux, ...
+}
+
+/** 从错误正文/凭据正文中清掉 token-like 字符串，避免错误日志里写出真实凭据 */
+function redactStringSecrets(text: string): string {
+  if (!text) return ''
+  // 长 base64/hex/JWT-ish 串
+  let out = text.replace(/[A-Za-z0-9_-]{32,}/g, (match) =>
+    match.length > 12 ? `${match.slice(0, 6)}…(redacted)` : match
+  )
+  // 显式 token 字段
+  out = out.replace(
+    /("(?:access|refresh|id)_token"\s*:\s*")[^"]+(")/gi,
+    (_, p1, p2) => `${p1}***${p2}`
+  )
+  out = out.replace(
+    /\b(access|refresh|bearer)\s*[:=]\s*[A-Za-z0-9._-]+/gi,
+    (_, label: string) => `${label}=***`
+  )
+  return out
+}
 
 export class KiroAuthManager {
   readonly account: KiroAccountConfig
@@ -28,6 +56,10 @@ export class KiroAuthManager {
   private ssoRegion = ''
   private apiRegion = ''
   private authTypeValue: KiroAuthType = 'kiro_desktop'
+  /**
+   * 单一 in-flight 刷新 Promise：getAccessToken 和 forceRefresh 共享去重，
+   * 同一时刻最多只发一个刷新请求。
+   */
   private refreshInFlight?: Promise<string>
   private accessOnly = false
 
@@ -59,6 +91,11 @@ export class KiroAuthManager {
     return apiUrl(this.apiRegion || 'us-east-1')
   }
 
+  /** noop dispose：accountPool reload 替换旧 auth 时调用，清掉 in-flight 刷新引用 */
+  dispose(): void {
+    this.refreshInFlight = undefined
+  }
+
   async initialize(): Promise<void> {
     await this.loadFromJson()
     this.accessOnly = !this.refreshToken && !this.clientId
@@ -67,19 +104,32 @@ export class KiroAuthManager {
 
   async getAccessToken(): Promise<string> {
     if (this.accessToken && !this.isExpiringSoon()) return this.accessToken
-    if (this.accessOnly && this.accessToken) return this.accessToken
-    if (this.refreshInFlight) return this.refreshInFlight
-    this.refreshInFlight = this.refreshAccessToken().finally(() => {
-      this.refreshInFlight = undefined
-    })
-    return this.refreshInFlight
+    if (this.accessOnly) {
+      // 纯 access token 模式下不能刷新；过期就直接抛错，绝不返回过期 token
+      if (this.isExpiringSoon()) {
+        throw new Error('Access token expired (access-only mode). Please add a new access token.')
+      }
+      if (this.accessToken) return this.accessToken
+      throw new Error('Access token is missing (access-only mode).')
+    }
+    return this.startRefresh()
   }
 
   async forceRefresh(): Promise<string> {
     if (this.accessOnly) {
       throw new Error('Access token is invalid or expired. Please add a new access token.')
     }
-    return this.refreshAccessToken()
+    return this.startRefresh()
+  }
+
+  private startRefresh(): Promise<string> {
+    if (this.refreshInFlight) return this.refreshInFlight
+    const promise = this.refreshAccessToken().finally(() => {
+      // 仅清除自身引用（不能用 ===，但赋值 undefined 即可）
+      if (this.refreshInFlight === promise) this.refreshInFlight = undefined
+    })
+    this.refreshInFlight = promise
+    return promise
   }
 
   async ensureProfileArn(): Promise<void> {
@@ -98,7 +148,7 @@ export class KiroAuthManager {
           method: 'GET',
           headers: {
             Authorization: `Bearer ${token}`,
-            'User-Agent': `aws-sdk-js/1.0.27 ua/2.1 os/darwin lang/js md/nodejs api/codewhispererruntime#1.0.27 m/E KiroIDE 1.0.0 ${this.fingerprint}`
+            'User-Agent': `aws-sdk-js/1.0.27 ua/2.1 os/${osTokenForUserAgent()} lang/js md/nodejs api/codewhispererruntime#1.0.27 m/E KiroIDE 1.0.0 ${this.fingerprint}`
           }
         },
         this.settings.vpnProxyUrl
@@ -112,17 +162,20 @@ export class KiroAuthManager {
     }
     if (!resp.ok) {
       const body = await resp.text().catch(() => '')
-      throw new Error(`Kiro API ${path} failed: HTTP ${resp.status} ${body.slice(0, 500)}`)
+      throw new Error(
+        `Kiro API ${path} failed: HTTP ${resp.status} ${redactStringSecrets(body.slice(0, 500))}`
+      )
     }
     return resp.json()
   }
 
   buildHeaders(token: string): Record<string, string> {
+    const os = osTokenForUserAgent()
     return {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/x-amz-json-1.0',
       'x-amz-target': 'AmazonCodeWhispererStreamingService.GenerateAssistantResponse',
-      'User-Agent': `aws-sdk-js/1.0.27 ua/2.1 os/darwin lang/js md/nodejs api/codewhispererstreaming#1.0.27 m/E GatewayHub-0.1-${this.fingerprint}`,
+      'User-Agent': `aws-sdk-js/1.0.27 ua/2.1 os/${os} lang/js md/nodejs api/codewhispererstreaming#1.0.27 m/E GatewayHub-0.1-${this.fingerprint}`,
       'x-amz-user-agent': `aws-sdk-js/1.0.27 GatewayHub-0.1-${this.fingerprint}`,
       'x-amzn-codewhisperer-optout': 'true',
       'x-amzn-kiro-agent-mode': 'vibe',
@@ -203,7 +256,6 @@ export class KiroAuthManager {
 
   private async refreshAccessToken(): Promise<string> {
     if (this.accessOnly) {
-      if (this.accessToken) return this.accessToken
       throw new Error('Access token expired. Please add a new access token.')
     }
 
@@ -274,18 +326,32 @@ export class KiroAuthManager {
     if (!this.account.path) return
     const path = expandHome(this.account.path)
     try {
+      await mkdir(dirname(path), { recursive: true })
+      // 用 atomicWrite（lockfile + tmp + rename）保证跨进程并发刷新不丢 token
       const raw = await readFile(path, 'utf8').catch(() => '{}')
-      const data = JSON.parse(raw)
+      const data = JSON.parse(raw || '{}')
       data.accessToken = this.accessToken
       data.refreshToken = this.refreshToken
       data.expiresAt = this.expiresAt?.toISOString()
       if (this.profileArnValue) data.profileArn = this.profileArnValue
-      await mkdir(dirname(path), { recursive: true })
-      await writeFile(path, `${JSON.stringify(data, null, 2)}\n`, 'utf8')
+      await atomicWrite(path, `${JSON.stringify(data, null, 2)}\n`)
     } catch (error) {
       console.warn(`Failed to persist Kiro credentials: ${toErrorMessage(error)}`)
     }
   }
+}
+
+/** 模块级 ProxyAgent 缓存：相同 proxy URL 复用同一个 dispatcher */
+const proxyAgents = new Map<string, ProxyAgent>()
+
+function getProxyAgent(proxyUrl: string): ProxyAgent {
+  const normalized = proxyUrl.includes('://') ? proxyUrl : `http://${proxyUrl}`
+  let agent = proxyAgents.get(normalized)
+  if (!agent) {
+    agent = new ProxyAgent(normalized)
+    proxyAgents.set(normalized, agent)
+  }
+  return agent
 }
 
 export async function kiroFetch(
@@ -295,13 +361,10 @@ export async function kiroFetch(
 ): Promise<Response> {
   if (!proxyUrl) return fetch(url, init)
   try {
-    const dynamicImport = new Function('specifier', 'return import(specifier)') as (
-      specifier: string
-    ) => Promise<any>
-    const undici = await dynamicImport('undici')
-    const proxy = proxyUrl.includes('://') ? proxyUrl : `http://${proxyUrl}`
-    const dispatcher = new undici.ProxyAgent(proxy)
-    return undici.fetch(url, { ...init, dispatcher }) as Promise<Response>
+    const dispatcher = getProxyAgent(proxyUrl)
+    return undiciFetch(url, { ...init, dispatcher } as Parameters<
+      typeof undiciFetch
+    >[1]) as unknown as Promise<Response>
   } catch (error) {
     throw new Error(`Kiro proxy setup failed for ${proxyUrl}: ${toErrorMessage(error)}`)
   }
@@ -309,7 +372,7 @@ export async function kiroFetch(
 
 async function safeText(response: Response): Promise<string> {
   try {
-    return (await response.text()).slice(0, 1000)
+    return redactStringSecrets((await response.text()).slice(0, 1000))
   } catch {
     return ''
   }

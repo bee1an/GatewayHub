@@ -1,5 +1,3 @@
-import { ElectronAPI } from '@electron-toolkit/preload'
-
 export interface ModelMapping {
   alias: string
   provider: string
@@ -10,7 +8,6 @@ export interface ModelMapping {
 
 declare global {
   interface Window {
-    electron: ElectronAPI
     api: {
       appVersion: string
       gateway: {
@@ -52,7 +49,9 @@ declare global {
         loginWithKiroCli: (options?: { cliPath?: string }) => Promise<void>
         cancelKiroCliLogin: () => Promise<boolean>
         getModelMappings: () => Promise<ModelMapping[]>
-        updateModelMappings: (mappings: ModelMapping[]) => Promise<any>
+        updateModelMappings: (
+          mappings: { alias: string; provider: string; model: string }[]
+        ) => Promise<any>
         generateApiKey: (options: {
           name: string
           expiresAt?: number

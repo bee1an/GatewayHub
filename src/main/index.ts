@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, session } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { gatewayHubService } from './gateway/service'
@@ -20,6 +20,58 @@ setCliLoginSink({
   }
 })
 
+// ===== 单实例锁 =====
+// 必须在 app.whenReady() 之前注册，否则第二个实例已经把 IPC handler 重复注册一遍。
+if (!app.requestSingleInstanceLock()) {
+  app.exit(0)
+}
+app.on('second-instance', () => {
+  const win = BrowserWindow.getAllWindows()[0]
+  if (win) {
+    if (win.isMinimized()) win.restore()
+    win.focus()
+  }
+})
+
+// ===== app:version 同步 IPC =====
+// preload 用 sendSync('app:version') 在 contextBridge 暴露同步 appVersion。
+// 必须在模块顶层注册（renderer 进程在 app.whenReady 之前就可能 spawn 起来），
+// 不能放到 whenReady 回调里，否则首屏可能拿到 undefined。
+ipcMain.on('app:version', (e) => {
+  e.returnValue = app.getVersion()
+})
+ipcMain.handle('app:version', () => app.getVersion())
+
+function applyContentSecurityPolicy(): void {
+  // 生产环境收紧 CSP；dev 兼容 vite HMR 的 ws/eval。
+  const baseDirectives = [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data:",
+    "connect-src 'self'",
+    "font-src 'self' data:"
+  ]
+  const devDirectives = [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:* ws://localhost:*",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data:",
+    "connect-src 'self' http://localhost:* ws://localhost:*",
+    "font-src 'self' data:"
+  ]
+  const csp = (is.dev ? devDirectives : baseDirectives).join('; ')
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const headers = { ...details.responseHeaders }
+    // 移除潜在的旧 CSP 头（大小写都可能出现）
+    for (const key of Object.keys(headers)) {
+      if (key.toLowerCase() === 'content-security-policy') delete headers[key]
+    }
+    headers['Content-Security-Policy'] = [csp]
+    callback({ responseHeaders: headers })
+  })
+}
+
 function createWindow(): void {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
@@ -33,7 +85,13 @@ function createWindow(): void {
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      // 开启 sandbox：preload 仅使用 electron API（contextBridge / ipcRenderer），
+      // 不依赖任何 require / Node 原生模块，因此 sandbox: true 安全且推荐。
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      spellcheck: false
     }
   })
 
@@ -42,9 +100,30 @@ function createWindow(): void {
     if (!is.dev) setupUpdater(mainWindow)
   })
 
-  mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      const u = new URL(url)
+      if (u.protocol === 'http:' || u.protocol === 'https:') shell.openExternal(url)
+    } catch {
+      // ignore malformed URL
+    }
     return { action: 'deny' }
+  })
+
+  // 仅允许导航到 dev 的 vite URL 或当前打包后的 file://，其它一律拦截。
+  mainWindow.webContents.on('will-navigate', (event, navUrl) => {
+    try {
+      const target = new URL(navUrl)
+      const devBase = process.env['ELECTRON_RENDERER_URL']
+      if (is.dev && devBase) {
+        const dev = new URL(devBase)
+        if (target.origin === dev.origin) return
+      }
+      if (target.protocol === 'file:') return
+    } catch {
+      // fallthrough -> deny
+    }
+    event.preventDefault()
   })
 
   // HMR for renderer base on electron-vite cli.
@@ -60,8 +139,10 @@ function createWindow(): void {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
-  // Set app user model id for windows
-  electronApp.setAppUserModelId('com.electron')
+  // Set app user model id (与 electron-builder.yml 的 appId 对齐)
+  electronApp.setAppUserModelId('dev.gatewayhub.app')
+
+  applyContentSecurityPolicy()
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
@@ -72,10 +153,6 @@ app.whenReady().then(() => {
 
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
-  ipcMain.on('app:version', (e) => {
-    e.returnValue = app.getVersion()
-  })
-  ipcMain.handle('app:version', () => app.getVersion())
 
   registerGatewayIpc()
   gatewayHubService
@@ -97,6 +174,44 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
+  }
+})
+
+// ===== 进程级异常兜底 =====
+// 写日志失败本身不能再抛错，否则会循环。
+process.on('uncaughtException', (err) => {
+  try {
+    console.error('[main] uncaughtException:', err)
+  } catch {
+    // ignore
+  }
+})
+process.on('unhandledRejection', (reason) => {
+  try {
+    console.error('[main] unhandledRejection:', reason)
+  } catch {
+    // ignore
+  }
+})
+app.on('render-process-gone', (_event, win, details) => {
+  try {
+    console.error('[main] render-process-gone:', details)
+  } catch {
+    // ignore
+  }
+  if (details.reason !== 'clean-exit' && win && !win.isDestroyed()) {
+    try {
+      win.reload()
+    } catch {
+      // ignore
+    }
+  }
+})
+app.on('child-process-gone', (_event, details) => {
+  try {
+    console.error('[main] child-process-gone:', details)
+  } catch {
+    // ignore
   }
 })
 

@@ -15,6 +15,7 @@ import ApiKeys from './pages/ApiKeys'
 import Settings from './pages/Settings'
 import { ToastProvider } from './components/ui/Toast'
 import { UpgradeProgress } from './components/UpgradeProgress'
+import ErrorBoundary from './components/ErrorBoundary'
 
 const root = createRoot(document.getElementById('root')!)
 const view = new URLSearchParams(window.location.search).get('view')
@@ -22,27 +23,31 @@ const view = new URLSearchParams(window.location.search).get('view')
 if (view === 'progress') {
   root.render(
     <StrictMode>
-      <UpgradeProgress />
+      <ErrorBoundary>
+        <UpgradeProgress />
+      </ErrorBoundary>
     </StrictMode>
   )
 } else {
   root.render(
     <StrictMode>
-      <ToastProvider>
-        <HashRouter>
-          <Routes>
-            <Route element={<Layout />}>
-              <Route index element={<Navigate to="/dashboard" replace />} />
-              <Route path="dashboard" element={<Dashboard />} />
-              <Route path="gateway/:name" element={<GatewayDetail />} />
-              <Route path="logs" element={<Logs />} />
-              <Route path="api-keys" element={<ApiKeys />} />
-              <Route path="model-mappings" element={<ModelMappings />} />
-              <Route path="settings" element={<Settings />} />
-            </Route>
-          </Routes>
-        </HashRouter>
-      </ToastProvider>
+      <ErrorBoundary>
+        <ToastProvider>
+          <HashRouter>
+            <Routes>
+              <Route element={<Layout />}>
+                <Route index element={<Navigate to="/dashboard" replace />} />
+                <Route path="dashboard" element={<Dashboard />} />
+                <Route path="gateway/:name" element={<GatewayDetail />} />
+                <Route path="logs" element={<Logs />} />
+                <Route path="api-keys" element={<ApiKeys />} />
+                <Route path="model-mappings" element={<ModelMappings />} />
+                <Route path="settings" element={<Settings />} />
+              </Route>
+            </Routes>
+          </HashRouter>
+        </ToastProvider>
+      </ErrorBoundary>
     </StrictMode>
   )
 }

@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { Modal } from './ui/Modal'
 import { Button } from './ui/Button'
+import { sanitizeReleaseNotes } from '../utils/sanitizeHtml'
 
 type UpdateInfo = {
   version: string
@@ -47,7 +48,7 @@ export function UpdateModal({
           </div>
         </div>
 
-        {updateInfo.releaseNotes && (
+        {typeof updateInfo.releaseNotes === 'string' && updateInfo.releaseNotes.length > 0 && (
           <div
             className="max-h-40 overflow-y-auto rounded-[var(--radius-md)] bg-pitch border border-charcoal/60 p-3 text-[12px] text-steel leading-relaxed [&_p]:my-1 [&_ul]:list-disc [&_ul]:pl-4 [&_ul]:my-1 [&_li]:my-0.5 [&_a]:text-accent [&_a]:underline"
             onClick={(e) => {
@@ -58,7 +59,7 @@ export function UpdateModal({
               if (href && /^https?:\/\//.test(href)) window.open(href, '_blank', 'noopener')
             }}
             dangerouslySetInnerHTML={{
-              __html: typeof updateInfo.releaseNotes === 'string' ? updateInfo.releaseNotes : ''
+              __html: sanitizeReleaseNotes(updateInfo.releaseNotes)
             }}
           />
         )}

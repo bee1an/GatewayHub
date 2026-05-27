@@ -1,7 +1,19 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http'
+import { once } from 'events'
 import type { ApiKeyEntry, GatewayHubConfig, GatewayResponse, UsageStats, UsageMeta } from './types'
 import { GatewayLogger } from './core/logger'
-import { parseRequestBody, requestId, toErrorMessage } from './core/utils'
+import { parseRequestBody, requestId, sseData, toErrorMessage } from './core/utils'
+import {
+  HEAD_TIMEOUT_MS,
+  HEADERS_TIMEOUT_MS,
+  KEEP_ALIVE_TIMEOUT_MS,
+  MAX_BODY_BYTES,
+  STOP_FORCE_CLOSE_MS,
+  isAllowedHostHeader,
+  isAllowedOrigin,
+  isLoopbackHost,
+  safeEqualString
+} from './core/http'
 import { wrapStreamForTracing, type RequestTrace } from './core/requestTracer'
 import { ProviderRegistry } from './providerRegistry'
 import { PricingTable } from './core/pricing'
@@ -34,6 +46,13 @@ export class GatewayServer {
   async start(): Promise<void> {
     if (this.running) return
     this.server = createServer((req, res) => void this.handle(req, res))
+    // 显式收紧超时，避免慢攻击占用 socket。
+    // - headersTimeout 限制 request line + headers 总耗时
+    // - requestTimeout=0 关闭整体请求超时（流式响应可能跑得很久）
+    // - keepAliveTimeout 控制空闲连接保留时间
+    this.server.headersTimeout = HEADERS_TIMEOUT_MS
+    this.server.requestTimeout = 0
+    this.server.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS
     try {
       await new Promise<void>((resolve, reject) => {
         const onError = (error: Error) => reject(error)
@@ -82,19 +101,75 @@ export class GatewayServer {
     if (!this.server) return
     const server = this.server
     this.server = undefined
-    await new Promise<void>((resolve, reject) =>
-      server.close((error) => (error ? reject(error) : resolve()))
-    )
+
+    // 先把空闲 keep-alive 连接踢掉，让 close() 不被它们拖住。
+    type ServerWithCloseHelpers = Server & {
+      closeIdleConnections?: () => void
+      closeAllConnections?: () => void
+    }
+    const s = server as ServerWithCloseHelpers
+    try {
+      s.closeIdleConnections?.()
+    } catch {
+      /* ignore */
+    }
+
+    let forceTimer: NodeJS.Timeout | undefined
+    try {
+      await new Promise<void>((resolve, reject) => {
+        // 兜底：长流式连接挂着不放时，超时后强行关掉所有连接。
+        forceTimer = setTimeout(() => {
+          try {
+            s.closeAllConnections?.()
+          } catch {
+            /* ignore */
+          }
+        }, STOP_FORCE_CLOSE_MS)
+        if (typeof forceTimer.unref === 'function') forceTimer.unref()
+
+        server.close((error) => (error ? reject(error) : resolve()))
+      })
+    } finally {
+      if (forceTimer) clearTimeout(forceTimer)
+    }
     this.logger.info('Gateway server stopped', { category: 'system' })
   }
 
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    setCors(res)
+    // 防止慢请求占着 socket：读 headers/body 超时即 408。
+    // 不影响后续流式响应——上游开始推送后我们会 setTimeout(0) 关闭定时器。
+    const onSocketTimeout = (): void => {
+      if (res.headersSent) {
+        try {
+          res.end()
+        } catch {
+          /* ignore */
+        }
+        return
+      }
+      try {
+        res.writeHead(408, { 'content-type': 'application/json; charset=utf-8' })
+        res.end(
+          JSON.stringify({
+            error: { message: 'Request timed out', type: 'timeout_error' }
+          })
+        )
+      } catch {
+        /* ignore */
+      }
+    }
+    req.setTimeout(HEAD_TIMEOUT_MS, onSocketTimeout)
+
+    this.applyCors(req, res)
     if (req.method === 'OPTIONS') {
       res.writeHead(204)
       res.end()
       return
     }
+
+    // DNS rebinding 防御：当服务器只听回环时，强制 Host 必须是回环主机。
+    // 绑定到 0.0.0.0 / 公开 IP 时跳过（这种部署反正必须靠 API key 鉴权）。
+    if (!this.checkHostHeader(req, res)) return
 
     const url = new URL(req.url || '/', this.url)
     const rid = requestId()
@@ -114,7 +189,9 @@ export class GatewayServer {
         return this.writeJson(res, 200, { status: 'ok', message: 'GatewayHub is running' })
       }
 
-      if (!this.verifyApiKey(req)) {
+      // 同一请求只调用一次 verifyApiKey，避免重复哈希比较与日志竞态。
+      const apiKeyEntry = this.verifyApiKey(req)
+      if (!apiKeyEntry) {
         this.logger.warn('Authentication failed: invalid or missing API key', {
           requestId: rid,
           category: 'auth',
@@ -124,8 +201,6 @@ export class GatewayServer {
           error: { message: 'Invalid or missing API key', type: 'authentication_error' }
         })
       }
-
-      const apiKeyEntry = this.verifyApiKey(req)!
       if (apiKeyEntry.id) this.onApiKeyUsed?.(apiKeyEntry.id)
 
       if (req.method === 'GET' && url.pathname === '/v1/models') {
@@ -148,18 +223,18 @@ export class GatewayServer {
       }
 
       if (req.method === 'POST' && url.pathname === '/v1/chat/completions') {
-        const body = await parseRequestBody(req)
-        if (!this.checkScope(apiKeyEntry, body.model, res, rid)) return
-        this.logger.info(`POST /v1/chat/completions model=${body.model || 'default'}`, {
+        const body = await parseRequestBody(req, MAX_BODY_BYTES)
+        if (!this.checkScope(apiKeyEntry, body?.model, res, rid)) return
+        this.logger.info(`POST /v1/chat/completions model=${body?.model || 'default'}`, {
           requestId: rid,
           category: 'request',
-          extra: { apiFormat: 'openai', stream: body.stream !== false }
+          extra: { apiFormat: 'openai', stream: body?.stream !== false }
         })
         const trace: RequestTrace = {
           requestId: rid,
           method: 'POST',
           path: url.pathname,
-          model: body.model,
+          model: body?.model,
           apiFormat: 'openai',
           startedAt
         }
@@ -168,22 +243,22 @@ export class GatewayServer {
           apiFormat: 'openai',
           onUsage: this.makeUsageSink(trace)
         })
-        return this.writeTracedResponse(res, response, trace)
+        return this.writeTracedResponse(req, res, response, trace)
       }
 
       if (req.method === 'POST' && url.pathname === '/v1/messages') {
-        const body = await parseRequestBody(req)
-        if (!this.checkScope(apiKeyEntry, body.model, res, rid)) return
-        this.logger.info(`POST /v1/messages model=${body.model || 'default'}`, {
+        const body = await parseRequestBody(req, MAX_BODY_BYTES)
+        if (!this.checkScope(apiKeyEntry, body?.model, res, rid)) return
+        this.logger.info(`POST /v1/messages model=${body?.model || 'default'}`, {
           requestId: rid,
           category: 'request',
-          extra: { apiFormat: 'anthropic', stream: body.stream === true }
+          extra: { apiFormat: 'anthropic', stream: body?.stream === true }
         })
         const trace: RequestTrace = {
           requestId: rid,
           method: 'POST',
           path: url.pathname,
-          model: body.model,
+          model: body?.model,
           apiFormat: 'anthropic',
           startedAt
         }
@@ -192,23 +267,23 @@ export class GatewayServer {
           apiFormat: 'anthropic',
           onUsage: this.makeUsageSink(trace)
         })
-        return this.writeTracedResponse(res, response, trace)
+        return this.writeTracedResponse(req, res, response, trace)
       }
 
       if (req.method === 'POST' && url.pathname === '/v1/messages/count_tokens') {
-        const body = await parseRequestBody(req)
-        if (!this.checkScope(apiKeyEntry, body.model, res, rid)) return
+        const body = await parseRequestBody(req, MAX_BODY_BYTES)
+        if (!this.checkScope(apiKeyEntry, body?.model, res, rid)) return
         const response = await this.registry.countTokens(body, {
           requestId: rid,
           apiFormat: 'anthropic'
         })
-        this.logger.info(`POST /v1/messages/count_tokens model=${body.model || 'default'}`, {
+        this.logger.info(`POST /v1/messages/count_tokens model=${body?.model || 'default'}`, {
           requestId: rid,
           category: 'request',
           statusCode: response.status,
           duration: Date.now() - startedAt
         })
-        return this.writeGatewayResponse(res, response)
+        return this.writeGatewayResponse(req, res, response)
       }
 
       return this.writeJson(res, 404, {
@@ -225,23 +300,87 @@ export class GatewayServer {
           stack: error instanceof Error ? error.stack : undefined
         }
       })
-      return this.writeJson(res, 500, {
-        error: { message: toErrorMessage(error), type: 'gateway_error' }
-      })
+      // headers 已经发出去了就不能再写一份 JSON，否则会破坏前端解析。
+      // 流式响应的错误处理由 writeTracedResponse 内部负责（写一个 SSE error 块）。
+      if (!res.headersSent) {
+        return this.writeJson(res, 500, {
+          error: { message: toErrorMessage(error), type: 'gateway_error' }
+        })
+      }
+      try {
+        res.end()
+      } catch {
+        /* ignore */
+      }
+      return
     }
   }
 
+  /**
+   * 校验请求 API key。
+   * - 长度不一致直接 reject（避免 timingSafeEqual 抛错并让分支可观测）
+   * - 一致长度走常量时间比较，防止 timing oracle
+   * - 同一请求只调一次（调用方拿到结果后复用）
+   */
   private verifyApiKey(req: IncomingMessage): ApiKeyEntry | null {
     const entries = this.config.server.apiKeys
     const auth = req.headers.authorization
     const xApiKey = req.headers['x-api-key'] as string | undefined
     const token = auth?.startsWith('Bearer ') ? auth.slice(7) : undefined
     const provided = token || xApiKey || ''
-    if (!entries?.length) return provided ? null : null
-    const entry = entries.find((e) => e.key === provided)
-    if (!entry) return null
-    if (entry.expiresAt && Date.now() > entry.expiresAt) return null
-    return entry
+    // 没有配置任何 key = 禁止访问（避免误以为「空 key 就放行」）。
+    if (!entries?.length) return null
+    if (!provided) return null
+
+    let matched: ApiKeyEntry | null = null
+    for (const entry of entries) {
+      // 不要短路：哪怕第一条匹配上也跑完所有条目，避免按顺序爆破时的时间侧信道。
+      if (safeEqualString(entry.key, provided)) matched = matched ?? entry
+    }
+    if (!matched) return null
+    if (matched.expiresAt && Date.now() > matched.expiresAt) return null
+    return matched
+  }
+
+  private checkHostHeader(req: IncomingMessage, res: ServerResponse): boolean {
+    const bindHost = this.config.server.host
+    if (!isLoopbackHost(bindHost)) return true
+    const hostHeader = (req.headers.host || '').toString()
+    if (isAllowedHostHeader(hostHeader, this.config.server.port)) return true
+    this.logger.warn(`Rejected request with unexpected Host header: ${hostHeader || '(empty)'}`, {
+      category: 'auth',
+      statusCode: 421
+    })
+    res.writeHead(421, { 'content-type': 'application/json; charset=utf-8' })
+    res.end(
+      JSON.stringify({
+        error: { message: 'Misdirected request: invalid Host header', type: 'host_mismatch' }
+      })
+    )
+    return false
+  }
+
+  /**
+   * CORS 策略：
+   * - 服务器绑定回环时，仅当 Origin 在本地客户端白名单（localhost / 127.0.0.1 /
+   *   [::1] / file:// / app:// / vscode-webview://）时回显 ACAO。
+   * - 服务器绑定 0.0.0.0 或公开 IP 时不发送 ACAO（必须靠 API key 鉴权，浏览器端
+   *   也用不上跨域调用）。
+   * - 仅在允许时才回显 Allow-Methods / Headers。
+   */
+  private applyCors(req: IncomingMessage, res: ServerResponse): void {
+    const origin = req.headers.origin
+    const bindHost = this.config.server.host
+    const allow = isLoopbackHost(bindHost) && isAllowedOrigin(origin)
+    if (allow && origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin)
+      res.setHeader('Vary', 'Origin')
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'authorization,x-api-key,anthropic-version,content-type'
+      )
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+    }
   }
 
   private checkScope(
@@ -270,6 +409,7 @@ export class GatewayServer {
   }
 
   private async writeTracedResponse(
+    req: IncomingMessage,
     res: ServerResponse,
     response: GatewayResponse,
     trace: RequestTrace
@@ -280,6 +420,8 @@ export class GatewayServer {
     res.writeHead(response.status, headers)
 
     if (response.stream) {
+      // 流式响应可能跑得很久，关掉 socket idle 超时。
+      req.setTimeout(0)
       const tracedStream = wrapStreamForTracing(response.stream, trace, (t) => {
         if (t.usage) {
           const cost = this.pricing.compute(t.model, t.usage, t.provider)
@@ -301,8 +443,64 @@ export class GatewayServer {
           cost: t.cost
         })
       })
-      for await (const chunk of tracedStream) res.write(chunk)
-      res.end()
+
+      const iterator = tracedStream[Symbol.asyncIterator]()
+      // 客户端断连 / 主动 close：把上游 iterator 关掉，避免上游继续 yield、烧 token。
+      let aborted = false
+      const abort = (): void => {
+        if (aborted) return
+        aborted = true
+        try {
+          iterator.return?.(undefined)
+        } catch {
+          /* ignore */
+        }
+      }
+      res.on('close', abort)
+      req.on('aborted', abort)
+
+      try {
+        while (true) {
+          const result = await iterator.next()
+          if (result.done) break
+          if (aborted) break
+          const chunk = result.value
+          // 背压：write 返回 false 时等到 'drain' 再继续，避免内存撑爆。
+          if (!res.write(chunk)) {
+            try {
+              await once(res, 'drain')
+            } catch {
+              // socket 已关闭：跳出循环交给 'close' 处理。
+              abort()
+              break
+            }
+          }
+        }
+      } catch (error) {
+        // headers 早已发送，只能在 SSE 通道里写一个错误事件，不能再切回 JSON 错误响应。
+        const message = toErrorMessage(error)
+        this.logger.error(`Stream failed: ${message}`, {
+          requestId: trace.requestId,
+          category: 'request',
+          error: { stack: error instanceof Error ? error.stack : undefined }
+        })
+        try {
+          if (!res.writableEnded) {
+            res.write(sseData({ error: { message, code: 'stream_error' } }))
+          }
+        } catch {
+          /* ignore */
+        }
+        abort()
+      } finally {
+        res.off('close', abort)
+        req.off('aborted', abort)
+        try {
+          if (!res.writableEnded) res.end()
+        } catch {
+          /* ignore */
+        }
+      }
       return
     }
 
@@ -330,14 +528,51 @@ export class GatewayServer {
   }
 
   private async writeGatewayResponse(
+    req: IncomingMessage,
     res: ServerResponse,
     response: GatewayResponse
   ): Promise<void> {
     const headers = response.headers ?? { 'content-type': 'application/json; charset=utf-8' }
     res.writeHead(response.status, headers)
     if (response.stream) {
-      for await (const chunk of response.stream) res.write(chunk)
-      res.end()
+      req.setTimeout(0)
+      const iterator = response.stream[Symbol.asyncIterator]()
+      let aborted = false
+      const abort = (): void => {
+        if (aborted) return
+        aborted = true
+        try {
+          iterator.return?.(undefined)
+        } catch {
+          /* ignore */
+        }
+      }
+      res.on('close', abort)
+      req.on('aborted', abort)
+      try {
+        while (true) {
+          const result = await iterator.next()
+          if (result.done) break
+          if (aborted) break
+          const chunk = result.value
+          if (!res.write(chunk)) {
+            try {
+              await once(res, 'drain')
+            } catch {
+              abort()
+              break
+            }
+          }
+        }
+      } finally {
+        res.off('close', abort)
+        req.off('aborted', abort)
+        try {
+          if (!res.writableEnded) res.end()
+        } catch {
+          /* ignore */
+        }
+      }
       return
     }
     if (response.body === undefined) res.end()
@@ -377,13 +612,4 @@ export class GatewayServer {
         })
     }
   }
-}
-
-function setCors(res: ServerResponse): void {
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'authorization,x-api-key,anthropic-version,content-type'
-  )
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
 }

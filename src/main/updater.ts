@@ -3,10 +3,11 @@ import { BrowserWindow, ipcMain, app, shell } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import { existsSync, readFileSync, mkdirSync, appendFileSync } from 'fs'
 import { dirname, join } from 'path'
+import { is } from '@electron-toolkit/utils'
 
 autoUpdater.autoDownload = false
 autoUpdater.autoInstallOnAppQuit = false
-autoUpdater.allowPrerelease = true
+autoUpdater.allowPrerelease = false
 
 // ===== 日志 =====
 // 把 updater 流程的关键事件写到 ~/.../Logs/updater.log，
@@ -41,6 +42,8 @@ function log(...parts: unknown[]): void {
 // 文件内容格式：第一行写 URL，例如 http://127.0.0.1:8787/
 // 删除文件即可恢复到 GitHub releases 的默认源。
 function applyLocalUpdateOverride(): void {
+  // Only allow dev-update-url.txt override in dev mode
+  if (!is.dev && process.env.GATEWAYHUB_DEV_UPDATE !== '1') return
   try {
     const overrideFile = join(app.getPath('userData'), 'dev-update-url.txt')
     if (!existsSync(overrideFile)) return
@@ -365,6 +368,7 @@ async function startBrewUpgrade(): Promise<void> {
     return
   }
   sendProgress({ kind: 'phase', phase: 'success' })
+  pendingUpdateVersion = null
   log('brew upgrade succeeded; waiting for user to restart')
 }
 
@@ -410,6 +414,7 @@ export function setupUpdater(_win: BrowserWindow): void {
   })
   autoUpdater.on('update-not-available', (info) => {
     log('update-not-available', { version: info?.version })
+    pendingUpdateVersion = null
   })
   autoUpdater.on('error', (err) => {
     log('autoUpdater error:', err.message)

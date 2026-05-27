@@ -24,16 +24,16 @@ describe('codex/converters', () => {
     expect(payload.model).toBe('gpt-5')
   })
 
-  it('chatToResponsesPayload: tool messages encoded into user input', () => {
+  it('chatToResponsesPayload: tool messages converted to function_call_output', () => {
     const payload = chatToResponsesPayload({
       model: 'gpt-5',
       messages: [{ role: 'tool', tool_call_id: 'call_1', content: 'result data' }]
     })
     expect(payload.input[0]).toMatchObject({
-      role: 'user'
+      type: 'function_call_output',
+      call_id: 'call_1',
+      output: 'result data'
     })
-    expect(payload.input[0].content[0].text).toContain('tool_result')
-    expect(payload.input[0].content[0].text).toContain('result data')
   })
 
   it('chatToResponsesPayload: provides default instructions when no system', () => {

@@ -2,6 +2,18 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.1.4 - 2026-05-27
+
+Hardened the gateway server against network-layer attacks and added full tool-use support for the Codex provider.
+
+- Added HTTP security hardening: timing-safe API key comparison, DNS rebinding protection via Host header validation, request body size limits (8 MiB), and slowloris mitigation with explicit socket timeouts
+- Added centralized secret redaction for logs and IPC — tokens, JWTs, and OAuth codes are automatically stripped before anything hits disk or crosses process boundaries
+- Added full tool-use (function calling) support for Codex: tool definitions, tool_choice, function_call/function_call_output round-trips are now correctly converted between Chat Completions and Responses API formats
+- Improved Kiro auth with proxy support (undici ProxyAgent), atomic credential writes, and deduplicated concurrent token refresh
+- Added model mapping edit-in-place dialog (previously only add/delete were supported)
+- Added React ErrorBoundary so renderer crashes show a recovery UI instead of a blank window
+- Improved graceful shutdown: idle connections are closed immediately, long-lived streaming connections are force-closed after a 5s timeout
+
 ## 0.1.3 - 2026-05-26
 
 Stabilized the macOS Homebrew in-app upgrade flow. The upgrade now opens a progress window that streams `brew upgrade --cask gatewayhub` output live, then lets the user choose when to relaunch.

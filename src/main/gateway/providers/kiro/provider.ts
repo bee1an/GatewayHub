@@ -214,14 +214,16 @@ export class KiroProvider implements ProviderAdapter {
                 model,
                 body,
                 this.config.settings.firstTokenTimeoutSeconds,
-                sink
+                sink,
+                this.config.settings.streamingReadTimeoutSeconds
               )
             : await anthropicJsonFromKiro(
                 response.body,
                 model,
                 body,
                 this.config.settings.firstTokenTimeoutSeconds,
-                sink
+                sink,
+                this.config.settings.streamingReadTimeoutSeconds
               )
         await this.pool.reportSuccess(account)
         this.logger.info(`Upstream success`, {
@@ -291,7 +293,8 @@ export class KiroProvider implements ProviderAdapter {
             model,
             body,
             this.config.settings.firstTokenTimeoutSeconds,
-            sink
+            sink,
+            this.config.settings.streamingReadTimeoutSeconds
           )
         else
           yield* anthropicSseFromKiro(
@@ -299,7 +302,8 @@ export class KiroProvider implements ProviderAdapter {
             model,
             body,
             this.config.settings.firstTokenTimeoutSeconds,
-            sink
+            sink,
+            this.config.settings.streamingReadTimeoutSeconds
           )
         await this.pool.reportSuccess(account)
         this.logger.info(`Upstream stream success`, {

@@ -41,6 +41,10 @@ export function normalizeKiroModelId(model: string): string {
   return value.replace(/(\d+)-(\d+)$/g, '$1.$2')
 }
 
+export function toKiroModelId(model: string): string {
+  return normalizeKiroModelId(model)
+}
+
 export const SQLITE_TOKEN_KEYS = [
   'kirocli:social:token',
   'kirocli:odic:token',

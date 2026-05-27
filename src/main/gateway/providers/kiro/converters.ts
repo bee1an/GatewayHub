@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import { estimateTokens } from '../../core/utils'
-import { toKiroModelId } from './accountPool'
+import { toKiroModelId } from './constants'
 
 const EMPTY_MESSAGE_PLACEHOLDER = ''
 const EMPTY_TOOL_RESULT_PLACEHOLDER = '(empty result)'

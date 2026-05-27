@@ -420,10 +420,6 @@ export class KiroAccountPool {
   }
 }
 
-export function toKiroModelId(model: string): string {
-  return normalizeKiroModelId(model)
-}
-
 function accountModels(account: KiroAccountRuntime): string[] {
   return account.state.modelIds?.length
     ? normalizeModelIds(account.state.modelIds)

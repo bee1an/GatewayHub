@@ -144,7 +144,8 @@ export default function Logs(): React.JSX.Element {
   }, [status?.logs])
 
   const getLogKey = useCallback(
-    (log: LogEntry): string => log.requestId ?? `${log.ts}:${log.level}:${log.provider ?? ''}`,
+    (log: LogEntry, index: number): string =>
+      `${log.ts}:${index}:${log.level}:${log.category ?? ''}`,
     []
   )
 
@@ -175,18 +176,23 @@ export default function Logs(): React.JSX.Element {
 
   const atMax = (status?.logs?.length ?? 0) >= MAX_LOG_ENTRIES
 
+  const prevLogsLengthRef = useRef(0)
   useEffect(() => {
     if (live && parentRef.current && parentRef.current.scrollTop < 10) {
       parentRef.current.scrollTop = 0
     }
-  }, [logs.length, live])
+    if (live && logs.length !== prevLogsLengthRef.current && expandedKey !== null) {
+      setExpandedKey(null)
+    }
+    prevLogsLengthRef.current = logs.length
+  }, [logs.length, live, expandedKey])
 
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: logs.length,
     getScrollElement: () => parentRef.current,
     estimateSize: useCallback(
-      (index: number) => (getLogKey(logs[index]) === expandedKey ? 180 : 32),
+      (index: number) => (getLogKey(logs[index], index) === expandedKey ? 180 : 32),
       [expandedKey, logs, getLogKey]
     ),
     overscan: 20
@@ -299,7 +305,7 @@ export default function Logs(): React.JSX.Element {
           >
             {virtualizer.getVirtualItems().map((virtualRow) => {
               const log = logs[virtualRow.index]
-              const logKey = getLogKey(log)
+              const logKey = getLogKey(log, virtualRow.index)
               const isExpanded = expandedKey === logKey
               return (
                 <div

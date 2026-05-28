@@ -1,6 +1,6 @@
 {
   "name": "gatewayhub",
-  "version": "0.1.6",
+  "version": "0.1.5",
   "description": "Local multi-provider AI gateway hub with Kiro and Codex account pools",
   "main": "./out/main/index.js",
   "bin": {
@@ -42,7 +42,7 @@
     "proper-lockfile": "^4.1.2",
     "react-i18next": "^17.0.8",
     "recharts": "^3.8.1",
-    "undici": "^8.3.0"
+    "undici": "8.3.0"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",

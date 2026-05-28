@@ -2,22 +2,18 @@
 
 All notable changes to GatewayHub are documented in this file.
 
-## 0.1.6 - 2026-05-28
+## 0.1.5 - 2026-05-28
 
-Changed default server port from 8000 to 9741 and added port configuration support.
+Added port configuration support and fixed CI compatibility.
 
 - Changed default listen port from 8000 to 9741 to avoid conflicts with common development servers
 - Added port configuration in Settings UI — changes take effect immediately with automatic server restart
 - Added `setPort` IPC/service method with validation (1–65535)
 - CLI `--port` default updated to 9741
-
-## 0.1.5 - 2026-05-27
-
-Added streaming read timeout support for Kiro and fixed log viewer expansion bugs.
-
-- Added `streamingReadTimeoutSeconds` parameter to Kiro stream parsers, enabling per-chunk idle timeout after the first token arrives
+- Added streaming read timeout support: `streamingReadTimeoutSeconds` parameter for per-chunk idle timeout after the first token arrives
 - Fixed log viewer expanding multiple rows simultaneously when logs shared the same requestId
-- Fixed log viewer layout corruption when new logs arrived while a row was expanded — the expanded row now stays open with a stable content-based key
+- Fixed log viewer layout corruption when new logs arrived while a row was expanded
+- Fixed CI: upgraded Node.js from 20 to 22 in release workflow for undici 8.x compatibility
 
 ## 0.1.4 - 2026-05-27
 

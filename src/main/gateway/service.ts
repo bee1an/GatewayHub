@@ -356,6 +356,14 @@ export class GatewayHubService {
     return this.config!.providers.kiro.settings
   }
 
+  async setPort(port: number): Promise<void> {
+    await this.ensureReady()
+    if (port < 1 || port > 65535) throw new Error('Port must be between 1 and 65535')
+    this.config!.server.port = port
+    await this.store.saveConfig(this.config!)
+    await this.rebuildRuntime(this.server?.running ?? false)
+  }
+
   async setAutoStart(enabled: boolean): Promise<void> {
     await this.ensureReady()
     this.config!.server.autoStart = enabled

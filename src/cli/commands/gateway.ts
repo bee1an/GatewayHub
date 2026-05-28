@@ -20,7 +20,7 @@ export function registerGatewayCommands(cli: CAC): void {
   cli
     .command('gateway <action>', 'Gateway lifecycle and status (status|start|stop|restart|health)')
     .option('--host <host>', 'Bind host for start/restart', { default: '127.0.0.1' })
-    .option('--port <port>', 'Bind port for start/restart', { default: 8000 })
+    .option('--port <port>', 'Bind port for start/restart', { default: 9741 })
     .action(async (action: string, options: { host: string; port: number | string }) => {
       if (!ACTIONS.includes(action as Action)) {
         throw new CliError(

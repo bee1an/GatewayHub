@@ -2,6 +2,15 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.1.6 - 2026-05-28
+
+Changed default server port from 8000 to 9741 and added port configuration support.
+
+- Changed default listen port from 8000 to 9741 to avoid conflicts with common development servers
+- Added port configuration in Settings UI — changes take effect immediately with automatic server restart
+- Added `setPort` IPC/service method with validation (1–65535)
+- CLI `--port` default updated to 9741
+
 ## 0.1.5 - 2026-05-27
 
 Added streaming read timeout support for Kiro and fixed log viewer expansion bugs.

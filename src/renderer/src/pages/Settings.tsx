@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { usePolling } from '../hooks/usePolling'
 import { Button } from '../components/ui/Button'
@@ -82,6 +82,14 @@ export default function Settings(): React.JSX.Element {
   const [proxyLoaded, setProxyLoaded] = useState(false)
   const [autoStart, setAutoStart] = useState(false)
   const [autoStartLoaded, setAutoStartLoaded] = useState(false)
+  const [portValue, setPortValue] = useState('')
+  const portInitRef = useRef(false)
+  const portLoaded = portInitRef.current
+
+  if (status && !portInitRef.current) {
+    portInitRef.current = true
+    setPortValue(String(status.server.port))
+  }
 
   useEffect(() => {
     window.api.gateway.getKiroSettings().then((s: any) => {
@@ -192,6 +200,40 @@ export default function Settings(): React.JSX.Element {
               />
             </div>
           </button>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="px-3.5 py-2 border-b border-charcoal/60">
+          <h2 className="text-[13px] font-medium text-porcelain">{t('settings.port')}</h2>
+          <p className="text-[12px] text-fog mt-0.5">{t('settings.portDesc')}</p>
+        </div>
+        <div className="px-3.5 py-2.5">
+          <div className="flex items-center gap-3">
+            <input
+              value={portValue}
+              onChange={(e) => setPortValue(e.target.value.replace(/\D/g, ''))}
+              placeholder="9741"
+              className="input-base w-32 font-mono"
+              disabled={!portLoaded}
+            />
+            <Button
+              variant="primary"
+              disabled={
+                busy || !portLoaded || portValue === String(status?.server.port) || !portValue
+              }
+              onClick={async () => {
+                const p = Number(portValue)
+                if (p < 1 || p > 65535) {
+                  toast(t('settings.portInvalid'), 'error')
+                  return
+                }
+                await run(() => window.api.gateway.setPort(p), t('settings.saved'))
+              }}
+            >
+              {t('settings.save')}
+            </Button>
+          </div>
         </div>
       </div>
 

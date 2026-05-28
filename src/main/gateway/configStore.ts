@@ -387,7 +387,7 @@ export class GatewayConfigStore {
       version: 3,
       server: {
         host: '127.0.0.1',
-        port: 8000,
+        port: 9741,
         apiKeys: [generateApiKey()],
         autoStart: false
       },
@@ -554,7 +554,7 @@ export class GatewayConfigStore {
       }
     }
     config.version = input?.version ?? 1
-    config.server.port = Number(config.server.port) || 8000
+    config.server.port = Number(config.server.port) || 9741
     config.server.host = config.server.host || '127.0.0.1'
     config.server.apiKeys = migrateApiKeys(input?.server)
     delete (config.server as any).apiKey

@@ -50,6 +50,7 @@ const api = {
     ) => ipcRenderer.invoke('gateway:updateApiKey', id, updates),
     updateProviderDisplayName: (providerType: string, displayName: string) =>
       ipcRenderer.invoke('gateway:updateProviderDisplayName', providerType, displayName),
+    setPort: (port: number) => ipcRenderer.invoke('gateway:setPort', port),
     getAutoStart: () => ipcRenderer.invoke('gateway:getAutoStart'),
     setAutoStart: (enabled: boolean) => ipcRenderer.invoke('gateway:setAutoStart', enabled),
     clearLogs: () => ipcRenderer.invoke('gateway:clearLogs'),

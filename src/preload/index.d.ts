@@ -63,6 +63,7 @@ declare global {
           updates: { name?: string; expiresAt?: number | null; scopes?: string[] | null }
         ) => Promise<any>
         updateProviderDisplayName: (providerType: string, displayName: string) => Promise<any>
+        setPort: (port: number) => Promise<void>
         getAutoStart: () => Promise<boolean>
         setAutoStart: (enabled: boolean) => Promise<void>
         clearLogs: () => Promise<void>

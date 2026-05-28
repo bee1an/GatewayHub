@@ -162,6 +162,10 @@ export function registerGatewayIpc(): void {
     )
   )
   ipcMain.handle(
+    'gateway:setPort',
+    safeHandler((_event, port: number) => gatewayHubService.setPort(port))
+  )
+  ipcMain.handle(
     'gateway:getAutoStart',
     safeHandler(() => gatewayHubService.getAutoStart())
   )

@@ -330,7 +330,9 @@ export function classifyWindsurfError(error: unknown): WindsurfClassifiedError {
   // quota/rate_limit 必须在 auth 之前判定：诸如 "api key has exceeded its quota" 这类
   // 限流消息也含 "api key"，若先匹配 auth 会被误判为永久 auth_failed 而停止重试。
   if (/quota|usage limit|exceeded/.test(msg)) return { kind: 'quota', cooldownMs: 60 * 60_000 }
-  if (/rate limit|429|too many requests/.test(msg)) return { kind: 'rate_limit', cooldownMs: 60_000 }
+  if (/rate limit|429|too many requests/.test(msg)) {
+    return { kind: 'rate_limit', cooldownMs: 60_000 }
+  }
   if (/unauthenticated|invalid api key|missing api key|unauthorized|401|403/.test(msg)) {
     return { kind: 'auth', cooldownMs: 0 }
   }

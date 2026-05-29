@@ -31,8 +31,6 @@ const GATEWAY_LOGOS: Record<string, { light: string; dark: string }> = {
   codex: { light: codexIconLight, dark: codexIconDark }
 }
 
-const PLACEHOLDER_PROVIDERS = ['gemini']
-
 export default function Sidebar(): React.JSX.Element {
   const { t, i18n } = useTranslation()
   const { theme, toggle } = useTheme()
@@ -103,24 +101,6 @@ export default function Sidebar(): React.JSX.Element {
             theme={theme}
           />
         ))}
-
-        {PLACEHOLDER_PROVIDERS.filter((n) => !configuredGateways.some((g) => g.name === n)).map(
-          (name) => (
-            <div
-              key={name}
-              aria-hidden="true"
-              className="sidebar-item opacity-35 placeholder-loading-pattern border border-dashed border-charcoal/20 relative overflow-hidden"
-            >
-              <div className="w-4 h-4 flex items-center justify-center shrink-0">
-                <span className="pulse-dot-gray !w-1.5 !h-1.5" />
-              </div>
-              <span className="capitalize ml-0.5">{name}</span>
-              <span className="ml-auto text-[10px] font-medium text-fog tracking-wider uppercase">
-                {t('sidebar.soon')}
-              </span>
-            </div>
-          )
-        )}
 
         <div className="mt-3 mb-1 px-3">
           <span className="label">{t('sidebar.system')}</span>

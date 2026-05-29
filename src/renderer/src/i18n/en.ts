@@ -279,6 +279,7 @@ const en = {
   addAccount: {
     title: 'Add Kiro Account',
     codexTitle: 'Add Codex Account',
+    windsurfTitle: 'Add Windsurf Account',
     type: 'Type',
     label: 'Label',
     path: 'Path',
@@ -334,7 +335,15 @@ const en = {
       "Paste the contents of the official codex CLI's ~/.codex/auth.json (single object or array)",
     codexJsonPlaceholder:
       '{ "auth_mode": "chatgpt", "tokens": {"access_token": "...", "refresh_token": "..."} }',
-    codexDiscoverDesc: 'Scan local ~/.codex/auth.json credentials'
+    codexDiscoverDesc: 'Scan local ~/.codex/auth.json credentials',
+    windsurfTokenHint:
+      'Paste a Windsurf/Codeium apiKey, such as the local session token from an existing Windsurf sign-in. It is stored only in the local config directory.',
+    windsurfTokenPlaceholder: 'Paste Windsurf apiKey...',
+    windsurfJsonHint:
+      'Paste JSON with apiKey (single object or array), optionally with label/email/apiServerUrl.',
+    windsurfJsonPlaceholder: '{ "apiKey": "...", "label": "Windsurf" }',
+    windsurfDiscoverDesc:
+      'Scan the local Windsurf sign-in state (state.vscdb) and import available apiKeys.'
   },
   updater: {
     title: 'Update Available',

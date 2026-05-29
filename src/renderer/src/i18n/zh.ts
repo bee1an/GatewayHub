@@ -275,6 +275,7 @@ const zh = {
   addAccount: {
     title: '添加 Kiro 账号',
     codexTitle: '添加 Codex 账号',
+    windsurfTitle: '添加 Windsurf 账号',
     type: '类型',
     label: '标签',
     path: '路径',
@@ -327,7 +328,14 @@ const zh = {
     codexJsonHint: '粘贴官方 codex CLI 的 ~/.codex/auth.json 文件内容（单对象或数组）',
     codexJsonPlaceholder:
       '{ "auth_mode": "chatgpt", "tokens": {"access_token": "...", "refresh_token": "..."} }',
-    codexDiscoverDesc: '扫描本机已有的 ~/.codex/auth.json 凭据'
+    codexDiscoverDesc: '扫描本机已有的 ~/.codex/auth.json 凭据',
+    windsurfTokenHint:
+      '粘贴 Windsurf/Codeium 的 apiKey（例如本机 Windsurf 登录态中的会话 token），仅保存在本地配置目录。',
+    windsurfTokenPlaceholder: '粘贴 Windsurf apiKey...',
+    windsurfJsonHint:
+      '粘贴包含 apiKey 的 JSON（单对象或数组），可选包含 label/email/apiServerUrl。',
+    windsurfJsonPlaceholder: '{ "apiKey": "...", "label": "Windsurf" }',
+    windsurfDiscoverDesc: '扫描本机 Windsurf 存储的登录状态（state.vscdb），自动导入可用 apiKey。'
   },
   updater: {
     title: '发现新版本',

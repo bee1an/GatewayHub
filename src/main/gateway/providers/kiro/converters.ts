@@ -296,7 +296,8 @@ function extractToolResults(content: any): any[] {
     .filter((part) => part?.type === 'tool_result')
     .map((part) => ({
       tool_use_id: part.tool_use_id || '',
-      content: extractText(part.content) || EMPTY_TOOL_RESULT_PLACEHOLDER
+      content: extractText(part.content) || EMPTY_TOOL_RESULT_PLACEHOLDER,
+      is_error: Boolean(part.is_error)
     }))
 }
 

@@ -126,6 +126,15 @@ export class AwsEventStreamParser {
       return { type: 'content', content }
     }
     if (type === 'tool_start') {
+      // Kiro sometimes sends the terminal frame as
+      // {"name":"Bash","stop":true,"toolUseId":"..."}.
+      // Because it starts with "name" rather than "stop", the pattern scanner
+      // classifies it as tool_start. Treat that shape as a stop frame; otherwise
+      // we create a second empty tool call with the same id and arguments "{}".
+      if (data.stop === true && data.input === undefined) {
+        if (this.currentToolCall) this.finalizeToolCall()
+        return undefined
+      }
       if (this.currentToolCall) this.finalizeToolCall()
       this.currentToolCall = {
         id: data.toolUseId || randomUUID(),
@@ -844,6 +853,9 @@ function normalizeToolInput(chunks: any[]): Record<string, any> {
     hasObject = true
   }
 
+  // 不补猜缺失参数，也不在网关层中断整轮请求。
+  // 如果 Kiro 只发出半截 tool input，这里会保留为空对象；
+  // 下游工具 schema 校验会产生 tool_result is_error=true，并在下一轮回传给上游模型。
   return hasObject ? merged : {}
 }
 

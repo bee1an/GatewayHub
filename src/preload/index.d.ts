@@ -181,6 +181,32 @@ declare global {
             accountId?: string
           }) => void
         ) => () => void
+        // ========== Windsurf ==========
+        scanWindsurfAccounts: () => Promise<{
+          candidates: Array<{
+            id: string
+            label?: string
+            email?: string
+            existing?: boolean
+            sourceType?: string
+          }>
+        }>
+        importScannedWindsurfAccounts: (ids: string[]) => Promise<{ added: any[]; status: any }>
+        importWindsurfJson: (
+          text: string
+        ) => Promise<{ added: number; skipped: number; errors: string[]; status: any }>
+        addWindsurfApiKey: (text: string) => Promise<any>
+        testWindsurfAccount: (accountId: string) => Promise<any>
+        toggleWindsurfAccount: (accountId: string, enabled: boolean) => Promise<any>
+        removeWindsurfAccount: (accountId: string) => Promise<any>
+        getWindsurfAccountInfo: (accountId: string) => Promise<any>
+        refreshWindsurfAccountModels: (accountId: string) => Promise<any>
+        resetWindsurfAccount: (accountId: string) => Promise<any>
+        setWindsurfAccountStatus: (
+          accountId: string,
+          status: string,
+          reason?: string
+        ) => Promise<any>
       }
       updater: {
         check: () => Promise<any>

@@ -11,7 +11,8 @@ import type {
   KiroAccountConfig,
   LogCategory,
   ModelMapping,
-  ProviderStatus
+  ProviderStatus,
+  WindsurfAccountConfig
 } from './types'
 import { GatewayConfigStore, sanitizeModelMappings } from './configStore'
 import { GatewayLogger } from './core/logger'
@@ -42,6 +43,10 @@ import {
   setOnCodexAccountImported,
   type LoginEventListener
 } from './providers/codex/login'
+import {
+  buildWindsurfAccountFromInput,
+  parseWindsurfAuthInput
+} from './providers/windsurf/normalize'
 
 export class GatewayHubService {
   private readonly store = new GatewayConfigStore()
@@ -182,12 +187,11 @@ export class GatewayHubService {
     await this.server!.start()
     return this.getStatus()
   }
-
   async stop(): Promise<GatewayStatusSnapshot> {
     if (this.server) await this.server.stop()
+    await this.registry?.dispose()
     return this.getStatus()
   }
-
   async getStatus(): Promise<GatewayStatusSnapshot> {
     await this.ensureReady()
     const providers = (await this.registry!.statuses()) as ProviderStatus[]
@@ -386,6 +390,8 @@ export class GatewayHubService {
     this.logger.replace([])
     if (this.state) {
       this.state.providers.kiro.logs = []
+      this.state.providers.codex.logs = []
+      this.state.providers.windsurf.logs = []
       await this.store.saveState(this.state)
     }
   }
@@ -793,10 +799,6 @@ export class GatewayHubService {
     return { added, skipped: skipped + updated, errors, status: await this.getStatus() }
   }
 
-  /**
-   * 启动 Codex OAuth 浏览器登录。
-   * 进度通过 onLoginEvent 推送给 IPC（由调用方注入）。
-   */
   async startCodexBrowserLogin(emit: LoginEventListener): Promise<void> {
     await this.ensureReady()
     return loginCodexWithBrowser(this.config!.providers.codex.settings, emit)
@@ -813,14 +815,145 @@ export class GatewayHubService {
     return browser || device
   }
 
+  async scanWindsurfAccounts(): Promise<{ candidates: any[] }> {
+    await this.ensureReady()
+    return this.store.scanWindsurfAccounts()
+  }
+
+  async importScannedWindsurfAccounts(
+    ids: string[]
+  ): Promise<{ added: WindsurfAccountConfig[]; status: GatewayStatusSnapshot }> {
+    await this.ensureReady()
+    const { candidates } = await this.store.scanWindsurfAccounts()
+    const selected = candidates.filter((c) => ids.includes(c.id) && !c.existing)
+    const added: WindsurfAccountConfig[] = []
+    for (const candidate of selected) {
+      try {
+        await this.store.writeWindsurfAccountFile(candidate)
+        added.push(candidate)
+      } catch {
+        // skip
+      }
+    }
+    if (added.length) await this.rebuildRuntime(this.server?.running ?? false)
+    return { added, status: await this.getStatus() }
+  }
+
+  async importWindsurfAuthJson(
+    text: string
+  ): Promise<{ added: number; skipped: number; errors: string[]; status: GatewayStatusSnapshot }> {
+    await this.ensureReady()
+    const trimmed = text.trim()
+    if (!trimmed) throw new Error('Empty Windsurf credential input')
+    let payloads: WindsurfAccountConfig[]
+    try {
+      payloads = parseWindsurfAuthInput(trimmed)
+    } catch (error) {
+      throw new Error(`Invalid JSON: ${toErrorMessage(error)}`)
+    }
+    if (!payloads.length) {
+      throw new Error('No Windsurf credentials found. Expected apiKey/accessToken/token field.')
+    }
+    let added = 0,
+      updated = 0
+    const skipped = 0
+    const errors: string[] = []
+    const existing = await this.store.readWindsurfAccountFiles()
+    const existingIds = new Set(existing.map((a) => a.id))
+    for (const account of payloads) {
+      try {
+        if (existingIds.has(account.id)) {
+          await this.store.updateWindsurfAccountFile(account.id, {
+            apiKey: account.apiKey,
+            apiServerUrl: account.apiServerUrl,
+            inferenceApiServerUrl: account.inferenceApiServerUrl,
+            email: account.email,
+            label: account.label,
+            authType: account.authType
+          })
+          updated++
+        } else {
+          await this.store.writeWindsurfAccountFile(account)
+          existingIds.add(account.id)
+          added++
+        }
+      } catch (error) {
+        errors.push(toErrorMessage(error))
+      }
+    }
+    if (added > 0 || updated > 0) await this.rebuildRuntime(this.server?.running ?? false)
+    return { added, skipped: skipped + updated, errors, status: await this.getStatus() }
+  }
+
+  async addWindsurfApiKey(text: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const account = buildWindsurfAccountFromInput({ apiKey: text.trim() })
+    if (!account) throw new Error('Invalid Windsurf API key/accessToken')
+    await this.store.writeWindsurfAccountFile(account)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async testWindsurfAccount(accountId: string): Promise<AccountTestResult> {
+    await this.ensureReady()
+    const result = await this.registry!.testAccount('windsurf', accountId)
+    await this.persistStateSoon()
+    return result
+  }
+
+  async toggleWindsurfAccount(accountId: string, enabled: boolean): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.store.updateWindsurfAccountFile(accountId, { enabled })
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async removeWindsurfAccount(accountId: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const deleted = await this.store.deleteWindsurfAccountFile(accountId)
+    if (!deleted) throw new Error(`Windsurf account not found: ${accountId}`)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async getWindsurfAccountInfo(accountId: string) {
+    await this.ensureReady()
+    return this.registry!.getAccountInfo('windsurf', accountId)
+  }
+  async refreshWindsurfAccountModels(accountId: string) {
+    await this.ensureReady()
+    const models = await this.registry!.refreshAccountModels('windsurf', accountId)
+    await this.persistStateSoon()
+    return models
+  }
+
+  async resetWindsurfAccount(accountId: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.registry!.resetAccount('windsurf', accountId)
+    await this.persistStateSoon()
+    return this.getStatus()
+  }
+  async setWindsurfAccountStatus(
+    accountId: string,
+    status: AccountStatus,
+    reason?: string
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.registry!.setAccountStatus('windsurf', accountId, status, reason)
+    await this.persistStateSoon()
+    return this.getStatus()
+  }
+
   private ensureReady(): Promise<void> {
     return this.initialize()
   }
 
   private async rebuildRuntime(restartServer: boolean): Promise<void> {
     if (this.server?.running) await this.server.stop()
+    await this.registry?.dispose()
     const accountFiles = await this.store.readAccountFiles()
     const codexFiles = await this.store.readCodexAccountFiles()
+    const windsurfFiles = await this.store.readWindsurfAccountFiles()
     this.registry = new ProviderRegistry(
       this.config!,
       this.state!,
@@ -836,7 +969,7 @@ export class GatewayHubService {
         }
       }
     )
-    await this.registry.initialize(accountFiles, codexFiles)
+    await this.registry.initialize(accountFiles, codexFiles, windsurfFiles)
     this.server = new GatewayServer(
       this.config!,
       this.registry,
@@ -852,11 +985,13 @@ export class GatewayHubService {
     if (!this.state) return
     this.state.providers.kiro.logs = this.logger.getEntries()
     this.state.providers.codex.logs = this.logger.getEntries()
+    this.state.providers.windsurf.logs = this.logger.getEntries()
     if (this.saveTimer) clearTimeout(this.saveTimer)
     this.saveTimer = setTimeout(() => {
       if (!this.state) return
       this.state.providers.kiro.logs = this.logger.getEntries()
       this.state.providers.codex.logs = this.logger.getEntries()
+      this.state.providers.windsurf.logs = this.logger.getEntries()
       void this.store.saveState(this.state)
     }, 100)
   }

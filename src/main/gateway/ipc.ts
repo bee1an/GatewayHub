@@ -295,6 +295,59 @@ export function registerGatewayIpc(): void {
     'gateway:cancelCodexLogin',
     safeHandler(() => gatewayHubService.cancelCodexLogin())
   )
+
+  // ============== Windsurf ==============
+
+  ipcMain.handle(
+    'gateway:scanWindsurfAccounts',
+    safeHandler(() => gatewayHubService.scanWindsurfAccounts())
+  )
+  ipcMain.handle(
+    'gateway:importScannedWindsurfAccounts',
+    safeHandler((_event, ids: string[]) => gatewayHubService.importScannedWindsurfAccounts(ids))
+  )
+  ipcMain.handle(
+    'gateway:importWindsurfJson',
+    safeHandler((_event, text: string) => gatewayHubService.importWindsurfAuthJson(text))
+  )
+  ipcMain.handle(
+    'gateway:addWindsurfApiKey',
+    safeHandler((_event, text: string) => gatewayHubService.addWindsurfApiKey(text))
+  )
+  ipcMain.handle(
+    'gateway:testWindsurfAccount',
+    safeHandler((_event, accountId: string) => gatewayHubService.testWindsurfAccount(accountId))
+  )
+  ipcMain.handle(
+    'gateway:toggleWindsurfAccount',
+    safeHandler((_event, accountId: string, enabled: boolean) =>
+      gatewayHubService.toggleWindsurfAccount(accountId, enabled)
+    )
+  )
+  ipcMain.handle(
+    'gateway:removeWindsurfAccount',
+    safeHandler((_event, accountId: string) => gatewayHubService.removeWindsurfAccount(accountId))
+  )
+  ipcMain.handle(
+    'gateway:getWindsurfAccountInfo',
+    safeHandler((_event, accountId: string) => gatewayHubService.getWindsurfAccountInfo(accountId))
+  )
+  ipcMain.handle(
+    'gateway:refreshWindsurfAccountModels',
+    safeHandler((_event, accountId: string) =>
+      gatewayHubService.refreshWindsurfAccountModels(accountId)
+    )
+  )
+  ipcMain.handle(
+    'gateway:resetWindsurfAccount',
+    safeHandler((_event, accountId: string) => gatewayHubService.resetWindsurfAccount(accountId))
+  )
+  ipcMain.handle(
+    'gateway:setWindsurfAccountStatus',
+    safeHandler((_event, accountId: string, status: string, reason?: string) =>
+      gatewayHubService.setWindsurfAccountStatus(accountId, status as AccountStatus, reason)
+    )
+  )
 }
 
 function makeCodexLoginEmitter(window: BrowserWindow | null): (event: CodexLoginEvent) => void {

@@ -9,11 +9,13 @@ import type {
   ProviderAdapter,
   ProviderModel,
   ProviderName,
-  ProviderStatus
+  ProviderStatus,
+  WindsurfAccountConfig
 } from './types'
 import { GatewayLogger } from './core/logger'
 import { KiroProvider } from './providers/kiro/provider'
 import { CodexProvider } from './providers/codex/provider'
+import { WindsurfProvider } from './providers/windsurf/provider'
 import type { GatewayHubState } from './types'
 
 class PlaceholderProvider implements ProviderAdapter {
@@ -78,7 +80,8 @@ export class ProviderRegistry {
 
   async initialize(
     accountFiles: KiroAccountConfig[],
-    codexAccountFiles: CodexAccountConfig[] = []
+    codexAccountFiles: CodexAccountConfig[] = [],
+    windsurfAccountFiles: WindsurfAccountConfig[] = []
   ): Promise<void> {
     const kiro = new KiroProvider(
       this.config.providers.kiro,
@@ -103,11 +106,28 @@ export class ProviderRegistry {
     await codex.initialize(codexAccountFiles)
     this.registerProvider('codex', codex, this.config.providers.codex.routeName || 'codex')
 
+    const windsurf = new WindsurfProvider(
+      this.config.providers.windsurf,
+      this.state.providers.windsurf,
+      this.logger,
+      this.onStateChanged
+    )
+    await windsurf.initialize(windsurfAccountFiles)
+    this.registerProvider(
+      'windsurf',
+      windsurf,
+      this.config.providers.windsurf.routeName || 'windsurf'
+    )
+
     this.registerProvider(
       'gemini',
       new PlaceholderProvider('gemini', this.config.providers.gemini.note),
       this.config.providers.gemini.routeName || 'gemini'
     )
+  }
+
+  async dispose(): Promise<void> {
+    await Promise.all([...this.providers.values()].map((provider) => provider.dispose?.()))
   }
 
   private registerProvider(name: ProviderName, provider: ProviderAdapter, routeName: string): void {

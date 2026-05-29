@@ -7,7 +7,8 @@ import type {
   GatewayHubConfig,
   GatewayHubState,
   KiroAccountConfig,
-  ModelMapping
+  ModelMapping,
+  WindsurfAccountConfig
 } from './types'
 import {
   DEFAULT_KIRO_SETTINGS,
@@ -18,6 +19,8 @@ import {
 import { DEFAULT_CODEX_SETTINGS } from './providers/codex/constants'
 import { buildCodexAccountFromAuth } from './providers/codex/normalize'
 import type { CodexAuthPayload } from './providers/codex/types'
+import { DEFAULT_WINDSURF_SETTINGS } from './providers/windsurf/constants'
+import { scanExternalWindsurfAccounts } from './providers/windsurf/localState'
 import { generateApiKey, readJsonFile, sha256Short, writeJsonFile, atomicWrite } from './core/utils'
 import { getPaths } from './core/paths'
 
@@ -38,6 +41,10 @@ export class GatewayConfigStore {
 
   codexAccountsDir(): string {
     return join(dirname(this.configPath), 'codex', 'accounts')
+  }
+
+  windsurfAccountsDir(): string {
+    return join(dirname(this.configPath), 'windsurf', 'accounts')
   }
 
   logsDir(): string {
@@ -382,6 +389,91 @@ export class GatewayConfigStore {
     return candidates
   }
 
+  // ============== Windsurf account file management ==============
+
+  async readWindsurfAccountFiles(): Promise<WindsurfAccountConfig[]> {
+    const dir = this.windsurfAccountsDir()
+    let files: string[]
+    try {
+      files = await readdir(dir)
+    } catch {
+      return []
+    }
+    const accounts: WindsurfAccountConfig[] = []
+    for (const file of files) {
+      if (!file.endsWith('.json') || file.startsWith('.')) continue
+      const filePath = join(dir, file)
+      try {
+        const data = await readJsonFile<any>(filePath)
+        if (data.enabled === undefined) data.enabled = true
+        data.path = filePath
+        accounts.push(data as WindsurfAccountConfig)
+      } catch (err) {
+        console.warn(`[GatewayHub] Skipping corrupt windsurf account file: ${file}`, err)
+      }
+    }
+    return accounts
+  }
+
+  async writeWindsurfAccountFile(data: WindsurfAccountConfig): Promise<string> {
+    const dir = this.windsurfAccountsDir()
+    await mkdir(dir, { recursive: true })
+    const fileBase = safeFileName(data.email || data.label || data.id) || 'account'
+    const targetPath = join(dir, `${fileBase}.json`)
+    const existing = await readJsonFile<any>(targetPath).catch(() => null)
+    if (existing && existing.id && existing.id !== data.id) {
+      const altPath = join(dir, `${fileBase}-${sha256Short(data.id)}.json`)
+      await atomicWrite(altPath, `${JSON.stringify(stripWindsurfPath(data), null, 2)}\n`)
+      return altPath
+    }
+    await atomicWrite(targetPath, `${JSON.stringify(stripWindsurfPath(data), null, 2)}\n`)
+    return targetPath
+  }
+
+  async deleteWindsurfAccountFile(accountId: string): Promise<boolean> {
+    const accounts = await this.readWindsurfAccountFiles()
+    const account = accounts.find((a) => a.id === accountId)
+    if (!account?.path) return false
+    await unlink(account.path)
+    return true
+  }
+
+  async updateWindsurfAccountFile(
+    accountId: string,
+    updates: Partial<WindsurfAccountConfig>
+  ): Promise<void> {
+    const accounts = await this.readWindsurfAccountFiles()
+    const account = accounts.find((a) => a.id === accountId)
+    if (!account?.path) throw new Error(`Windsurf account not found: ${accountId}`)
+    const data = await readJsonFile<any>(account.path)
+    Object.assign(data, updates)
+    await atomicWrite(account.path, `${JSON.stringify(data, null, 2)}\n`)
+  }
+
+  async scanWindsurfAccounts(): Promise<{
+    candidates: Array<WindsurfAccountConfig & { existing?: boolean; sourceType?: string }>
+  }> {
+    const external = await this.scanExternalWindsurfAccounts()
+    const existing = await this.readWindsurfAccountFiles()
+    const existingKeys = new Set<string>()
+    for (const acc of existing) {
+      for (const key of windsurfIdentityKeys(acc)) existingKeys.add(key)
+    }
+    const result: Array<WindsurfAccountConfig & { existing?: boolean; sourceType?: string }> = []
+    for (const candidate of external) {
+      const keys = windsurfIdentityKeys(candidate)
+      const isExisting = keys.some((key) => existingKeys.has(key))
+      result.push({ ...candidate, existing: isExisting || undefined })
+    }
+    return { candidates: result }
+  }
+
+  private async scanExternalWindsurfAccounts(): Promise<
+    Array<WindsurfAccountConfig & { sourceType: string }>
+  > {
+    return scanExternalWindsurfAccounts()
+  }
+
   defaultConfig(): GatewayHubConfig {
     return {
       version: 3,
@@ -403,6 +495,11 @@ export class GatewayConfigStore {
           routeName: 'codex',
           settings: { ...DEFAULT_CODEX_SETTINGS }
         },
+        windsurf: {
+          enabled: true,
+          routeName: 'windsurf',
+          settings: { ...DEFAULT_WINDSURF_SETTINGS }
+        },
         gemini: {
           enabled: false,
           routeName: 'gemini',
@@ -423,6 +520,11 @@ export class GatewayConfigStore {
           logs: []
         },
         codex: {
+          accounts: {},
+          currentAccountIndex: 0,
+          logs: []
+        },
+        windsurf: {
           accounts: {},
           currentAccountIndex: 0,
           logs: []
@@ -546,6 +648,19 @@ export class GatewayConfigStore {
             ...(input?.providers?.codex?.settings ?? {})
           }
         },
+        windsurf: {
+          ...defaults.providers.windsurf,
+          ...(input?.providers?.windsurf ?? {}),
+          routeName: input?.providers?.windsurf?.routeName || defaults.providers.windsurf.routeName,
+          enabled:
+            typeof input?.providers?.windsurf?.enabled === 'boolean'
+              ? input.providers.windsurf.enabled
+              : defaults.providers.windsurf.enabled,
+          settings: {
+            ...defaults.providers.windsurf.settings,
+            ...(input?.providers?.windsurf?.settings ?? {})
+          }
+        },
         gemini: {
           ...defaults.providers.gemini,
           ...(input?.providers?.gemini ?? {}),
@@ -586,6 +701,14 @@ export class GatewayConfigStore {
           accounts: input?.providers?.codex?.accounts ?? {},
           logs: Array.isArray(input?.providers?.codex?.logs)
             ? input.providers.codex.logs.slice(-1000)
+            : []
+        },
+        windsurf: {
+          ...defaults.providers.windsurf,
+          ...(input?.providers?.windsurf ?? {}),
+          accounts: input?.providers?.windsurf?.accounts ?? {},
+          logs: Array.isArray(input?.providers?.windsurf?.logs)
+            ? input.providers.windsurf.logs.slice(-1000)
             : []
         }
       }
@@ -654,6 +777,11 @@ function stripCodexPath(data: CodexAccountConfig): Omit<CodexAccountConfig, 'pat
   return rest
 }
 
+function stripWindsurfPath(data: WindsurfAccountConfig): Omit<WindsurfAccountConfig, 'path'> {
+  const { path: _, ...rest } = data
+  return rest
+}
+
 function codexIdentityKeys(account: Partial<CodexAccountConfig>): string[] {
   const keys: string[] = []
   if (account.chatgptAccountId) keys.push(`codex-acct:${account.chatgptAccountId}`)
@@ -661,6 +789,14 @@ function codexIdentityKeys(account: Partial<CodexAccountConfig>): string[] {
   if (account.refreshToken) keys.push(`codex-refresh:${sha256Short(account.refreshToken)}`)
   if (!keys.length && account.accessToken)
     keys.push(`codex-access:${sha256Short(account.accessToken)}`)
+  return keys
+}
+
+function windsurfIdentityKeys(account: Partial<WindsurfAccountConfig>): string[] {
+  const keys: string[] = []
+  if (account.email) keys.push(`windsurf-email:${account.email.toLowerCase()}`)
+  if (account.apiKey) keys.push(`windsurf-api:${sha256Short(account.apiKey)}`)
+  if (!keys.length && account.id) keys.push(`windsurf-id:${account.id}`)
   return keys
 }
 

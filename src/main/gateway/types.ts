@@ -1,4 +1,4 @@
-export type ProviderName = 'kiro' | 'codex' | 'gemini' | string
+export type ProviderName = 'kiro' | 'codex' | 'windsurf' | 'gemini' | string
 
 export interface GatewayHubConfig {
   version: number
@@ -7,6 +7,7 @@ export interface GatewayHubConfig {
   providers: {
     kiro: KiroProviderConfig
     codex: CodexProviderConfig
+    windsurf: WindsurfProviderConfig
     gemini: PlaceholderProviderConfig
     [name: string]: unknown
   }
@@ -131,11 +132,48 @@ export interface CodexAccountConfig {
   name?: string
 }
 
+export interface WindsurfProviderConfig {
+  enabled: boolean
+  routeName?: string
+  displayName?: string
+  settings: WindsurfProviderSettings
+}
+
+export interface WindsurfProviderSettings {
+  /** Windsurf / Codeium API server，默认 https://server.self-serve.windsurf.com */
+  apiServerUrl: string
+  /** Windsurf / Codeium inference server，默认 https://inference.codeium.com */
+  inferenceApiServerUrl: string
+  /** Windsurf language_server 二进制路径；为空时自动探测本机 Windsurf.app */
+  languageServerBinaryPath: string
+  /** 传给 language_server 的 codeium_dir，默认 .codeium/windsurf */
+  codeiumDir: string
+  firstTokenTimeoutSeconds: number
+  streamingReadTimeoutSeconds: number
+  launchTimeoutSeconds: number
+  maxRetries: number
+  detectProxy: boolean
+}
+
+/** Windsurf 凭据：Windsurf Auth session/accessToken，也就是 language server metadata.api_key */
+export interface WindsurfAccountConfig {
+  id: string
+  label?: string
+  email?: string
+  enabled: boolean
+  path?: string
+  apiKey?: string
+  apiServerUrl?: string
+  inferenceApiServerUrl?: string
+  authType?: string
+}
+
 export interface GatewayHubState {
   version: 1
   providers: {
     kiro: KiroProviderState
     codex: CodexProviderState
+    windsurf: WindsurfProviderState
     [name: string]: unknown
   }
 }
@@ -147,6 +185,12 @@ export interface KiroProviderState {
 }
 
 export interface CodexProviderState {
+  accounts: Record<string, AccountRuntimeState>
+  currentAccountIndex: number
+  logs: GatewayLogEntry[]
+}
+
+export interface WindsurfProviderState {
   accounts: Record<string, AccountRuntimeState>
   currentAccountIndex: number
   logs: GatewayLogEntry[]
@@ -339,6 +383,7 @@ export interface ProviderAdapter {
   countTokens?(body: any, context: GatewayRequestContext): Promise<GatewayResponse>
   testAccount?(accountId: string): Promise<AccountTestResult>
   getStatus?(): Promise<ProviderStatus>
+  dispose?(): Promise<void> | void
 }
 
 export interface AccountTestResult {

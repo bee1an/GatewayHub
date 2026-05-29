@@ -108,7 +108,27 @@ const api = {
       return () => {
         ipcRenderer.removeListener('gateway:codexLoginEvent', listener)
       }
-    }
+    },
+    // ========== Windsurf ==========
+    scanWindsurfAccounts: () => ipcRenderer.invoke('gateway:scanWindsurfAccounts'),
+    importScannedWindsurfAccounts: (ids: string[]) =>
+      ipcRenderer.invoke('gateway:importScannedWindsurfAccounts', ids),
+    importWindsurfJson: (text: string) => ipcRenderer.invoke('gateway:importWindsurfJson', text),
+    addWindsurfApiKey: (text: string) => ipcRenderer.invoke('gateway:addWindsurfApiKey', text),
+    testWindsurfAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:testWindsurfAccount', accountId),
+    toggleWindsurfAccount: (accountId: string, enabled: boolean) =>
+      ipcRenderer.invoke('gateway:toggleWindsurfAccount', accountId, enabled),
+    removeWindsurfAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:removeWindsurfAccount', accountId),
+    getWindsurfAccountInfo: (accountId: string) =>
+      ipcRenderer.invoke('gateway:getWindsurfAccountInfo', accountId),
+    refreshWindsurfAccountModels: (accountId: string) =>
+      ipcRenderer.invoke('gateway:refreshWindsurfAccountModels', accountId),
+    resetWindsurfAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:resetWindsurfAccount', accountId),
+    setWindsurfAccountStatus: (accountId: string, status: string, reason?: string) =>
+      ipcRenderer.invoke('gateway:setWindsurfAccountStatus', accountId, status, reason)
   },
   updater: {
     check: () => ipcRenderer.invoke('updater:check'),

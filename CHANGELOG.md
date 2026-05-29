@@ -2,6 +2,15 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.2.0 - 2026-05-29
+
+Added Windsurf as a new provider and refactored the gateway detail UI into smaller components.
+
+- Added Windsurf provider: account pool with round-robin failover, Cascade language server integration, local credential scanning, and streaming/non-streaming output in both OpenAI and Anthropic formats
+- Added Kiro model list refresh action per account
+- Fixed Kiro tool error feedback: `is_error` field is now preserved in tool_result conversion, and half-formed tool inputs no longer crash the request
+- Refactored GatewayDetail page into dedicated dialog components (AddKiroAccountDialog, AddCodexAccountDialog, AddWindsurfAccountDialog) and a reusable GatewayAccountRow
+
 ## 0.1.5 - 2026-05-28
 
 Added port configuration support and fixed CI compatibility.

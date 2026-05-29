@@ -242,6 +242,13 @@ export class ProviderRegistry {
     return provider.getAccountInfo(accountId)
   }
 
+  async refreshAccountModels(providerName: ProviderName, accountId: string) {
+    const provider = this.providers.get(providerName) as any
+    if (!provider?.refreshAccountModels)
+      throw new Error(`Provider ${providerName} does not support refreshAccountModels`)
+    return provider.refreshAccountModels(accountId)
+  }
+
   async resetAccount(providerName: ProviderName, accountId: string) {
     const provider = this.providers.get(providerName) as any
     if (!provider?.resetAccount)

@@ -32,6 +32,7 @@ declare global {
         removeKiroAccount: (accountId: string) => Promise<any>
         listModels: () => Promise<any>
         getAccountInfo: (accountId: string) => Promise<any>
+        refreshKiroAccountModels: (accountId: string) => Promise<any>
         resetKiroAccount: (accountId: string) => Promise<any>
         setKiroAccountStatus: (accountId: string, status: string, reason?: string) => Promise<any>
         getKiroSettings: () => Promise<any>

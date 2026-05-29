@@ -283,6 +283,10 @@ export class KiroAccountPool {
     }
   }
 
+  async refreshAccountModels(accountId: string): Promise<AvailableModelsResponse> {
+    return this.listAvailableModels(accountId, true)
+  }
+
   async getAccountInfo(accountId: string): Promise<AccountInfo> {
     const account = this.accounts.find((item) => item.config.id === accountId)
     if (!account) throw new Error('Account not found')

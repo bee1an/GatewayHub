@@ -59,6 +59,13 @@ type CodexRateLimitWindow = {
   resetsAt: number | null
 }
 
+type AccountModel = {
+  modelId: string
+  modelName: string
+  rateMultiplier: number
+  rateUnit: string
+}
+
 type AccountInfo = {
   subscription: { title: string; type: string }
   email?: string
@@ -71,7 +78,7 @@ type AccountInfo = {
     overageCharges: number
     resetDate: string
   }
-  models: Array<{ modelId: string; modelName: string; rateMultiplier: number; rateUnit: string }>
+  models: AccountModel[]
   error?: string
   /** codex 专属：5h primary / weekly secondary 速率窗口 */
   rateLimits?: {
@@ -121,6 +128,7 @@ export default function GatewayDetail(): React.JSX.Element {
   const [filter, setFilter] = useState<AccountFilter>('all')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [tab, setTab] = useState<'overview' | 'usage'>('overview')
+  const [modelRefreshIds, setModelRefreshIds] = useState<Set<string>>(() => new Set())
 
   const draftValue =
     routeNameDraft && routeNameDraft.name === name ? routeNameDraft.value : (name ?? '')
@@ -182,6 +190,49 @@ export default function GatewayDetail(): React.JSX.Element {
   const fetchAllUsage = useCallback(() => {
     accounts.filter((a) => a.enabled).forEach((acc) => fetchAccountInfo(acc.id))
   }, [accounts, fetchAccountInfo])
+
+  const refreshAccountModels = useCallback(
+    async (accountId: string) => {
+      if (!isKiro) return
+      setModelRefreshIds((prev) => new Set(prev).add(accountId))
+      try {
+        const result = await window.api.gateway.refreshKiroAccountModels(accountId)
+        if (result?.ok === false) throw new Error(result.error || t('gateway.infoError'))
+        const models = Array.isArray(result?.models) ? result.models : []
+        setAccountInfoMap((prev) => {
+          const previous = prev[accountId]
+          if (!previous?.data) return prev
+          const nextEntry = {
+            ...previous,
+            data: { ...previous.data, models },
+            loading: false,
+            error: undefined
+          }
+          const next = { ...prev, [accountId]: nextEntry }
+          accountInfoCache[accountId] = nextEntry
+          return next
+        })
+        await refresh()
+        toast(t('gateway.modelsRefreshed', { count: models.length }), 'success')
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        setAccountInfoMap((prev) => {
+          const nextEntry = { ...prev[accountId], loading: false, error: message }
+          const next = { ...prev, [accountId]: nextEntry }
+          accountInfoCache[accountId] = nextEntry
+          return next
+        })
+        toast(message, 'error')
+      } finally {
+        setModelRefreshIds((prev) => {
+          const next = new Set(prev)
+          next.delete(accountId)
+          return next
+        })
+      }
+    },
+    [isKiro, refresh, t, toast]
+  )
 
   useEffect(() => {
     if (!supportsAccounts) return
@@ -461,6 +512,8 @@ export default function GatewayDetail(): React.JSX.Element {
                     )
                   }}
                   onRefreshInfo={() => fetchAccountInfo(acc.id)}
+                  onRefreshModels={isKiro ? () => refreshAccountModels(acc.id) : undefined}
+                  modelsRefreshing={modelRefreshIds.has(acc.id)}
                 />
               ))}
             </div>
@@ -524,7 +577,9 @@ function AccountRow({
   onRemove,
   onReset,
   onPauseToggle,
-  onRefreshInfo
+  onRefreshInfo,
+  onRefreshModels,
+  modelsRefreshing = false
 }: {
   account: Account
   info?: { data?: AccountInfo; loading: boolean; error?: string }
@@ -537,6 +592,8 @@ function AccountRow({
   onReset: () => void
   onPauseToggle: () => void
   onRefreshInfo: () => void
+  onRefreshModels?: () => void
+  modelsRefreshing?: boolean
 }): React.JSX.Element {
   const { t } = useTranslation()
   const [modelsExpanded, setModelsExpanded] = useState(false)
@@ -549,6 +606,7 @@ function AccountRow({
   const success = acc.stats?.successfulRequests ?? 0
   const rate = total > 0 ? Math.round((success / total) * 100) : null
   const accountInfo = info?.data
+  const models = accountInfo?.models ?? []
 
   const expiresAt = acc.expiresAt ? new Date(acc.expiresAt) : null
   const expiresIn = expiresAt ? expiresAt.getTime() - now : null
@@ -843,36 +901,64 @@ function AccountRow({
             )}
           </div>
 
-          {accountInfo?.models && accountInfo.models.length > 0 && (
+          {accountInfo && (models.length > 0 || onRefreshModels) && (
             <div>
-              <button
-                className="text-[11px] text-fog hover:text-storm inline-flex items-center gap-1 font-medium transition-colors"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setModelsExpanded(!modelsExpanded)
-                }}
-              >
-                <span className="text-[9px]" aria-hidden="true">
-                  {modelsExpanded ? '▼' : '▶'}
-                </span>
-                {t('gateway.models')} ({accountInfo.models.length})
-              </button>
-              {modelsExpanded && (
-                <div className="flex flex-wrap gap-1 mt-1.5 animate-slide-down">
-                  {accountInfo.models.map((m) => (
-                    <span
-                      key={m.modelId}
-                      className="tag text-[10px] font-mono !px-1.5 !py-0 bg-charcoal/40 text-storm"
+              <div className="flex items-center gap-1.5">
+                <button
+                  className="text-[11px] text-fog hover:text-storm inline-flex items-center gap-1 font-medium transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setModelsExpanded(!modelsExpanded)
+                  }}
+                >
+                  <span className="text-[9px]" aria-hidden="true">
+                    {modelsExpanded ? '▼' : '▶'}
+                  </span>
+                  {t('gateway.models')} ({models.length})
+                </button>
+                {onRefreshModels && (
+                  <TooltipWrapper content={t('gateway.refreshModels')}>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      iconOnly
+                      loading={modelsRefreshing}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onRefreshModels()
+                      }}
+                      aria-label={t('gateway.refreshModels')}
+                      className="!h-5 !w-5 text-fog hover:text-storm"
                     >
-                      {m.modelName || m.modelId}
-                      {m.rateMultiplier > 1 && (
-                        <span className="ml-0.5 text-warning font-semibold">
-                          {m.rateMultiplier}x
+                      <span className="i-ph-arrows-clockwise text-[11px]" aria-hidden="true" />
+                    </Button>
+                  </TooltipWrapper>
+                )}
+              </div>
+              {modelsExpanded && (
+                <>
+                  {models.length > 0 ? (
+                    <div className="flex flex-wrap gap-1 mt-1.5 animate-slide-down">
+                      {models.map((m) => (
+                        <span
+                          key={m.modelId}
+                          className="tag text-[10px] font-mono !px-1.5 !py-0 bg-charcoal/40 text-storm"
+                        >
+                          {m.modelName || m.modelId}
+                          {m.rateMultiplier > 1 && (
+                            <span className="ml-0.5 text-warning font-semibold">
+                              {m.rateMultiplier}x
+                            </span>
+                          )}
                         </span>
-                      )}
-                    </span>
-                  ))}
-                </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-1.5 text-[11px] text-fog animate-slide-down">
+                      {t('gateway.noModels')}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}

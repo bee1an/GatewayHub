@@ -140,6 +140,10 @@ export class KiroProvider implements ProviderAdapter {
     return this.pool.getAccountInfo(accountId)
   }
 
+  async refreshAccountModels(accountId: string) {
+    return this.pool.refreshAccountModels(accountId)
+  }
+
   async resetAccount(accountId: string): Promise<void> {
     return this.pool.resetAccount(accountId)
   }

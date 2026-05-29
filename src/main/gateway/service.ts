@@ -291,6 +291,13 @@ export class GatewayHubService {
     return info
   }
 
+  async refreshKiroAccountModels(accountId: string) {
+    await this.ensureReady()
+    const models = await this.registry!.refreshAccountModels('kiro', accountId)
+    await this.persistStateSoon()
+    return models
+  }
+
   async resetKiroAccount(accountId: string): Promise<GatewayStatusSnapshot> {
     await this.ensureReady()
     await this.registry!.resetAccount('kiro', accountId)

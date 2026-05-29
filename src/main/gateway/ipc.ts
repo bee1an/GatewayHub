@@ -67,6 +67,12 @@ export function registerGatewayIpc(): void {
     safeHandler((_event, accountId: string) => gatewayHubService.getAccountInfo(accountId))
   )
   ipcMain.handle(
+    'gateway:refreshKiroAccountModels',
+    safeHandler((_event, accountId: string) =>
+      gatewayHubService.refreshKiroAccountModels(accountId)
+    )
+  )
+  ipcMain.handle(
     'gateway:resetKiroAccount',
     safeHandler((_event, accountId: string) => gatewayHubService.resetKiroAccount(accountId))
   )

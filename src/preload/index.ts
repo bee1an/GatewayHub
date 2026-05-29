@@ -20,6 +20,8 @@ const api = {
       ipcRenderer.invoke('gateway:removeKiroAccount', accountId),
     listModels: () => ipcRenderer.invoke('gateway:listModels'),
     getAccountInfo: (accountId: string) => ipcRenderer.invoke('gateway:getAccountInfo', accountId),
+    refreshKiroAccountModels: (accountId: string) =>
+      ipcRenderer.invoke('gateway:refreshKiroAccountModels', accountId),
     resetKiroAccount: (accountId: string) =>
       ipcRenderer.invoke('gateway:resetKiroAccount', accountId),
     setKiroAccountStatus: (accountId: string, status: string, reason?: string) =>

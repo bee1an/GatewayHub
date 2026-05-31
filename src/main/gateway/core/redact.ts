@@ -34,6 +34,10 @@ const STRING_REPLACERS: Array<{ pattern: RegExp; replacement: string }> = [
   },
   // Bearer xxx → Bearer ***
   { pattern: /Bearer\s+[A-Za-z0-9._-]+/g, replacement: 'Bearer ***' },
+  // OpenRouter API keys
+  { pattern: /sk-or-v1-[A-Za-z0-9_-]+/g, replacement: 'sk-or-v1-***' },
+  // NVIDIA NIM API keys
+  { pattern: /nvapi-[A-Za-z0-9._-]+/g, replacement: 'nvapi-***' },
   // OAuth redirect with code= → 占位
   { pattern: /https?:\/\/[^\s]*\bcode=[^&\s]+/g, replacement: '<oauth-redirect-redacted>' },
   // JWT 形态字符串

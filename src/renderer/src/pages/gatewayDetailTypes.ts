@@ -3,6 +3,7 @@ export type AccountFilter = 'all' | 'available' | 'problematic'
 export type Provider = {
   name: string
   providerType: string
+  displayName?: string
   enabled: boolean
   configured: boolean
   status: string

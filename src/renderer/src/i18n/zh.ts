@@ -276,6 +276,9 @@ const zh = {
     title: '添加 Kiro 账号',
     codexTitle: '添加 Codex 账号',
     windsurfTitle: '添加 Windsurf 账号',
+    traeTitle: '添加 Trae 账号',
+    openrouterTitle: '添加 OpenRouter Key',
+    nvidiaTitle: '添加 NVIDIA API Key',
     type: '类型',
     label: '标签',
     path: '路径',
@@ -287,6 +290,8 @@ const zh = {
       discover: '探测',
       token: 'Token',
       json: 'JSON',
+      apiKey: 'API Key',
+      refreshToken: 'Refresh Token',
       cli: 'CLI 登录',
       advanced: '高级',
       codexBrowser: '浏览器登录',
@@ -335,7 +340,29 @@ const zh = {
     windsurfJsonHint:
       '粘贴包含 apiKey 的 JSON（单对象或数组），可选包含 label/email/apiServerUrl。',
     windsurfJsonPlaceholder: '{ "apiKey": "...", "label": "Windsurf" }',
-    windsurfDiscoverDesc: '扫描本机 Windsurf 存储的登录状态（state.vscdb），自动导入可用 apiKey。'
+    windsurfDiscoverDesc: '扫描本机 Windsurf 存储的登录状态（state.vscdb），自动导入可用 apiKey。',
+    traeDiscoverDesc:
+      '扫描本机 Trae 国际服登录状态（User/globalStorage/storage.json），自动导入 Cloud-IDE-JWT/refresh token；不会读取 Trae CN。',
+    traeRefreshHint:
+      '粘贴 Trae 国际服 refresh token；GatewayHub 会在本地换取 Cloud-IDE-JWT 并保存到本机配置目录。',
+    traeRefreshPlaceholder: '粘贴 Trae refresh token...',
+    traeJwtHint:
+      '粘贴 Trae IDE 请求里使用的 Cloud-IDE-JWT。JWT 过期后需要手动更新，建议优先使用 refresh token。',
+    traeJwtPlaceholder: '粘贴 Trae Cloud-IDE-JWT...',
+    traeJsonHint:
+      '粘贴包含 refreshToken 或 jwtToken/cloudIdeJwt 的 JSON（单对象或数组），可选包含 label/email/countryCode。',
+    traeJsonPlaceholder: '{ "refreshToken": "...", "label": "Trae" }',
+    openrouterKeyHint:
+      '粘贴 OpenRouter API Key（sk-or-v1-*）。GatewayHub 会在本地调用 /key 判断免费/付费层级，并按层级过滤可用模型。',
+    openrouterKeyPlaceholder: '粘贴 OpenRouter API Key...',
+    openrouterJsonHint:
+      '粘贴包含 apiKey/key 的 JSON（单对象或数组），可选包含 label/name/enabled。',
+    openrouterJsonPlaceholder: '{ "apiKey": "sk-or-v1-...", "label": "OpenRouter" }',
+    nvidiaKeyHint:
+      '粘贴 NVIDIA NIM API Key。GatewayHub 会使用 https://integrate.api.nvidia.com/v1 代理 OpenAI 兼容的 /chat/completions。',
+    nvidiaKeyPlaceholder: '粘贴 NVIDIA API Key...',
+    nvidiaJsonHint: '粘贴包含 apiKey/key 的 JSON（单对象或数组），可选包含 label/name/enabled。',
+    nvidiaJsonPlaceholder: '{ "apiKey": "nvapi-...", "label": "NVIDIA" }'
   },
   updater: {
     title: '发现新版本',

@@ -18,6 +18,11 @@ export function registerConfigCommands(cli: CAC): void {
           configPath: service.configPath,
           statePath: service.statePath,
           accountsDir: join(dir, 'kiro', 'accounts'),
+          codexAccountsDir: join(dir, 'codex', 'accounts'),
+          windsurfAccountsDir: join(dir, 'windsurf', 'accounts'),
+          traeAccountsDir: join(dir, 'trae', 'accounts'),
+          openrouterAccountsDir: join(dir, 'openrouter', 'accounts'),
+          nvidiaAccountsDir: join(dir, 'nvidia', 'accounts'),
           logsDir: join(dir, 'logs'),
           pidFile: join(dir, 'gatewayhub.pid')
         }

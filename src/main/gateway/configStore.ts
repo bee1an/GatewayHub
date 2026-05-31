@@ -8,6 +8,9 @@ import type {
   GatewayHubState,
   KiroAccountConfig,
   ModelMapping,
+  NvidiaAccountConfig,
+  OpenRouterAccountConfig,
+  TraeAccountConfig,
   WindsurfAccountConfig
 } from './types'
 import {
@@ -21,6 +24,10 @@ import { buildCodexAccountFromAuth } from './providers/codex/normalize'
 import type { CodexAuthPayload } from './providers/codex/types'
 import { DEFAULT_WINDSURF_SETTINGS } from './providers/windsurf/constants'
 import { scanExternalWindsurfAccounts } from './providers/windsurf/localState'
+import { DEFAULT_TRAE_SETTINGS, LEGACY_TRAE_MODEL_LIST_PATH } from './providers/trae/constants'
+import { scanExternalTraeAccounts } from './providers/trae/localState'
+import { DEFAULT_OPENROUTER_SETTINGS } from './providers/openrouter/constants'
+import { DEFAULT_NVIDIA_SETTINGS } from './providers/nvidia/constants'
 import { generateApiKey, readJsonFile, sha256Short, writeJsonFile, atomicWrite } from './core/utils'
 import { getPaths } from './core/paths'
 
@@ -45,6 +52,18 @@ export class GatewayConfigStore {
 
   windsurfAccountsDir(): string {
     return join(dirname(this.configPath), 'windsurf', 'accounts')
+  }
+
+  traeAccountsDir(): string {
+    return join(dirname(this.configPath), 'trae', 'accounts')
+  }
+
+  openrouterAccountsDir(): string {
+    return join(dirname(this.configPath), 'openrouter', 'accounts')
+  }
+
+  nvidiaAccountsDir(): string {
+    return join(dirname(this.configPath), 'nvidia', 'accounts')
   }
 
   logsDir(): string {
@@ -122,6 +141,8 @@ export class GatewayConfigStore {
     const shouldSaveNormalizedConfig =
       migratedFromV2 ||
       Boolean(parsed.providers?.kiro?.accounts) ||
+      !parsed.providers?.nvidia ||
+      parsed.providers?.trae?.settings?.modelListPath === LEGACY_TRAE_MODEL_LIST_PATH ||
       JSON.stringify(parsed.modelMappings ?? []) !== JSON.stringify(config.modelMappings)
 
     if (shouldSaveNormalizedConfig) {
@@ -474,6 +495,229 @@ export class GatewayConfigStore {
     return scanExternalWindsurfAccounts()
   }
 
+  // ============== Trae account file management ==============
+
+  async readTraeAccountFiles(): Promise<TraeAccountConfig[]> {
+    const dir = this.traeAccountsDir()
+    let files: string[]
+    try {
+      files = await readdir(dir)
+    } catch {
+      return []
+    }
+    const accounts: TraeAccountConfig[] = []
+    for (const file of files) {
+      if (!file.endsWith('.json') || file.startsWith('.')) continue
+      const filePath = join(dir, file)
+      try {
+        const data = await readJsonFile<any>(filePath)
+        if (!data.id) data.id = makeTraeStableId(data)
+        if (data.enabled === undefined) data.enabled = true
+        data.path = filePath
+        accounts.push(data as TraeAccountConfig)
+      } catch (err) {
+        console.warn(`[GatewayHub] Skipping corrupt trae account file: ${file}`, err)
+      }
+    }
+    return accounts
+  }
+
+  async writeTraeAccountFile(data: TraeAccountConfig): Promise<string> {
+    const dir = this.traeAccountsDir()
+    await mkdir(dir, { recursive: true })
+    const fileBase = safeFileName(data.email || data.label || data.id) || 'account'
+    const targetPath = join(dir, `${fileBase}.json`)
+    const existing = await readJsonFile<any>(targetPath).catch(() => null)
+    if (existing && existing.id && existing.id !== data.id) {
+      const altPath = join(dir, `${fileBase}-${sha256Short(data.id)}.json`)
+      await atomicWrite(altPath, `${JSON.stringify(stripTraePath(data), null, 2)}\n`)
+      return altPath
+    }
+    await atomicWrite(targetPath, `${JSON.stringify(stripTraePath(data), null, 2)}\n`)
+    return targetPath
+  }
+
+  async deleteTraeAccountFile(accountId: string): Promise<boolean> {
+    const accounts = await this.readTraeAccountFiles()
+    const account = accounts.find((a) => a.id === accountId)
+    if (!account?.path) return false
+    await unlink(account.path)
+    return true
+  }
+
+  async updateTraeAccountFile(
+    accountId: string,
+    updates: Partial<TraeAccountConfig>
+  ): Promise<void> {
+    const accounts = await this.readTraeAccountFiles()
+    const account = accounts.find((a) => a.id === accountId)
+    if (!account?.path) throw new Error(`Trae account not found: ${accountId}`)
+    const data = await readJsonFile<any>(account.path)
+    Object.assign(data, updates)
+    await atomicWrite(account.path, `${JSON.stringify(data, null, 2)}\n`)
+    if (updates.email && updates.email !== account.email) {
+      const dir = dirname(account.path)
+      const newBase = safeFileName(updates.email)
+      if (newBase) {
+        const newPath = join(dir, `${newBase}.json`)
+        const conflict = await readJsonFile<any>(newPath).catch(() => null)
+        if (!conflict || conflict.id === accountId) {
+          await rename(account.path, newPath).catch(() => {})
+        }
+      }
+    }
+  }
+
+  async scanTraeAccounts(): Promise<{
+    candidates: Array<TraeAccountConfig & { existing?: boolean; sourceType?: string }>
+  }> {
+    const external = await this.scanExternalTraeAccounts()
+    const existing = await this.readTraeAccountFiles()
+    const existingKeys = new Set<string>()
+    for (const acc of existing) {
+      for (const key of traeIdentityKeys(acc)) existingKeys.add(key)
+    }
+    const result: Array<TraeAccountConfig & { existing?: boolean; sourceType?: string }> = []
+    for (const candidate of external) {
+      const keys = traeIdentityKeys(candidate)
+      const isExisting = keys.some((key) => existingKeys.has(key))
+      result.push({ ...candidate, existing: isExisting || undefined })
+    }
+    return { candidates: result }
+  }
+
+  private async scanExternalTraeAccounts(): Promise<
+    Array<TraeAccountConfig & { sourceType: string }>
+  > {
+    return scanExternalTraeAccounts()
+  }
+
+  // ============== OpenRouter account file management ==============
+
+  async readOpenRouterAccountFiles(): Promise<OpenRouterAccountConfig[]> {
+    const dir = this.openrouterAccountsDir()
+    let files: string[]
+    try {
+      files = await readdir(dir)
+    } catch {
+      return []
+    }
+    const accounts: OpenRouterAccountConfig[] = []
+    for (const file of files) {
+      if (!file.endsWith('.json') || file.startsWith('.')) continue
+      const filePath = join(dir, file)
+      try {
+        const data = await readJsonFile<any>(filePath)
+        if (!data.apiKey) continue
+        if (!data.id) data.id = `openrouter-${sha256Short(data.apiKey || Math.random().toString())}`
+        if (data.enabled === undefined) data.enabled = true
+        data.path = filePath
+        accounts.push(data as OpenRouterAccountConfig)
+      } catch (err) {
+        console.warn(`[GatewayHub] Skipping corrupt openrouter account file: ${file}`, err)
+      }
+    }
+    return accounts
+  }
+
+  async writeOpenRouterAccountFile(data: OpenRouterAccountConfig): Promise<string> {
+    const dir = this.openrouterAccountsDir()
+    await mkdir(dir, { recursive: true })
+    const fileBase = safeFileName(data.label || data.id) || 'account'
+    const targetPath = join(dir, `${fileBase}.json`)
+    const existing = await readJsonFile<any>(targetPath).catch(() => null)
+    if (existing && existing.id && existing.id !== data.id) {
+      const altPath = join(dir, `${fileBase}-${sha256Short(data.id)}.json`)
+      await atomicWrite(altPath, `${JSON.stringify(stripOpenRouterPath(data), null, 2)}\n`)
+      return altPath
+    }
+    await atomicWrite(targetPath, `${JSON.stringify(stripOpenRouterPath(data), null, 2)}\n`)
+    return targetPath
+  }
+
+  async deleteOpenRouterAccountFile(accountId: string): Promise<boolean> {
+    const accounts = await this.readOpenRouterAccountFiles()
+    const account = accounts.find((a) => a.id === accountId)
+    if (!account?.path) return false
+    await unlink(account.path)
+    return true
+  }
+
+  async updateOpenRouterAccountFile(
+    accountId: string,
+    updates: Partial<OpenRouterAccountConfig>
+  ): Promise<void> {
+    const accounts = await this.readOpenRouterAccountFiles()
+    const account = accounts.find((a) => a.id === accountId)
+    if (!account?.path) throw new Error(`OpenRouter account not found: ${accountId}`)
+    const data = await readJsonFile<any>(account.path)
+    Object.assign(data, updates)
+    await atomicWrite(account.path, `${JSON.stringify(data, null, 2)}\n`)
+  }
+
+  // ============== NVIDIA account file management ==============
+
+  async readNvidiaAccountFiles(): Promise<NvidiaAccountConfig[]> {
+    const dir = this.nvidiaAccountsDir()
+    let files: string[]
+    try {
+      files = await readdir(dir)
+    } catch {
+      return []
+    }
+    const accounts: NvidiaAccountConfig[] = []
+    for (const file of files) {
+      if (!file.endsWith('.json') || file.startsWith('.')) continue
+      const filePath = join(dir, file)
+      try {
+        const data = await readJsonFile<any>(filePath)
+        if (!data.apiKey) continue
+        if (!data.id) data.id = `nvidia-${sha256Short(data.apiKey || Math.random().toString())}`
+        if (data.enabled === undefined) data.enabled = true
+        data.path = filePath
+        accounts.push(data as NvidiaAccountConfig)
+      } catch (err) {
+        console.warn(`[GatewayHub] Skipping corrupt nvidia account file: ${file}`, err)
+      }
+    }
+    return accounts
+  }
+
+  async writeNvidiaAccountFile(data: NvidiaAccountConfig): Promise<string> {
+    const dir = this.nvidiaAccountsDir()
+    await mkdir(dir, { recursive: true })
+    const fileBase = safeFileName(data.label || data.id) || 'account'
+    const targetPath = join(dir, `${fileBase}.json`)
+    const existing = await readJsonFile<any>(targetPath).catch(() => null)
+    if (existing && existing.id && existing.id !== data.id) {
+      const altPath = join(dir, `${fileBase}-${sha256Short(data.id)}.json`)
+      await atomicWrite(altPath, `${JSON.stringify(stripNvidiaPath(data), null, 2)}\n`)
+      return altPath
+    }
+    await atomicWrite(targetPath, `${JSON.stringify(stripNvidiaPath(data), null, 2)}\n`)
+    return targetPath
+  }
+
+  async deleteNvidiaAccountFile(accountId: string): Promise<boolean> {
+    const accounts = await this.readNvidiaAccountFiles()
+    const account = accounts.find((a) => a.id === accountId)
+    if (!account?.path) return false
+    await unlink(account.path)
+    return true
+  }
+
+  async updateNvidiaAccountFile(
+    accountId: string,
+    updates: Partial<NvidiaAccountConfig>
+  ): Promise<void> {
+    const accounts = await this.readNvidiaAccountFiles()
+    const account = accounts.find((a) => a.id === accountId)
+    if (!account?.path) throw new Error(`NVIDIA account not found: ${accountId}`)
+    const data = await readJsonFile<any>(account.path)
+    Object.assign(data, updates)
+    await atomicWrite(account.path, `${JSON.stringify(data, null, 2)}\n`)
+  }
+
   defaultConfig(): GatewayHubConfig {
     return {
       version: 3,
@@ -500,6 +744,21 @@ export class GatewayConfigStore {
           routeName: 'windsurf',
           settings: { ...DEFAULT_WINDSURF_SETTINGS }
         },
+        trae: {
+          enabled: true,
+          routeName: 'trae',
+          settings: { ...DEFAULT_TRAE_SETTINGS }
+        },
+        openrouter: {
+          enabled: true,
+          routeName: 'openrouter',
+          settings: { ...DEFAULT_OPENROUTER_SETTINGS }
+        },
+        nvidia: {
+          enabled: true,
+          routeName: 'nvidia',
+          settings: { ...DEFAULT_NVIDIA_SETTINGS }
+        },
         gemini: {
           enabled: false,
           routeName: 'gemini',
@@ -525,6 +784,21 @@ export class GatewayConfigStore {
           logs: []
         },
         windsurf: {
+          accounts: {},
+          currentAccountIndex: 0,
+          logs: []
+        },
+        trae: {
+          accounts: {},
+          currentAccountIndex: 0,
+          logs: []
+        },
+        openrouter: {
+          accounts: {},
+          currentAccountIndex: 0,
+          logs: []
+        },
+        nvidia: {
           accounts: {},
           currentAccountIndex: 0,
           logs: []
@@ -619,6 +893,14 @@ export class GatewayConfigStore {
       ? { ...input.providers.codex, note: undefined }
       : undefined
     if (inputCodex) delete (inputCodex as any).note
+    const traeSettings = {
+      ...defaults.providers.trae.settings,
+      ...(input?.providers?.trae?.settings ?? {})
+    }
+    if (traeSettings.modelListPath === LEGACY_TRAE_MODEL_LIST_PATH) {
+      traeSettings.modelListPath = defaults.providers.trae.settings.modelListPath
+    }
+
     const config: GatewayHubConfig = {
       ...defaults,
       ...input,
@@ -659,6 +941,43 @@ export class GatewayConfigStore {
           settings: {
             ...defaults.providers.windsurf.settings,
             ...(input?.providers?.windsurf?.settings ?? {})
+          }
+        },
+        trae: {
+          ...defaults.providers.trae,
+          ...(input?.providers?.trae ?? {}),
+          routeName: input?.providers?.trae?.routeName || defaults.providers.trae.routeName,
+          enabled:
+            typeof input?.providers?.trae?.enabled === 'boolean'
+              ? input.providers.trae.enabled
+              : defaults.providers.trae.enabled,
+          settings: traeSettings
+        },
+        openrouter: {
+          ...defaults.providers.openrouter,
+          ...(input?.providers?.openrouter ?? {}),
+          routeName:
+            input?.providers?.openrouter?.routeName || defaults.providers.openrouter.routeName,
+          enabled:
+            typeof input?.providers?.openrouter?.enabled === 'boolean'
+              ? input.providers.openrouter.enabled
+              : defaults.providers.openrouter.enabled,
+          settings: {
+            ...defaults.providers.openrouter.settings,
+            ...(input?.providers?.openrouter?.settings ?? {})
+          }
+        },
+        nvidia: {
+          ...defaults.providers.nvidia,
+          ...(input?.providers?.nvidia ?? {}),
+          routeName: input?.providers?.nvidia?.routeName || defaults.providers.nvidia.routeName,
+          enabled:
+            typeof input?.providers?.nvidia?.enabled === 'boolean'
+              ? input.providers.nvidia.enabled
+              : defaults.providers.nvidia.enabled,
+          settings: {
+            ...defaults.providers.nvidia.settings,
+            ...(input?.providers?.nvidia?.settings ?? {})
           }
         },
         gemini: {
@@ -709,6 +1028,30 @@ export class GatewayConfigStore {
           accounts: input?.providers?.windsurf?.accounts ?? {},
           logs: Array.isArray(input?.providers?.windsurf?.logs)
             ? input.providers.windsurf.logs.slice(-1000)
+            : []
+        },
+        trae: {
+          ...defaults.providers.trae,
+          ...(input?.providers?.trae ?? {}),
+          accounts: input?.providers?.trae?.accounts ?? {},
+          logs: Array.isArray(input?.providers?.trae?.logs)
+            ? input.providers.trae.logs.slice(-1000)
+            : []
+        },
+        openrouter: {
+          ...defaults.providers.openrouter,
+          ...(input?.providers?.openrouter ?? {}),
+          accounts: input?.providers?.openrouter?.accounts ?? {},
+          logs: Array.isArray(input?.providers?.openrouter?.logs)
+            ? input.providers.openrouter.logs.slice(-1000)
+            : []
+        },
+        nvidia: {
+          ...defaults.providers.nvidia,
+          ...(input?.providers?.nvidia ?? {}),
+          accounts: input?.providers?.nvidia?.accounts ?? {},
+          logs: Array.isArray(input?.providers?.nvidia?.logs)
+            ? input.providers.nvidia.logs.slice(-1000)
             : []
         }
       }
@@ -782,6 +1125,36 @@ function stripWindsurfPath(data: WindsurfAccountConfig): Omit<WindsurfAccountCon
   return rest
 }
 
+function stripTraePath(data: TraeAccountConfig): Omit<TraeAccountConfig, 'path'> {
+  const {
+    path: _,
+    sourceType: _sourceType,
+    existing: _existing,
+    ...rest
+  } = data as TraeAccountConfig & {
+    sourceType?: string
+    existing?: boolean
+  }
+  return rest
+}
+
+function stripOpenRouterPath(data: OpenRouterAccountConfig): Omit<OpenRouterAccountConfig, 'path'> {
+  const { path: _, ...rest } = data
+  return rest
+}
+
+function stripNvidiaPath(data: NvidiaAccountConfig): Omit<NvidiaAccountConfig, 'path'> {
+  const { path: _, ...rest } = data
+  return rest
+}
+
+function makeTraeStableId(account: Partial<TraeAccountConfig>): string {
+  if (account.userId) return `trae-user-${sha256Short(account.userId, 12)}`
+  if (account.refreshToken) return `trae-refresh-${sha256Short(account.refreshToken, 12)}`
+  if (account.jwtToken) return `trae-jwt-${sha256Short(account.jwtToken, 12)}`
+  return `trae-${sha256Short(Math.random().toString(), 12)}`
+}
+
 function codexIdentityKeys(account: Partial<CodexAccountConfig>): string[] {
   const keys: string[] = []
   if (account.chatgptAccountId) keys.push(`codex-acct:${account.chatgptAccountId}`)
@@ -797,6 +1170,16 @@ function windsurfIdentityKeys(account: Partial<WindsurfAccountConfig>): string[]
   if (account.email) keys.push(`windsurf-email:${account.email.toLowerCase()}`)
   if (account.apiKey) keys.push(`windsurf-api:${sha256Short(account.apiKey)}`)
   if (!keys.length && account.id) keys.push(`windsurf-id:${account.id}`)
+  return keys
+}
+
+function traeIdentityKeys(account: Partial<TraeAccountConfig>): string[] {
+  const keys: string[] = []
+  if (account.userId) keys.push(`trae-user:${account.userId}`)
+  if (account.email) keys.push(`trae-email:${account.email.toLowerCase()}`)
+  if (account.refreshToken) keys.push(`trae-refresh:${sha256Short(account.refreshToken)}`)
+  if (!keys.length && account.jwtToken) keys.push(`trae-jwt:${sha256Short(account.jwtToken)}`)
+  if (!keys.length && account.id) keys.push(`trae-id:${account.id}`)
   return keys
 }
 

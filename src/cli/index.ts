@@ -13,6 +13,9 @@ import { registerSettingsCommands } from './commands/settings'
 import { registerConfigCommands } from './commands/config'
 import { registerLogsCommands } from './commands/logs'
 import { registerShellCommands } from './commands/shell'
+import { registerTraeCommands } from './commands/trae'
+import { registerOpenRouterCommands } from './commands/openrouter'
+import { registerNvidiaCommands } from './commands/nvidia'
 
 async function main(): Promise<void> {
   configureCliRuntime()
@@ -25,6 +28,9 @@ async function main(): Promise<void> {
   registerModelCommands(cli)
   registerProviderCommands(cli)
   registerSettingsCommands(cli)
+  registerTraeCommands(cli)
+  registerOpenRouterCommands(cli)
+  registerNvidiaCommands(cli)
   registerConfigCommands(cli)
   registerLogsCommands(cli)
   registerShellCommands(cli)

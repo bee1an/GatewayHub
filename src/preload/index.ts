@@ -128,7 +128,72 @@ const api = {
     resetWindsurfAccount: (accountId: string) =>
       ipcRenderer.invoke('gateway:resetWindsurfAccount', accountId),
     setWindsurfAccountStatus: (accountId: string, status: string, reason?: string) =>
-      ipcRenderer.invoke('gateway:setWindsurfAccountStatus', accountId, status, reason)
+      ipcRenderer.invoke('gateway:setWindsurfAccountStatus', accountId, status, reason),
+    // ========== Trae ==========
+    scanTraeAccounts: () => ipcRenderer.invoke('gateway:scanTraeAccounts'),
+    importScannedTraeAccounts: (ids: string[]) =>
+      ipcRenderer.invoke('gateway:importScannedTraeAccounts', ids),
+    importTraeJson: (text: string) => ipcRenderer.invoke('gateway:importTraeJson', text),
+    addTraeJwtToken: (text: string) => ipcRenderer.invoke('gateway:addTraeJwtToken', text),
+    addTraeRefreshToken: (text: string) => ipcRenderer.invoke('gateway:addTraeRefreshToken', text),
+    testTraeAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:testTraeAccount', accountId),
+    toggleTraeAccount: (accountId: string, enabled: boolean) =>
+      ipcRenderer.invoke('gateway:toggleTraeAccount', accountId, enabled),
+    removeTraeAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:removeTraeAccount', accountId),
+    getTraeAccountInfo: (accountId: string) =>
+      ipcRenderer.invoke('gateway:getTraeAccountInfo', accountId),
+    refreshTraeAccountModels: (accountId: string) =>
+      ipcRenderer.invoke('gateway:refreshTraeAccountModels', accountId),
+    resetTraeAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:resetTraeAccount', accountId),
+    setTraeAccountStatus: (accountId: string, status: string, reason?: string) =>
+      ipcRenderer.invoke('gateway:setTraeAccountStatus', accountId, status, reason),
+    getTraeSettings: () => ipcRenderer.invoke('gateway:getTraeSettings'),
+    updateTraeSettings: (settings: Record<string, any>) =>
+      ipcRenderer.invoke('gateway:updateTraeSettings', settings),
+    // ========== OpenRouter ==========
+    importOpenRouterJson: (text: string) =>
+      ipcRenderer.invoke('gateway:importOpenRouterJson', text),
+    addOpenRouterApiKey: (text: string) => ipcRenderer.invoke('gateway:addOpenRouterApiKey', text),
+    testOpenRouterAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:testOpenRouterAccount', accountId),
+    toggleOpenRouterAccount: (accountId: string, enabled: boolean) =>
+      ipcRenderer.invoke('gateway:toggleOpenRouterAccount', accountId, enabled),
+    removeOpenRouterAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:removeOpenRouterAccount', accountId),
+    getOpenRouterAccountInfo: (accountId: string) =>
+      ipcRenderer.invoke('gateway:getOpenRouterAccountInfo', accountId),
+    refreshOpenRouterAccountModels: (accountId: string) =>
+      ipcRenderer.invoke('gateway:refreshOpenRouterAccountModels', accountId),
+    resetOpenRouterAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:resetOpenRouterAccount', accountId),
+    setOpenRouterAccountStatus: (accountId: string, status: string, reason?: string) =>
+      ipcRenderer.invoke('gateway:setOpenRouterAccountStatus', accountId, status, reason),
+    getOpenRouterSettings: () => ipcRenderer.invoke('gateway:getOpenRouterSettings'),
+    updateOpenRouterSettings: (settings: Record<string, any>) =>
+      ipcRenderer.invoke('gateway:updateOpenRouterSettings', settings),
+    // ========== NVIDIA ==========
+    importNvidiaJson: (text: string) => ipcRenderer.invoke('gateway:importNvidiaJson', text),
+    addNvidiaApiKey: (text: string) => ipcRenderer.invoke('gateway:addNvidiaApiKey', text),
+    testNvidiaAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:testNvidiaAccount', accountId),
+    toggleNvidiaAccount: (accountId: string, enabled: boolean) =>
+      ipcRenderer.invoke('gateway:toggleNvidiaAccount', accountId, enabled),
+    removeNvidiaAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:removeNvidiaAccount', accountId),
+    getNvidiaAccountInfo: (accountId: string) =>
+      ipcRenderer.invoke('gateway:getNvidiaAccountInfo', accountId),
+    refreshNvidiaAccountModels: (accountId: string) =>
+      ipcRenderer.invoke('gateway:refreshNvidiaAccountModels', accountId),
+    resetNvidiaAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:resetNvidiaAccount', accountId),
+    setNvidiaAccountStatus: (accountId: string, status: string, reason?: string) =>
+      ipcRenderer.invoke('gateway:setNvidiaAccountStatus', accountId, status, reason),
+    getNvidiaSettings: () => ipcRenderer.invoke('gateway:getNvidiaSettings'),
+    updateNvidiaSettings: (settings: Record<string, any>) =>
+      ipcRenderer.invoke('gateway:updateNvidiaSettings', settings)
   },
   updater: {
     check: () => ipcRenderer.invoke('updater:check'),

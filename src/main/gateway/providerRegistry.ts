@@ -6,16 +6,22 @@ import type {
   GatewayResponse,
   KiroAccountConfig,
   ModelMapping,
+  NvidiaAccountConfig,
+  OpenRouterAccountConfig,
   ProviderAdapter,
   ProviderModel,
   ProviderName,
   ProviderStatus,
+  TraeAccountConfig,
   WindsurfAccountConfig
 } from './types'
 import { GatewayLogger } from './core/logger'
 import { KiroProvider } from './providers/kiro/provider'
 import { CodexProvider } from './providers/codex/provider'
 import { WindsurfProvider } from './providers/windsurf/provider'
+import { TraeProvider } from './providers/trae/provider'
+import { OpenRouterProvider } from './providers/openrouter/provider'
+import { NvidiaProvider } from './providers/nvidia/provider'
 import type { GatewayHubState } from './types'
 
 class PlaceholderProvider implements ProviderAdapter {
@@ -69,6 +75,18 @@ export class ProviderRegistry {
     private readonly persistCodexAccount?: (
       accountId: string,
       updates: Partial<CodexAccountConfig>
+    ) => Promise<void>,
+    private readonly persistTraeAccount?: (
+      accountId: string,
+      updates: Partial<TraeAccountConfig>
+    ) => Promise<void>,
+    private readonly persistOpenRouterAccount?: (
+      accountId: string,
+      updates: Partial<OpenRouterAccountConfig>
+    ) => Promise<void>,
+    private readonly persistNvidiaAccount?: (
+      accountId: string,
+      updates: Partial<NvidiaAccountConfig>
     ) => Promise<void>
   ) {
     for (const mapping of config.modelMappings ?? []) {
@@ -81,7 +99,10 @@ export class ProviderRegistry {
   async initialize(
     accountFiles: KiroAccountConfig[],
     codexAccountFiles: CodexAccountConfig[] = [],
-    windsurfAccountFiles: WindsurfAccountConfig[] = []
+    windsurfAccountFiles: WindsurfAccountConfig[] = [],
+    traeAccountFiles: TraeAccountConfig[] = [],
+    openrouterAccountFiles: OpenRouterAccountConfig[] = [],
+    nvidiaAccountFiles: NvidiaAccountConfig[] = []
   ): Promise<void> {
     const kiro = new KiroProvider(
       this.config.providers.kiro,
@@ -94,6 +115,8 @@ export class ProviderRegistry {
 
     // Settings 页"代理"是全局字段（持久化在 kiro.settings.vpnProxyUrl 上），运行时同步给 codex
     this.config.providers.codex.settings.vpnProxyUrl =
+      this.config.providers.kiro.settings.vpnProxyUrl
+    this.config.providers.trae.settings.vpnProxyUrl =
       this.config.providers.kiro.settings.vpnProxyUrl
 
     const codex = new CodexProvider(
@@ -119,6 +142,40 @@ export class ProviderRegistry {
       this.config.providers.windsurf.routeName || 'windsurf'
     )
 
+    const trae = new TraeProvider(
+      this.config.providers.trae,
+      this.state.providers.trae,
+      this.logger,
+      this.onStateChanged,
+      this.persistTraeAccount
+    )
+    await trae.initialize(traeAccountFiles)
+    this.registerProvider('trae', trae, this.config.providers.trae.routeName || 'trae')
+
+    const openrouter = new OpenRouterProvider(
+      this.config.providers.openrouter,
+      this.state.providers.openrouter,
+      this.logger,
+      this.onStateChanged,
+      this.persistOpenRouterAccount
+    )
+    await openrouter.initialize(openrouterAccountFiles)
+    this.registerProvider(
+      'openrouter',
+      openrouter,
+      this.config.providers.openrouter.routeName || 'openrouter'
+    )
+
+    const nvidia = new NvidiaProvider(
+      this.config.providers.nvidia,
+      this.state.providers.nvidia,
+      this.logger,
+      this.onStateChanged,
+      this.persistNvidiaAccount
+    )
+    await nvidia.initialize(nvidiaAccountFiles)
+    this.registerProvider('nvidia', nvidia, this.config.providers.nvidia.routeName || 'nvidia')
+
     this.registerProvider(
       'gemini',
       new PlaceholderProvider('gemini', this.config.providers.gemini.note),
@@ -141,7 +198,8 @@ export class ProviderRegistry {
     providerName: ProviderName
   } {
     const raw = model || ''
-    if (raw.includes(':')) {
+    const slash = raw.indexOf('/')
+    if (raw.includes(':') && (slash < 0 || raw.indexOf(':') < slash)) {
       throw new Error(
         `Invalid model format "${raw}". Use "provider/model" instead of colon notation.`
       )
@@ -156,7 +214,6 @@ export class ProviderRegistry {
       }
       return { provider: target, model: mapping.model, providerName: target.name }
     }
-    const slash = raw.indexOf('/')
     if (slash <= 0) {
       throw new Error(
         `Model "${raw}" must be prefixed with a provider, e.g. "kiro/${raw || 'model-id'}"`

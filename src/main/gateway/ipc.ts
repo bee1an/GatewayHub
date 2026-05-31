@@ -4,9 +4,15 @@ import type { AccountStatus, LogCategory, ModelMapping } from './types'
 import type { CodexLoginEvent } from './providers/codex/types'
 import { DEFAULT_KIRO_SETTINGS } from './providers/kiro/constants'
 import { DEFAULT_CODEX_SETTINGS } from './providers/codex/constants'
+import { DEFAULT_TRAE_SETTINGS } from './providers/trae/constants'
+import { DEFAULT_OPENROUTER_SETTINGS } from './providers/openrouter/constants'
+import { DEFAULT_NVIDIA_SETTINGS } from './providers/nvidia/constants'
 
 const KIRO_KEYS = new Set(Object.keys(DEFAULT_KIRO_SETTINGS))
 const CODEX_KEYS = new Set(Object.keys(DEFAULT_CODEX_SETTINGS))
+const TRAE_KEYS = new Set(Object.keys(DEFAULT_TRAE_SETTINGS))
+const OPENROUTER_KEYS = new Set(Object.keys(DEFAULT_OPENROUTER_SETTINGS))
+const NVIDIA_KEYS = new Set(Object.keys(DEFAULT_NVIDIA_SETTINGS))
 
 function safeHandler(fn: (...args: any[]) => any) {
   return async (...args: any[]) => {
@@ -347,6 +353,194 @@ export function registerGatewayIpc(): void {
     safeHandler((_event, accountId: string, status: string, reason?: string) =>
       gatewayHubService.setWindsurfAccountStatus(accountId, status as AccountStatus, reason)
     )
+  )
+
+  // ============== Trae ==============
+
+  ipcMain.handle(
+    'gateway:scanTraeAccounts',
+    safeHandler(() => gatewayHubService.scanTraeAccounts())
+  )
+  ipcMain.handle(
+    'gateway:importScannedTraeAccounts',
+    safeHandler((_event, ids: string[]) => gatewayHubService.importScannedTraeAccounts(ids))
+  )
+  ipcMain.handle(
+    'gateway:importTraeJson',
+    safeHandler((_event, text: string) => gatewayHubService.importTraeAuthJson(text))
+  )
+  ipcMain.handle(
+    'gateway:addTraeJwtToken',
+    safeHandler((_event, text: string) => gatewayHubService.addTraeJwtToken(text))
+  )
+  ipcMain.handle(
+    'gateway:addTraeRefreshToken',
+    safeHandler((_event, text: string) => gatewayHubService.addTraeRefreshToken(text))
+  )
+  ipcMain.handle(
+    'gateway:testTraeAccount',
+    safeHandler((_event, accountId: string) => gatewayHubService.testTraeAccount(accountId))
+  )
+  ipcMain.handle(
+    'gateway:toggleTraeAccount',
+    safeHandler((_event, accountId: string, enabled: boolean) =>
+      gatewayHubService.toggleTraeAccount(accountId, enabled)
+    )
+  )
+  ipcMain.handle(
+    'gateway:removeTraeAccount',
+    safeHandler((_event, accountId: string) => gatewayHubService.removeTraeAccount(accountId))
+  )
+  ipcMain.handle(
+    'gateway:getTraeAccountInfo',
+    safeHandler((_event, accountId: string) => gatewayHubService.getTraeAccountInfo(accountId))
+  )
+  ipcMain.handle(
+    'gateway:refreshTraeAccountModels',
+    safeHandler((_event, accountId: string) =>
+      gatewayHubService.refreshTraeAccountModels(accountId)
+    )
+  )
+  ipcMain.handle(
+    'gateway:resetTraeAccount',
+    safeHandler((_event, accountId: string) => gatewayHubService.resetTraeAccount(accountId))
+  )
+  ipcMain.handle(
+    'gateway:setTraeAccountStatus',
+    safeHandler((_event, accountId: string, status: string, reason?: string) =>
+      gatewayHubService.setTraeAccountStatus(accountId, status as AccountStatus, reason)
+    )
+  )
+  ipcMain.handle(
+    'gateway:getTraeSettings',
+    safeHandler(() => gatewayHubService.getTraeSettings())
+  )
+  ipcMain.handle(
+    'gateway:updateTraeSettings',
+    safeHandler((_event, settings: Record<string, any>) => {
+      const filtered = Object.fromEntries(
+        Object.entries(settings).filter(([k]) => TRAE_KEYS.has(k))
+      )
+      return gatewayHubService.updateTraeSettings(filtered)
+    })
+  )
+
+  // ============== OpenRouter ==============
+
+  ipcMain.handle(
+    'gateway:addOpenRouterApiKey',
+    safeHandler((_event, text: string) => gatewayHubService.addOpenRouterApiKey(text))
+  )
+  ipcMain.handle(
+    'gateway:importOpenRouterJson',
+    safeHandler((_event, text: string) => gatewayHubService.importOpenRouterAuthJson(text))
+  )
+  ipcMain.handle(
+    'gateway:testOpenRouterAccount',
+    safeHandler((_event, accountId: string) => gatewayHubService.testOpenRouterAccount(accountId))
+  )
+  ipcMain.handle(
+    'gateway:toggleOpenRouterAccount',
+    safeHandler((_event, accountId: string, enabled: boolean) =>
+      gatewayHubService.toggleOpenRouterAccount(accountId, enabled)
+    )
+  )
+  ipcMain.handle(
+    'gateway:removeOpenRouterAccount',
+    safeHandler((_event, accountId: string) => gatewayHubService.removeOpenRouterAccount(accountId))
+  )
+  ipcMain.handle(
+    'gateway:getOpenRouterAccountInfo',
+    safeHandler((_event, accountId: string) =>
+      gatewayHubService.getOpenRouterAccountInfo(accountId)
+    )
+  )
+  ipcMain.handle(
+    'gateway:refreshOpenRouterAccountModels',
+    safeHandler((_event, accountId: string) =>
+      gatewayHubService.refreshOpenRouterAccountModels(accountId)
+    )
+  )
+  ipcMain.handle(
+    'gateway:resetOpenRouterAccount',
+    safeHandler((_event, accountId: string) => gatewayHubService.resetOpenRouterAccount(accountId))
+  )
+  ipcMain.handle(
+    'gateway:setOpenRouterAccountStatus',
+    safeHandler((_event, accountId: string, status: string, reason?: string) =>
+      gatewayHubService.setOpenRouterAccountStatus(accountId, status as AccountStatus, reason)
+    )
+  )
+  ipcMain.handle(
+    'gateway:getOpenRouterSettings',
+    safeHandler(() => gatewayHubService.getOpenRouterSettings())
+  )
+  ipcMain.handle(
+    'gateway:updateOpenRouterSettings',
+    safeHandler((_event, settings: Record<string, any>) => {
+      const filtered = Object.fromEntries(
+        Object.entries(settings).filter(([k]) => OPENROUTER_KEYS.has(k))
+      )
+      return gatewayHubService.updateOpenRouterSettings(filtered)
+    })
+  )
+
+  // ============== NVIDIA ==============
+
+  ipcMain.handle(
+    'gateway:addNvidiaApiKey',
+    safeHandler((_event, text: string) => gatewayHubService.addNvidiaApiKey(text))
+  )
+  ipcMain.handle(
+    'gateway:importNvidiaJson',
+    safeHandler((_event, text: string) => gatewayHubService.importNvidiaAuthJson(text))
+  )
+  ipcMain.handle(
+    'gateway:testNvidiaAccount',
+    safeHandler((_event, accountId: string) => gatewayHubService.testNvidiaAccount(accountId))
+  )
+  ipcMain.handle(
+    'gateway:toggleNvidiaAccount',
+    safeHandler((_event, accountId: string, enabled: boolean) =>
+      gatewayHubService.toggleNvidiaAccount(accountId, enabled)
+    )
+  )
+  ipcMain.handle(
+    'gateway:removeNvidiaAccount',
+    safeHandler((_event, accountId: string) => gatewayHubService.removeNvidiaAccount(accountId))
+  )
+  ipcMain.handle(
+    'gateway:getNvidiaAccountInfo',
+    safeHandler((_event, accountId: string) => gatewayHubService.getNvidiaAccountInfo(accountId))
+  )
+  ipcMain.handle(
+    'gateway:refreshNvidiaAccountModels',
+    safeHandler((_event, accountId: string) =>
+      gatewayHubService.refreshNvidiaAccountModels(accountId)
+    )
+  )
+  ipcMain.handle(
+    'gateway:resetNvidiaAccount',
+    safeHandler((_event, accountId: string) => gatewayHubService.resetNvidiaAccount(accountId))
+  )
+  ipcMain.handle(
+    'gateway:setNvidiaAccountStatus',
+    safeHandler((_event, accountId: string, status: string, reason?: string) =>
+      gatewayHubService.setNvidiaAccountStatus(accountId, status as AccountStatus, reason)
+    )
+  )
+  ipcMain.handle(
+    'gateway:getNvidiaSettings',
+    safeHandler(() => gatewayHubService.getNvidiaSettings())
+  )
+  ipcMain.handle(
+    'gateway:updateNvidiaSettings',
+    safeHandler((_event, settings: Record<string, any>) => {
+      const filtered = Object.fromEntries(
+        Object.entries(settings).filter(([k]) => NVIDIA_KEYS.has(k))
+      )
+      return gatewayHubService.updateNvidiaSettings(filtered)
+    })
   )
 }
 

@@ -280,6 +280,9 @@ const en = {
     title: 'Add Kiro Account',
     codexTitle: 'Add Codex Account',
     windsurfTitle: 'Add Windsurf Account',
+    traeTitle: 'Add Trae Account',
+    openrouterTitle: 'Add OpenRouter Key',
+    nvidiaTitle: 'Add NVIDIA API Key',
     type: 'Type',
     label: 'Label',
     path: 'Path',
@@ -291,6 +294,8 @@ const en = {
       discover: 'Discover',
       token: 'Token',
       json: 'JSON',
+      apiKey: 'API Key',
+      refreshToken: 'Refresh Token',
       cli: 'CLI Login',
       advanced: 'Advanced',
       codexBrowser: 'Browser',
@@ -343,7 +348,30 @@ const en = {
       'Paste JSON with apiKey (single object or array), optionally with label/email/apiServerUrl.',
     windsurfJsonPlaceholder: '{ "apiKey": "...", "label": "Windsurf" }',
     windsurfDiscoverDesc:
-      'Scan the local Windsurf sign-in state (state.vscdb) and import available apiKeys.'
+      'Scan the local Windsurf sign-in state (state.vscdb) and import available apiKeys.',
+    traeDiscoverDesc:
+      'Scan the local Trae international sign-in state (User/globalStorage/storage.json) and import Cloud-IDE-JWT/refresh token. Trae CN is skipped.',
+    traeRefreshHint:
+      'Paste a Trae international refresh token. GatewayHub exchanges it for Cloud-IDE-JWT locally and stores it in the local config directory.',
+    traeRefreshPlaceholder: 'Paste Trae refresh token...',
+    traeJwtHint:
+      'Paste the Cloud-IDE-JWT used by Trae IDE requests. JWT-only accounts need manual updates after expiration; refresh token is recommended.',
+    traeJwtPlaceholder: 'Paste Trae Cloud-IDE-JWT...',
+    traeJsonHint:
+      'Paste JSON with refreshToken or jwtToken/cloudIdeJwt (single object or array), optionally with label/email/countryCode.',
+    traeJsonPlaceholder: '{ "refreshToken": "...", "label": "Trae" }',
+    openrouterKeyHint:
+      'Paste an OpenRouter API key (sk-or-v1-*). GatewayHub checks /key locally, detects free vs paid tier, and filters available models accordingly.',
+    openrouterKeyPlaceholder: 'Paste OpenRouter API key...',
+    openrouterJsonHint:
+      'Paste JSON with apiKey/key (single object or array), optionally with label/name/enabled.',
+    openrouterJsonPlaceholder: '{ "apiKey": "sk-or-v1-...", "label": "OpenRouter" }',
+    nvidiaKeyHint:
+      'Paste an NVIDIA NIM API key. GatewayHub proxies OpenAI-compatible /chat/completions through https://integrate.api.nvidia.com/v1.',
+    nvidiaKeyPlaceholder: 'Paste NVIDIA API key...',
+    nvidiaJsonHint:
+      'Paste JSON with apiKey/key (single object or array), optionally with label/name/enabled.',
+    nvidiaJsonPlaceholder: '{ "apiKey": "nvapi-...", "label": "NVIDIA" }'
   },
   updater: {
     title: 'Update Available',

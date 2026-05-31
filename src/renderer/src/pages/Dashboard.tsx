@@ -1,6 +1,9 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { usePolling } from '../hooks/usePolling'
+import { ProviderLogo } from '../components/ProviderLogo'
+import { getProviderLogoLabel } from '../components/providerLogoData'
+import { useTheme } from '../components/useTheme'
 import { formatCostUsd, formatCredits, formatTokens } from '../utils/format'
 
 type GatewayLogEntry = {
@@ -17,6 +20,8 @@ type GatewayLogEntry = {
 
 type ProviderStatus = {
   name: string
+  providerType: string
+  displayName?: string
   enabled: boolean
   configured: boolean
   status: string
@@ -71,6 +76,7 @@ const PROVIDER_COLORS = [
 
 export default function Dashboard(): React.JSX.Element {
   const { t } = useTranslation()
+  const { theme } = useTheme()
   const { data: status } = usePolling<GatewayStatus>(() => window.api.gateway.status(), 3000)
   const { data: usage } = usePolling<UsageDetail>(() => window.api.gateway.readUsage(), 5000)
 
@@ -266,11 +272,18 @@ export default function Dashboard(): React.JSX.Element {
               key={p.name}
               className={`flex items-center gap-3 px-3 py-2 ${i > 0 ? 'border-t border-charcoal/40' : ''}`}
             >
-              <span
-                className={`w-[6px] h-[6px] rounded-full ${p.status === 'ready' ? 'bg-emerald animate-pulse-green' : p.status === 'error' ? 'bg-red' : 'bg-fog'}`}
+              <ProviderLogo
+                providerType={p.providerType}
+                label={getProviderLogoLabel(p.providerType, p.displayName)}
+                theme={theme}
+                size="sm"
               />
               <span className="text-[13px] text-porcelain font-medium flex-1">{p.name}</span>
               <span className="text-[11px] text-fog tabular-nums">{p.models.length} models</span>
+              <span
+                className={`w-[6px] h-[6px] rounded-full ${p.status === 'ready' ? 'bg-emerald animate-pulse-green' : p.status === 'error' ? 'bg-red' : 'bg-fog'}`}
+                aria-hidden="true"
+              />
               <span
                 className={`text-[10px] font-medium uppercase tracking-[0.3px] ${p.status === 'ready' ? 'text-emerald' : p.status === 'error' ? 'text-red' : 'text-fog'}`}
               >

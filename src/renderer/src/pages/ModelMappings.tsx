@@ -5,6 +5,9 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { Modal } from '../components/ui/Modal'
 import { Select, type SelectOption } from '../components/ui/Select'
 import { useToast } from '../components/ui/ToastContext'
+import { ProviderLogo } from '../components/ProviderLogo'
+import { getProviderLogoLabel } from '../components/providerLogoData'
+import { useTheme } from '../components/useTheme'
 
 type ModelMapping = {
   alias: string
@@ -17,6 +20,7 @@ type ModelMapping = {
 type ProviderStatus = {
   name: string
   providerType: string
+  displayName?: string
   enabled: boolean
   configured: boolean
   status: string
@@ -272,13 +276,18 @@ function MappingRow({
   onEdit: (idx: number) => void
 }): React.JSX.Element {
   const { t } = useTranslation()
+  const { theme } = useTheme()
   const isEditing = (field: EditingCell['field']) =>
     editing?.row === idx && editing?.field === field
 
+  const selectedProvider = useMemo(
+    () => providers.find((pr) => pr.name === m.provider),
+    [providers, m.provider]
+  )
+
   const availableModels = useMemo(() => {
-    const p = providers.find((pr) => pr.name === m.provider)
-    return p?.models ?? []
-  }, [providers, m.provider])
+    return selectedProvider?.models ?? []
+  }, [selectedProvider?.models])
 
   const providerSelectOptions: SelectOption[] = useMemo(
     () => providerOptions.map((p) => ({ value: p, label: p })),
@@ -327,10 +336,19 @@ function MappingRow({
         />
       ) : (
         <span
-          className="text-steel truncate cursor-pointer rounded px-1 -mx-1 hover:bg-charcoal/40"
+          className="text-steel truncate cursor-pointer rounded px-1 -mx-1 hover:bg-charcoal/40 inline-flex items-center gap-1.5"
           onClick={() => onStartEdit(idx, 'provider')}
         >
-          {m.provider}
+          <ProviderLogo
+            providerType={selectedProvider?.providerType ?? m.provider}
+            label={getProviderLogoLabel(
+              selectedProvider?.providerType ?? m.provider,
+              selectedProvider?.displayName
+            )}
+            theme={theme}
+            size="xs"
+          />
+          <span className="truncate">{m.provider}</span>
         </span>
       )}
 

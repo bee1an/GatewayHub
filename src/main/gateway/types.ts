@@ -1,4 +1,12 @@
-export type ProviderName = 'kiro' | 'codex' | 'windsurf' | 'gemini' | string
+export type ProviderName =
+  | 'kiro'
+  | 'codex'
+  | 'windsurf'
+  | 'trae'
+  | 'openrouter'
+  | 'nvidia'
+  | 'gemini'
+  | string
 
 export interface GatewayHubConfig {
   version: number
@@ -8,6 +16,9 @@ export interface GatewayHubConfig {
     kiro: KiroProviderConfig
     codex: CodexProviderConfig
     windsurf: WindsurfProviderConfig
+    trae: TraeProviderConfig
+    openrouter: OpenRouterProviderConfig
+    nvidia: NvidiaProviderConfig
     gemini: PlaceholderProviderConfig
     [name: string]: unknown
   }
@@ -168,12 +179,135 @@ export interface WindsurfAccountConfig {
   authType?: string
 }
 
+export interface TraeProviderConfig {
+  enabled: boolean
+  routeName?: string
+  displayName?: string
+  settings: TraeProviderSettings
+}
+
+export interface TraeProviderSettings {
+  /** Trae auth/account base URL, defaults to https://grow-normal.traeapi.us */
+  authBaseUrl: string
+  /** Trae IDE core base URL, defaults to https://core-normal.traeapi.us */
+  coreBaseUrl: string
+  /** Trae OAuth client id observed from the international IDE product config */
+  clientId: string
+  /** Raw chat endpoint path; left configurable because Trae may move schemas */
+  rawChatPath: string
+  /** Prefer Trae's local renderer → ai-agent bridge for chat. This matches the official IDE path. */
+  localChatEnabled: boolean
+  /** Chrome DevTools Protocol port for a Trae window launched with --remote-debugging-port. */
+  localDebugPort: number
+  /** Trae.app path used when GatewayHub needs to launch a debuggable local bridge. */
+  localAppPath: string
+  /** Model list endpoint path observed in Trae IDE */
+  modelListPath: string
+  /** HTTP/SOCKS5 proxy URL */
+  vpnProxyUrl: string
+  ideVersion: string
+  productVersion: string
+  firstTokenTimeoutSeconds: number
+  streamingReadTimeoutSeconds: number
+  maxRetries: number
+  /** Show docs-listed models that Trae marks unavailable for US users */
+  exposeUnavailableInUS: boolean
+}
+
+export interface TraeAccountConfig {
+  id: string
+  label?: string
+  email?: string
+  enabled: boolean
+  path?: string
+  /** Cloud-IDE-JWT token used by Trae IDE requests */
+  jwtToken?: string
+  /** Trae refresh token accepted by /cloudide/api/v3/trae/oauth/ExchangeToken */
+  refreshToken?: string
+  tokenExpiresAt?: number
+  refreshExpiresAt?: number
+  userId?: string
+  countryCode?: string
+  authType?: string
+  authBaseUrl?: string
+  coreBaseUrl?: string
+}
+
+export interface OpenRouterProviderConfig {
+  enabled: boolean
+  routeName?: string
+  displayName?: string
+  settings: OpenRouterProviderSettings
+}
+
+export interface OpenRouterProviderSettings {
+  /** OpenRouter API base URL, defaults to https://openrouter.ai/api/v1 */
+  baseUrl: string
+  firstTokenTimeoutSeconds: number
+  streamingReadTimeoutSeconds: number
+  maxRetries: number
+}
+
+export interface OpenRouterAccountConfig {
+  id: string
+  label?: string
+  enabled: boolean
+  path?: string
+  apiKey?: string
+  keyLabel?: string
+  isFreeTier?: boolean
+  limit?: number | null
+  limitRemaining?: number | null
+  usage?: number
+  lastKeyInfoAt?: number
+}
+
+export interface OpenRouterProviderState {
+  accounts: Record<string, AccountRuntimeState>
+  currentAccountIndex: number
+  logs: GatewayLogEntry[]
+}
+
+export interface NvidiaProviderConfig {
+  enabled: boolean
+  routeName?: string
+  displayName?: string
+  settings: NvidiaProviderSettings
+}
+
+export interface NvidiaProviderSettings {
+  /** NVIDIA hosted NIM OpenAI-compatible API base URL */
+  baseUrl: string
+  firstTokenTimeoutSeconds: number
+  streamingReadTimeoutSeconds: number
+  maxRetries: number
+}
+
+export interface NvidiaAccountConfig {
+  id: string
+  label?: string
+  enabled: boolean
+  path?: string
+  apiKey?: string
+  keyLabel?: string
+  lastKeyInfoAt?: number
+}
+
+export interface NvidiaProviderState {
+  accounts: Record<string, AccountRuntimeState>
+  currentAccountIndex: number
+  logs: GatewayLogEntry[]
+}
+
 export interface GatewayHubState {
   version: 1
   providers: {
     kiro: KiroProviderState
     codex: CodexProviderState
     windsurf: WindsurfProviderState
+    trae: TraeProviderState
+    openrouter: OpenRouterProviderState
+    nvidia: NvidiaProviderState
     [name: string]: unknown
   }
 }
@@ -191,6 +325,12 @@ export interface CodexProviderState {
 }
 
 export interface WindsurfProviderState {
+  accounts: Record<string, AccountRuntimeState>
+  currentAccountIndex: number
+  logs: GatewayLogEntry[]
+}
+
+export interface TraeProviderState {
   accounts: Record<string, AccountRuntimeState>
   currentAccountIndex: number
   logs: GatewayLogEntry[]

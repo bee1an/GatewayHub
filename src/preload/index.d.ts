@@ -207,6 +207,64 @@ declare global {
           status: string,
           reason?: string
         ) => Promise<any>
+        // ========== Trae ==========
+        scanTraeAccounts: () => Promise<{
+          candidates: Array<{
+            id: string
+            email?: string
+            label?: string
+            countryCode?: string
+            existing?: boolean
+            sourceType?: string
+          }>
+        }>
+        importScannedTraeAccounts: (ids: string[]) => Promise<{ added: any[]; status: any }>
+        importTraeJson: (
+          text: string
+        ) => Promise<{ added: number; skipped: number; errors: string[]; status: any }>
+        addTraeJwtToken: (text: string) => Promise<any>
+        addTraeRefreshToken: (text: string) => Promise<any>
+        testTraeAccount: (accountId: string) => Promise<any>
+        toggleTraeAccount: (accountId: string, enabled: boolean) => Promise<any>
+        removeTraeAccount: (accountId: string) => Promise<any>
+        getTraeAccountInfo: (accountId: string) => Promise<any>
+        refreshTraeAccountModels: (accountId: string) => Promise<any>
+        resetTraeAccount: (accountId: string) => Promise<any>
+        setTraeAccountStatus: (accountId: string, status: string, reason?: string) => Promise<any>
+        getTraeSettings: () => Promise<any>
+        updateTraeSettings: (settings: Record<string, any>) => Promise<any>
+        // ========== OpenRouter ==========
+        importOpenRouterJson: (
+          text: string
+        ) => Promise<{ added: number; skipped: number; errors: string[]; status: any }>
+        addOpenRouterApiKey: (text: string) => Promise<any>
+        testOpenRouterAccount: (accountId: string) => Promise<any>
+        toggleOpenRouterAccount: (accountId: string, enabled: boolean) => Promise<any>
+        removeOpenRouterAccount: (accountId: string) => Promise<any>
+        getOpenRouterAccountInfo: (accountId: string) => Promise<any>
+        refreshOpenRouterAccountModels: (accountId: string) => Promise<any>
+        resetOpenRouterAccount: (accountId: string) => Promise<any>
+        setOpenRouterAccountStatus: (
+          accountId: string,
+          status: string,
+          reason?: string
+        ) => Promise<any>
+        getOpenRouterSettings: () => Promise<any>
+        updateOpenRouterSettings: (settings: Record<string, any>) => Promise<any>
+        // ========== NVIDIA ==========
+        importNvidiaJson: (
+          text: string
+        ) => Promise<{ added: number; skipped: number; errors: string[]; status: any }>
+        addNvidiaApiKey: (text: string) => Promise<any>
+        testNvidiaAccount: (accountId: string) => Promise<any>
+        toggleNvidiaAccount: (accountId: string, enabled: boolean) => Promise<any>
+        removeNvidiaAccount: (accountId: string) => Promise<any>
+        getNvidiaAccountInfo: (accountId: string) => Promise<any>
+        refreshNvidiaAccountModels: (accountId: string) => Promise<any>
+        resetNvidiaAccount: (accountId: string) => Promise<any>
+        setNvidiaAccountStatus: (accountId: string, status: string, reason?: string) => Promise<any>
+        getNvidiaSettings: () => Promise<any>
+        updateNvidiaSettings: (settings: Record<string, any>) => Promise<any>
       }
       updater: {
         check: () => Promise<any>

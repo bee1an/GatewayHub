@@ -11,7 +11,10 @@ import type {
   KiroAccountConfig,
   LogCategory,
   ModelMapping,
+  NvidiaAccountConfig,
+  OpenRouterAccountConfig,
   ProviderStatus,
+  TraeAccountConfig,
   WindsurfAccountConfig
 } from './types'
 import { GatewayConfigStore, sanitizeModelMappings } from './configStore'
@@ -47,6 +50,12 @@ import {
   buildWindsurfAccountFromInput,
   parseWindsurfAuthInput
 } from './providers/windsurf/normalize'
+import { buildTraeAccountFromInput, parseTraeAuthInput } from './providers/trae/normalize'
+import {
+  buildOpenRouterAccountFromInput,
+  parseOpenRouterAuthInput
+} from './providers/openrouter/normalize'
+import { buildNvidiaAccountFromInput, parseNvidiaAuthInput } from './providers/nvidia/normalize'
 
 export class GatewayHubService {
   private readonly store = new GatewayConfigStore()
@@ -189,6 +198,7 @@ export class GatewayHubService {
   }
   async stop(): Promise<GatewayStatusSnapshot> {
     if (this.server) await this.server.stop()
+    await this.flushPendingTimers()
     await this.registry?.dispose()
     return this.getStatus()
   }
@@ -389,9 +399,13 @@ export class GatewayHubService {
   async clearLogs(): Promise<void> {
     this.logger.replace([])
     if (this.state) {
+      this.ensureNvidiaState()
       this.state.providers.kiro.logs = []
       this.state.providers.codex.logs = []
       this.state.providers.windsurf.logs = []
+      this.state.providers.trae.logs = []
+      this.state.providers.openrouter.logs = []
+      this.state.providers.nvidia.logs = []
       await this.store.saveState(this.state)
     }
   }
@@ -503,6 +517,19 @@ export class GatewayHubService {
       }
     }
     if (changed) await this.store.saveConfig(this.config)
+  }
+
+  private async flushPendingTimers(): Promise<void> {
+    if (this.lastUsedFlushTimer) {
+      clearTimeout(this.lastUsedFlushTimer)
+      this.lastUsedFlushTimer = undefined
+      await this.flushLastUsed()
+    }
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer)
+      this.saveTimer = undefined
+      await this.saveStateNow()
+    }
   }
 
   async updateProviderDisplayName(
@@ -944,8 +971,449 @@ export class GatewayHubService {
     return this.getStatus()
   }
 
+  // ============== Trae ==============
+
+  async scanTraeAccounts(): Promise<{ candidates: any[] }> {
+    await this.ensureReady()
+    return this.store.scanTraeAccounts()
+  }
+
+  async importScannedTraeAccounts(
+    ids: string[]
+  ): Promise<{ added: TraeAccountConfig[]; status: GatewayStatusSnapshot }> {
+    await this.ensureReady()
+    const { candidates } = await this.store.scanTraeAccounts()
+    const selected = candidates.filter((c) => ids.includes(c.id) && !c.existing)
+    const added: TraeAccountConfig[] = []
+    for (const candidate of selected) {
+      try {
+        await this.store.writeTraeAccountFile(candidate)
+        added.push(candidate)
+      } catch {
+        // skip
+      }
+    }
+    if (added.length) await this.rebuildRuntime(this.server?.running ?? false)
+    return { added, status: await this.getStatus() }
+  }
+
+  async importTraeAuthJson(
+    text: string
+  ): Promise<{ added: number; skipped: number; errors: string[]; status: GatewayStatusSnapshot }> {
+    await this.ensureReady()
+    const trimmed = text.trim()
+    if (!trimmed) throw new Error('Empty Trae credential input')
+    const payloads = parseTraeAuthInput(trimmed)
+    if (!payloads.length) {
+      throw new Error(
+        'No Trae credentials found. Expected jwtToken/cloudIdeJwt/accessToken or refreshToken.'
+      )
+    }
+    let added = 0,
+      updated = 0
+    const errors: string[] = []
+    const existing = await this.store.readTraeAccountFiles()
+    const existingIds = new Set(existing.map((a) => a.id))
+    for (const account of payloads) {
+      try {
+        if (existingIds.has(account.id)) {
+          await this.store.updateTraeAccountFile(account.id, {
+            jwtToken: account.jwtToken,
+            refreshToken: account.refreshToken,
+            tokenExpiresAt: account.tokenExpiresAt,
+            refreshExpiresAt: account.refreshExpiresAt,
+            email: account.email,
+            label: account.label,
+            userId: account.userId,
+            countryCode: account.countryCode,
+            authType: account.authType,
+            authBaseUrl: account.authBaseUrl,
+            coreBaseUrl: account.coreBaseUrl
+          })
+          updated++
+        } else {
+          await this.store.writeTraeAccountFile(account)
+          existingIds.add(account.id)
+          added++
+        }
+      } catch (error) {
+        errors.push(toErrorMessage(error))
+      }
+    }
+    if (added > 0 || updated > 0) await this.rebuildRuntime(this.server?.running ?? false)
+    return { added, skipped: updated, errors, status: await this.getStatus() }
+  }
+
+  async addTraeJwtToken(text: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const account = buildTraeAccountFromInput({ jwtToken: text.trim() })
+    if (!account) throw new Error('Invalid Trae JWT token')
+    await this.store.writeTraeAccountFile(account)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async addTraeRefreshToken(text: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const account = buildTraeAccountFromInput({ refreshToken: text.trim() })
+    if (!account) throw new Error('Invalid Trae refresh token')
+    await this.store.writeTraeAccountFile(account)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async testTraeAccount(accountId: string): Promise<AccountTestResult> {
+    await this.ensureReady()
+    const result = await this.registry!.testAccount('trae', accountId)
+    await this.persistStateSoon()
+    return result
+  }
+
+  async toggleTraeAccount(accountId: string, enabled: boolean): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.store.updateTraeAccountFile(accountId, { enabled })
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async removeTraeAccount(accountId: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const deleted = await this.store.deleteTraeAccountFile(accountId)
+    if (!deleted) throw new Error(`Trae account not found: ${accountId}`)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async getTraeAccountInfo(accountId: string) {
+    await this.ensureReady()
+    return this.registry!.getAccountInfo('trae', accountId)
+  }
+
+  async refreshTraeAccountModels(accountId: string) {
+    await this.ensureReady()
+    const models = await this.registry!.refreshAccountModels('trae', accountId)
+    await this.persistStateSoon()
+    return models
+  }
+
+  async resetTraeAccount(accountId: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.registry!.resetAccount('trae', accountId)
+    await this.persistStateSoon()
+    return this.getStatus()
+  }
+
+  async setTraeAccountStatus(
+    accountId: string,
+    status: AccountStatus,
+    reason?: string
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.registry!.setAccountStatus('trae', accountId, status, reason)
+    await this.persistStateSoon()
+    return this.getStatus()
+  }
+
+  async getTraeSettings() {
+    await this.ensureReady()
+    return this.config!.providers.trae.settings
+  }
+
+  async updateTraeSettings(settings: Partial<Record<string, any>>): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    Object.assign(this.config!.providers.trae.settings, settings)
+    await this.store.saveConfig(this.config!)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  // ============== OpenRouter ==============
+
+  async addOpenRouterApiKey(text: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const account = buildOpenRouterAccountFromInput({ apiKey: text.trim() })
+    if (!account) throw new Error('Invalid OpenRouter API key')
+    await this.store.writeOpenRouterAccountFile(account)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    try {
+      await this.prepareImportedAccount('openrouter', account.id)
+    } catch (error) {
+      await this.store.deleteOpenRouterAccountFile(account.id).catch(() => false)
+      await this.rebuildRuntime(this.server?.running ?? false)
+      throw error
+    }
+    return this.getStatus()
+  }
+
+  async importOpenRouterAuthJson(
+    text: string
+  ): Promise<{ added: number; skipped: number; errors: string[]; status: GatewayStatusSnapshot }> {
+    await this.ensureReady()
+    const trimmed = text.trim()
+    if (!trimmed) throw new Error('Empty OpenRouter credential input')
+    let payloads: OpenRouterAccountConfig[]
+    try {
+      payloads = parseOpenRouterAuthInput(trimmed)
+    } catch (error) {
+      throw new Error(`Invalid input: ${toErrorMessage(error)}`)
+    }
+    if (!payloads.length) {
+      throw new Error('No OpenRouter credentials found. Expected apiKey/key field or sk-or-* key.')
+    }
+    let added = 0,
+      updated = 0
+    const errors: string[] = []
+    const existing = await this.store.readOpenRouterAccountFiles()
+    const existingIds = new Set(existing.map((a) => a.id))
+    for (const account of payloads) {
+      try {
+        if (existingIds.has(account.id)) {
+          await this.store.updateOpenRouterAccountFile(account.id, {
+            apiKey: account.apiKey,
+            label: account.label,
+            enabled: account.enabled
+          })
+          updated++
+        } else {
+          await this.store.writeOpenRouterAccountFile(account)
+          existingIds.add(account.id)
+          added++
+        }
+      } catch (error) {
+        errors.push(toErrorMessage(error))
+      }
+    }
+    if (added > 0 || updated > 0) {
+      await this.rebuildRuntime(this.server?.running ?? false)
+      for (const account of payloads) {
+        try {
+          await this.prepareImportedAccount('openrouter', account.id)
+        } catch (error) {
+          errors.push(`${account.label || account.id}: ${toErrorMessage(error)}`)
+        }
+      }
+    }
+    return { added, skipped: updated, errors, status: await this.getStatus() }
+  }
+
+  async testOpenRouterAccount(accountId: string): Promise<AccountTestResult> {
+    await this.ensureReady()
+    const result = await this.registry!.testAccount('openrouter', accountId)
+    await this.persistStateSoon()
+    return result
+  }
+
+  async toggleOpenRouterAccount(
+    accountId: string,
+    enabled: boolean
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.store.updateOpenRouterAccountFile(accountId, { enabled })
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async removeOpenRouterAccount(accountId: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const deleted = await this.store.deleteOpenRouterAccountFile(accountId)
+    if (!deleted) throw new Error(`OpenRouter account not found: ${accountId}`)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async getOpenRouterAccountInfo(accountId: string) {
+    await this.ensureReady()
+    return this.registry!.getAccountInfo('openrouter', accountId)
+  }
+
+  async refreshOpenRouterAccountModels(accountId: string) {
+    await this.ensureReady()
+    const models = await this.registry!.refreshAccountModels('openrouter', accountId)
+    await this.persistStateSoon()
+    return models
+  }
+
+  async resetOpenRouterAccount(accountId: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.registry!.resetAccount('openrouter', accountId)
+    await this.persistStateSoon()
+    return this.getStatus()
+  }
+
+  async setOpenRouterAccountStatus(
+    accountId: string,
+    status: AccountStatus,
+    reason?: string
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.registry!.setAccountStatus('openrouter', accountId, status, reason)
+    await this.persistStateSoon()
+    return this.getStatus()
+  }
+
+  async getOpenRouterSettings() {
+    await this.ensureReady()
+    return this.config!.providers.openrouter.settings
+  }
+
+  async updateOpenRouterSettings(
+    settings: Partial<Record<string, any>>
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    Object.assign(this.config!.providers.openrouter.settings, settings)
+    await this.store.saveConfig(this.config!)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  // ============== NVIDIA ==============
+
+  async addNvidiaApiKey(text: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const account = buildNvidiaAccountFromInput({ apiKey: text.trim() })
+    if (!account) throw new Error('Invalid NVIDIA API key')
+    await this.store.writeNvidiaAccountFile(account)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    try {
+      await this.prepareImportedAccount('nvidia', account.id)
+    } catch (error) {
+      await this.store.deleteNvidiaAccountFile(account.id).catch(() => false)
+      await this.rebuildRuntime(this.server?.running ?? false)
+      throw error
+    }
+    return this.getStatus()
+  }
+
+  async importNvidiaAuthJson(
+    text: string
+  ): Promise<{ added: number; skipped: number; errors: string[]; status: GatewayStatusSnapshot }> {
+    await this.ensureReady()
+    const trimmed = text.trim()
+    if (!trimmed) throw new Error('Empty NVIDIA credential input')
+    let payloads: NvidiaAccountConfig[]
+    try {
+      payloads = parseNvidiaAuthInput(trimmed)
+    } catch (error) {
+      throw new Error(`Invalid input: ${toErrorMessage(error)}`)
+    }
+    if (!payloads.length) {
+      throw new Error('No NVIDIA credentials found. Expected apiKey/key field or a raw API key.')
+    }
+    let added = 0,
+      updated = 0
+    const errors: string[] = []
+    const existing = await this.store.readNvidiaAccountFiles()
+    const existingIds = new Set(existing.map((a) => a.id))
+    for (const account of payloads) {
+      try {
+        if (existingIds.has(account.id)) {
+          await this.store.updateNvidiaAccountFile(account.id, {
+            apiKey: account.apiKey,
+            label: account.label,
+            enabled: account.enabled
+          })
+          updated++
+        } else {
+          await this.store.writeNvidiaAccountFile(account)
+          existingIds.add(account.id)
+          added++
+        }
+      } catch (error) {
+        errors.push(toErrorMessage(error))
+      }
+    }
+    if (added > 0 || updated > 0) {
+      await this.rebuildRuntime(this.server?.running ?? false)
+      for (const account of payloads) {
+        try {
+          await this.prepareImportedAccount('nvidia', account.id)
+        } catch (error) {
+          errors.push(`${account.label || account.id}: ${toErrorMessage(error)}`)
+        }
+      }
+    }
+    return { added, skipped: updated, errors, status: await this.getStatus() }
+  }
+
+  async testNvidiaAccount(accountId: string): Promise<AccountTestResult> {
+    await this.ensureReady()
+    const result = await this.registry!.testAccount('nvidia', accountId)
+    await this.persistStateSoon()
+    return result
+  }
+
+  async toggleNvidiaAccount(accountId: string, enabled: boolean): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.store.updateNvidiaAccountFile(accountId, { enabled })
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async removeNvidiaAccount(accountId: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const deleted = await this.store.deleteNvidiaAccountFile(accountId)
+    if (!deleted) throw new Error(`NVIDIA account not found: ${accountId}`)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async getNvidiaAccountInfo(accountId: string) {
+    await this.ensureReady()
+    return this.registry!.getAccountInfo('nvidia', accountId)
+  }
+
+  async refreshNvidiaAccountModels(accountId: string) {
+    await this.ensureReady()
+    const models = await this.registry!.refreshAccountModels('nvidia', accountId)
+    await this.persistStateSoon()
+    return models
+  }
+
+  async resetNvidiaAccount(accountId: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.registry!.resetAccount('nvidia', accountId)
+    await this.persistStateSoon()
+    return this.getStatus()
+  }
+
+  async setNvidiaAccountStatus(
+    accountId: string,
+    status: AccountStatus,
+    reason?: string
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.registry!.setAccountStatus('nvidia', accountId, status, reason)
+    await this.persistStateSoon()
+    return this.getStatus()
+  }
+
+  async getNvidiaSettings() {
+    await this.ensureReady()
+    return this.config!.providers.nvidia.settings
+  }
+
+  async updateNvidiaSettings(
+    settings: Partial<Record<string, any>>
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    Object.assign(this.config!.providers.nvidia.settings, settings)
+    await this.store.saveConfig(this.config!)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
   private ensureReady(): Promise<void> {
     return this.initialize()
+  }
+
+  private async prepareImportedAccount(
+    providerName: 'openrouter' | 'nvidia',
+    accountId: string
+  ): Promise<AccountTestResult> {
+    const result = await this.registry!.testAccount(providerName, accountId)
+    await this.persistStateSoon()
+    if (!result.ok) throw new Error(result.message)
+    return result
   }
 
   private async rebuildRuntime(restartServer: boolean): Promise<void> {
@@ -954,6 +1422,9 @@ export class GatewayHubService {
     const accountFiles = await this.store.readAccountFiles()
     const codexFiles = await this.store.readCodexAccountFiles()
     const windsurfFiles = await this.store.readWindsurfAccountFiles()
+    const traeFiles = await this.store.readTraeAccountFiles()
+    const openrouterFiles = await this.store.readOpenRouterAccountFiles()
+    const nvidiaFiles = await this.store.readNvidiaAccountFiles()
     this.registry = new ProviderRegistry(
       this.config!,
       this.state!,
@@ -967,9 +1438,43 @@ export class GatewayHubService {
             category: 'system'
           })
         }
+      },
+      async (accountId, updates) => {
+        try {
+          await this.store.updateTraeAccountFile(accountId, updates)
+        } catch (error) {
+          this.logger.warn(`updateTraeAccountFile failed: ${toErrorMessage(error)}`, {
+            category: 'system'
+          })
+        }
+      },
+      async (accountId, updates) => {
+        try {
+          await this.store.updateOpenRouterAccountFile(accountId, updates)
+        } catch (error) {
+          this.logger.warn(`updateOpenRouterAccountFile failed: ${toErrorMessage(error)}`, {
+            category: 'system'
+          })
+        }
+      },
+      async (accountId, updates) => {
+        try {
+          await this.store.updateNvidiaAccountFile(accountId, updates)
+        } catch (error) {
+          this.logger.warn(`updateNvidiaAccountFile failed: ${toErrorMessage(error)}`, {
+            category: 'system'
+          })
+        }
       }
     )
-    await this.registry.initialize(accountFiles, codexFiles, windsurfFiles)
+    await this.registry.initialize(
+      accountFiles,
+      codexFiles,
+      windsurfFiles,
+      traeFiles,
+      openrouterFiles,
+      nvidiaFiles
+    )
     this.server = new GatewayServer(
       this.config!,
       this.registry,
@@ -983,17 +1488,35 @@ export class GatewayHubService {
 
   private async persistStateSoon(): Promise<void> {
     if (!this.state) return
+    this.ensureNvidiaState()
     this.state.providers.kiro.logs = this.logger.getEntries()
     this.state.providers.codex.logs = this.logger.getEntries()
     this.state.providers.windsurf.logs = this.logger.getEntries()
+    this.state.providers.trae.logs = this.logger.getEntries()
+    this.state.providers.openrouter.logs = this.logger.getEntries()
+    this.state.providers.nvidia.logs = this.logger.getEntries()
     if (this.saveTimer) clearTimeout(this.saveTimer)
     this.saveTimer = setTimeout(() => {
-      if (!this.state) return
-      this.state.providers.kiro.logs = this.logger.getEntries()
-      this.state.providers.codex.logs = this.logger.getEntries()
-      this.state.providers.windsurf.logs = this.logger.getEntries()
-      void this.store.saveState(this.state)
+      this.saveTimer = undefined
+      void this.saveStateNow()
     }, 100)
+  }
+
+  private async saveStateNow(): Promise<void> {
+    if (!this.state) return
+    this.ensureNvidiaState()
+    this.state.providers.kiro.logs = this.logger.getEntries()
+    this.state.providers.codex.logs = this.logger.getEntries()
+    this.state.providers.windsurf.logs = this.logger.getEntries()
+    this.state.providers.trae.logs = this.logger.getEntries()
+    this.state.providers.openrouter.logs = this.logger.getEntries()
+    this.state.providers.nvidia.logs = this.logger.getEntries()
+    await this.store.saveState(this.state)
+  }
+
+  private ensureNvidiaState(): void {
+    if (!this.state) return
+    this.state.providers.nvidia ??= { accounts: {}, currentAccountIndex: 0, logs: [] }
   }
 }
 

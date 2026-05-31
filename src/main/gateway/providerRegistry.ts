@@ -1,5 +1,6 @@
 import type {
   AccountStatus,
+  GptWebAccountConfig,
   CodexAccountConfig,
   GatewayHubConfig,
   GatewayRequestContext,
@@ -22,6 +23,7 @@ import { WindsurfProvider } from './providers/windsurf/provider'
 import { TraeProvider } from './providers/trae/provider'
 import { OpenRouterProvider } from './providers/openrouter/provider'
 import { NvidiaProvider } from './providers/nvidia/provider'
+import { GptWebProvider } from './providers/gptWeb/provider'
 import type { GatewayHubState } from './types'
 
 class PlaceholderProvider implements ProviderAdapter {
@@ -102,7 +104,8 @@ export class ProviderRegistry {
     windsurfAccountFiles: WindsurfAccountConfig[] = [],
     traeAccountFiles: TraeAccountConfig[] = [],
     openrouterAccountFiles: OpenRouterAccountConfig[] = [],
-    nvidiaAccountFiles: NvidiaAccountConfig[] = []
+    nvidiaAccountFiles: NvidiaAccountConfig[] = [],
+    gptWebAccountFiles: GptWebAccountConfig[] = []
   ): Promise<void> {
     const kiro = new KiroProvider(
       this.config.providers.kiro,
@@ -117,6 +120,9 @@ export class ProviderRegistry {
     this.config.providers.codex.settings.vpnProxyUrl =
       this.config.providers.kiro.settings.vpnProxyUrl
     this.config.providers.trae.settings.vpnProxyUrl =
+      this.config.providers.kiro.settings.vpnProxyUrl
+    this.config.providers.gptWeb.settings.vpnProxyUrl =
+      this.config.providers.gptWeb.settings.vpnProxyUrl ||
       this.config.providers.kiro.settings.vpnProxyUrl
 
     const codex = new CodexProvider(
@@ -175,6 +181,15 @@ export class ProviderRegistry {
     )
     await nvidia.initialize(nvidiaAccountFiles)
     this.registerProvider('nvidia', nvidia, this.config.providers.nvidia.routeName || 'nvidia')
+
+    const gptWeb = new GptWebProvider(
+      this.config.providers.gptWeb,
+      this.state.providers.gptWeb,
+      this.logger,
+      this.onStateChanged
+    )
+    await gptWeb.initialize(gptWebAccountFiles)
+    this.registerProvider('gptWeb', gptWeb, this.config.providers.gptWeb.routeName || 'gptWeb')
 
     this.registerProvider(
       'gemini',

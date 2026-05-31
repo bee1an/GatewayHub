@@ -62,7 +62,7 @@ export class CodexProvider implements ProviderAdapter {
       id,
       provider: 'codex',
       ownedBy: 'codex',
-      description: 'Model via Codex (ChatGPT) provider'
+      description: 'Model via Codex (GptWeb) provider'
     }))
   }
 
@@ -140,14 +140,14 @@ export class CodexProvider implements ProviderAdapter {
       lastFailureAt: account.state.lastFailureAt,
       models: account.state.modelIds,
       stats: account.state.stats,
-      authType: account.auth?.authType ?? 'chatgpt-oauth',
+      authType: account.auth?.authType ?? 'gptWeb-oauth',
       expiresAt: account.auth?.expiresAtIso,
       status: account.state.status,
       statusReason: account.state.statusReason,
       statusUpdatedAt: account.state.statusUpdatedAt,
       cooldownUntil: account.state.cooldownUntil,
       lastResponseKind: account.state.lastResponseKind,
-      chatgptAccountId: account.config.chatgptAccountId,
+      gptWebAccountId: account.config.gptWebAccountId,
       subscriptionActiveUntil: account.config.subscriptionActiveUntil
     }))
     return {
@@ -361,7 +361,7 @@ export function classifyCodexError(error: unknown): CodexClassifiedError {
   if (
     msg.includes('refresh token') ||
     msg.includes('access token') ||
-    msg.includes('chatgpt-account-id')
+    msg.includes('gptWeb-account-id')
   ) {
     return { kind: 'auth', cooldownMs: 0 }
   }

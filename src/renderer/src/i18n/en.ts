@@ -283,6 +283,7 @@ const en = {
     traeTitle: 'Add Trae Account',
     openrouterTitle: 'Add OpenRouter Key',
     nvidiaTitle: 'Add NVIDIA API Key',
+    gptWebTitle: 'Add GptWeb Account',
     type: 'Type',
     label: 'Label',
     path: 'Path',
@@ -325,7 +326,7 @@ const en = {
     discoverResult: '{{skipped}} already imported',
     discoverEmpty: 'No new credentials found',
     codexBrowserDesc:
-      'Sign in via ChatGPT OAuth in your default browser; the callback is captured automatically.',
+      'Sign in via GptWeb OAuth in your default browser; the callback is captured automatically.',
     codexLoginBrowser: 'Open browser to sign in',
     codexAwaitingBrowser: 'Preparing OAuth flow...',
     codexBrowserOpened: 'Browser opened; copy the link below if it does not pop up.',
@@ -339,7 +340,7 @@ const en = {
     codexJsonHint:
       "Paste the contents of the official codex CLI's ~/.codex/auth.json (single object or array)",
     codexJsonPlaceholder:
-      '{ "auth_mode": "chatgpt", "tokens": {"access_token": "...", "refresh_token": "..."} }',
+      '{ "auth_mode": "gptWeb", "tokens": {"access_token": "...", "refresh_token": "..."} }',
     codexDiscoverDesc: 'Scan local ~/.codex/auth.json credentials',
     windsurfTokenHint:
       'Paste a Windsurf/Codeium apiKey, such as the local session token from an existing Windsurf sign-in. It is stored only in the local config directory.',
@@ -371,7 +372,11 @@ const en = {
     nvidiaKeyPlaceholder: 'Paste NVIDIA API key...',
     nvidiaJsonHint:
       'Paste JSON with apiKey/key (single object or array), optionally with label/name/enabled.',
-    nvidiaJsonPlaceholder: '{ "apiKey": "nvapi-...", "label": "NVIDIA" }'
+    nvidiaJsonPlaceholder: '{ "apiKey": "nvapi-...", "label": "NVIDIA" }',
+    gptWebJsonHint:
+      'Paste exported chatgpt.com auth JSON (single object or array) with accessToken, sessionToken, user, and account fields. Credentials are stored only in the local config directory.',
+    gptWebJsonPlaceholder:
+      '{ "accessToken": "...", "sessionToken": "...", "user": {"id": "...", "email": "..."}, "account": {"id": "...", "planType": "free"} }'
   },
   updater: {
     title: 'Update Available',

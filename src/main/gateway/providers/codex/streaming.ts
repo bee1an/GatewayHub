@@ -46,7 +46,7 @@ function parseSseBlock(block: string): ParsedBlock | undefined {
 }
 
 /**
- * 解析 ChatGPT 后端 /codex/responses 的 SSE 流。
+ * 解析 GptWeb 后端 /codex/responses 的 SSE 流。
  *
  * 关注的事件：
  * - response.output_text.delta / response.text.delta：增量文本

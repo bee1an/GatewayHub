@@ -193,7 +193,26 @@ const api = {
       ipcRenderer.invoke('gateway:setNvidiaAccountStatus', accountId, status, reason),
     getNvidiaSettings: () => ipcRenderer.invoke('gateway:getNvidiaSettings'),
     updateNvidiaSettings: (settings: Record<string, any>) =>
-      ipcRenderer.invoke('gateway:updateNvidiaSettings', settings)
+      ipcRenderer.invoke('gateway:updateNvidiaSettings', settings),
+    // ========== GptWeb ==========
+    importGptWebJson: (text: string) => ipcRenderer.invoke('gateway:importGptWebJson', text),
+    testGptWebAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:testGptWebAccount', accountId),
+    toggleGptWebAccount: (accountId: string, enabled: boolean) =>
+      ipcRenderer.invoke('gateway:toggleGptWebAccount', accountId, enabled),
+    removeGptWebAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:removeGptWebAccount', accountId),
+    getGptWebAccountInfo: (accountId: string) =>
+      ipcRenderer.invoke('gateway:getGptWebAccountInfo', accountId),
+    refreshGptWebAccountModels: (accountId: string) =>
+      ipcRenderer.invoke('gateway:refreshGptWebAccountModels', accountId),
+    resetGptWebAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:resetGptWebAccount', accountId),
+    setGptWebAccountStatus: (accountId: string, status: string, reason?: string) =>
+      ipcRenderer.invoke('gateway:setGptWebAccountStatus', accountId, status, reason),
+    getGptWebSettings: () => ipcRenderer.invoke('gateway:getGptWebSettings'),
+    updateGptWebSettings: (settings: Record<string, any>) =>
+      ipcRenderer.invoke('gateway:updateGptWebSettings', settings)
   },
   updater: {
     check: () => ipcRenderer.invoke('updater:check'),

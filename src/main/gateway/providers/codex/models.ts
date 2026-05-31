@@ -3,7 +3,7 @@ import type { CodexProviderSettings } from '../../types'
 import { codexFetch, CodexAuthManager } from './auth'
 import { codexModelsUrl } from './constants'
 
-/** ChatGPT 后端 /codex/models 单条模型条目（仅取我们需要的字段） */
+/** GptWeb 后端 /codex/models 单条模型条目（仅取我们需要的字段） */
 interface ApiModel {
   slug?: string
   display_name?: string
@@ -29,7 +29,7 @@ function clientVersion(): string {
 }
 
 /**
- * 拉取 ChatGPT 后端的 codex 可用模型列表。
+ * 拉取 GptWeb 后端的 codex 可用模型列表。
  *
  * 端点：GET <baseUrl>/codex/models?client_version=<semver>，鉴权头与 /codex/responses 相同。
  * 失败抛错；调用方负责降级（fallback 或保留旧缓存）。

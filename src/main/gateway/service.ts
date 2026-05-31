@@ -149,7 +149,7 @@ export class GatewayHubService {
           refreshToken: account.refreshToken,
           accessToken: account.accessToken,
           idToken: account.idToken,
-          chatgptAccountId: account.chatgptAccountId,
+          gptWebAccountId: account.gptWebAccountId,
           expiresAt: account.expiresAt,
           lastRefresh: account.lastRefresh,
           subscriptionActiveUntil: account.subscriptionActiveUntil,
@@ -805,7 +805,7 @@ export class GatewayHubService {
             refreshToken: account.refreshToken,
             accessToken: account.accessToken,
             idToken: account.idToken,
-            chatgptAccountId: account.chatgptAccountId,
+            gptWebAccountId: account.gptWebAccountId,
             expiresAt: account.expiresAt,
             lastRefresh: account.lastRefresh,
             subscriptionActiveUntil: account.subscriptionActiveUntil,
@@ -1402,6 +1402,143 @@ export class GatewayHubService {
     return this.getStatus()
   }
 
+  // ============== GptWeb provider ==============
+
+  async importGptWebAuthJson(text: string): Promise<{
+    added: number
+    skipped: number
+    errors: { message: string }[]
+    status: GatewayStatusSnapshot
+  }> {
+    await this.ensureReady()
+    let parsed: any
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      return {
+        added: 0,
+        skipped: 0,
+        errors: [{ message: 'Invalid JSON' }],
+        status: await this.getStatus()
+      }
+    }
+
+    const entries = Array.isArray(parsed) ? parsed : [parsed]
+    let added = 0
+    let skipped = 0
+    const errors: { message: string }[] = []
+
+    for (const entry of entries) {
+      try {
+        const accessToken = entry.accessToken
+        if (!accessToken) {
+          errors.push({ message: 'Missing accessToken field' })
+          continue
+        }
+        const userId = entry.user?.id || `gptWeb-${Date.now()}`
+        const email = entry.user?.email || ''
+        const accountId = entry.account?.id || ''
+        const planType = entry.account?.planType || 'free'
+        const expiresAt = entry.expires || ''
+
+        const existing = await this.store.readGptWebAccountFiles()
+        if (existing.find((a) => a.accessToken === accessToken)) {
+          skipped++
+          continue
+        }
+
+        const { randomUUID } = await import('crypto')
+        const account = {
+          id: userId,
+          email,
+          enabled: true,
+          accessToken,
+          sessionToken: entry.sessionToken || '',
+          accountId,
+          planType,
+          expiresAt,
+          oaiDeviceId: randomUUID(),
+          name: entry.user?.name || ''
+        }
+
+        await this.store.writeGptWebAccountFile(account as any)
+        added++
+      } catch (err: any) {
+        errors.push({ message: err?.message || String(err) })
+      }
+    }
+
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return { added, skipped, errors, status: await this.getStatus() }
+  }
+
+  async testGptWebAccount(accountId: string): Promise<AccountTestResult> {
+    await this.ensureReady()
+    const result = await this.registry!.testAccount('gptWeb', accountId)
+    await this.persistStateSoon()
+    return result
+  }
+
+  async toggleGptWebAccount(accountId: string, enabled: boolean): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.store.updateGptWebAccountFile(accountId, { enabled })
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async removeGptWebAccount(accountId: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const deleted = await this.store.deleteGptWebAccountFile(accountId)
+    if (!deleted) throw new Error(`GptWeb account not found: ${accountId}`)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async getGptWebAccountInfo(accountId: string) {
+    await this.ensureReady()
+    return this.registry!.getAccountInfo('gptWeb', accountId)
+  }
+
+  async refreshGptWebAccountModels(accountId: string) {
+    await this.ensureReady()
+    const models = await this.registry!.refreshAccountModels('gptWeb', accountId)
+    await this.persistStateSoon()
+    return models
+  }
+
+  async resetGptWebAccount(accountId: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.registry!.resetAccount('gptWeb', accountId)
+    await this.persistStateSoon()
+    return this.getStatus()
+  }
+
+  async setGptWebAccountStatus(
+    accountId: string,
+    status: AccountStatus,
+    reason?: string
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.registry!.setAccountStatus('gptWeb', accountId, status, reason)
+    await this.persistStateSoon()
+    return this.getStatus()
+  }
+
+  async getGptWebSettings() {
+    await this.ensureReady()
+    return this.config!.providers.gptWeb.settings
+  }
+
+  async updateGptWebSettings(
+    settings: Partial<Record<string, any>>
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    Object.assign(this.config!.providers.gptWeb.settings, settings)
+    await this.store.saveConfig(this.config!)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
   private ensureReady(): Promise<void> {
     return this.initialize()
   }
@@ -1425,6 +1562,7 @@ export class GatewayHubService {
     const traeFiles = await this.store.readTraeAccountFiles()
     const openrouterFiles = await this.store.readOpenRouterAccountFiles()
     const nvidiaFiles = await this.store.readNvidiaAccountFiles()
+    const gptWebFiles = await this.store.readGptWebAccountFiles()
     this.registry = new ProviderRegistry(
       this.config!,
       this.state!,
@@ -1473,7 +1611,8 @@ export class GatewayHubService {
       windsurfFiles,
       traeFiles,
       openrouterFiles,
-      nvidiaFiles
+      nvidiaFiles,
+      gptWebFiles
     )
     this.server = new GatewayServer(
       this.config!,
@@ -1495,6 +1634,7 @@ export class GatewayHubService {
     this.state.providers.trae.logs = this.logger.getEntries()
     this.state.providers.openrouter.logs = this.logger.getEntries()
     this.state.providers.nvidia.logs = this.logger.getEntries()
+    this.state.providers.gptWeb.logs = this.logger.getEntries()
     if (this.saveTimer) clearTimeout(this.saveTimer)
     this.saveTimer = setTimeout(() => {
       this.saveTimer = undefined
@@ -1517,6 +1657,7 @@ export class GatewayHubService {
   private ensureNvidiaState(): void {
     if (!this.state) return
     this.state.providers.nvidia ??= { accounts: {}, currentAccountIndex: 0, logs: [] }
+    this.state.providers.gptWeb ??= { accounts: {}, currentAccountIndex: 0, logs: [] }
   }
 }
 

@@ -18,6 +18,7 @@ import { AddWindsurfAccountDialog } from './AddWindsurfAccountDialog'
 import { AddTraeAccountDialog } from './AddTraeAccountDialog'
 import { AddOpenRouterAccountDialog } from './AddOpenRouterAccountDialog'
 import { AddNvidiaAccountDialog } from './AddNvidiaAccountDialog'
+import { AddGptWebAccountDialog } from './AddGptWebAccountDialog'
 
 import type { Account, AccountFilter, AccountInfo, GatewayStatus } from './gatewayDetailTypes'
 const accountInfoCache: Record<string, { data?: AccountInfo; loading: boolean; error?: string }> =
@@ -57,7 +58,9 @@ export default function GatewayDetail(): React.JSX.Element {
   const isTrae = gateway?.providerType === 'trae'
   const isOpenRouter = gateway?.providerType === 'openrouter'
   const isNvidia = gateway?.providerType === 'nvidia'
-  const supportsAccounts = isKiro || isCodex || isWindsurf || isTrae || isOpenRouter || isNvidia
+  const isGptWeb = gateway?.providerType === 'gptWeb'
+  const supportsAccounts =
+    isKiro || isCodex || isWindsurf || isTrae || isOpenRouter || isNvidia || isGptWeb
   const accountIdsKey = useMemo(() => accounts.map((a) => a.id).join(','), [accounts])
 
   const filteredAccounts = useMemo(() => {
@@ -98,7 +101,9 @@ export default function GatewayDetail(): React.JSX.Element {
                 ? await window.api.gateway.getOpenRouterAccountInfo(accountId)
                 : isNvidia
                   ? await window.api.gateway.getNvidiaAccountInfo(accountId)
-                  : await window.api.gateway.getAccountInfo(accountId)
+                  : isGptWeb
+                    ? await window.api.gateway.getGptWebAccountInfo(accountId)
+                    : await window.api.gateway.getAccountInfo(accountId)
         setAccountInfoMap((prev) => {
           const next = { ...prev, [accountId]: { data: info, loading: false } }
           accountInfoCache[accountId] = next[accountId]
@@ -112,7 +117,7 @@ export default function GatewayDetail(): React.JSX.Element {
         }))
       }
     },
-    [isCodex, isWindsurf, isTrae, isOpenRouter, isNvidia]
+    [isCodex, isWindsurf, isTrae, isOpenRouter, isNvidia, isGptWeb]
   )
 
   const fetchAllUsage = useCallback(() => {
@@ -121,7 +126,7 @@ export default function GatewayDetail(): React.JSX.Element {
 
   const refreshAccountModels = useCallback(
     async (accountId: string) => {
-      if (!isKiro && !isWindsurf && !isTrae && !isOpenRouter && !isNvidia) return
+      if (!isKiro && !isWindsurf && !isTrae && !isOpenRouter && !isNvidia && !isGptWeb) return
       setModelRefreshIds((prev) => new Set(prev).add(accountId))
       try {
         const result = isWindsurf
@@ -132,7 +137,9 @@ export default function GatewayDetail(): React.JSX.Element {
               ? await window.api.gateway.refreshOpenRouterAccountModels(accountId)
               : isNvidia
                 ? await window.api.gateway.refreshNvidiaAccountModels(accountId)
-                : await window.api.gateway.refreshKiroAccountModels(accountId)
+                : isGptWeb
+                  ? await window.api.gateway.refreshGptWebAccountModels(accountId)
+                  : await window.api.gateway.refreshKiroAccountModels(accountId)
         if (result?.ok === false) throw new Error(result.error || t('gateway.infoError'))
         const models = Array.isArray(result?.models) ? result.models : []
         setAccountInfoMap((prev) => {
@@ -167,7 +174,7 @@ export default function GatewayDetail(): React.JSX.Element {
         })
       }
     },
-    [isKiro, isWindsurf, isTrae, isOpenRouter, isNvidia, refresh, t, toast]
+    [isKiro, isWindsurf, isTrae, isOpenRouter, isNvidia, isGptWeb, refresh, t, toast]
   )
 
   useEffect(() => {
@@ -431,7 +438,9 @@ export default function GatewayDetail(): React.JSX.Element {
                                 ? window.api.gateway.toggleOpenRouterAccount(acc.id, !acc.enabled)
                                 : isNvidia
                                   ? window.api.gateway.toggleNvidiaAccount(acc.id, !acc.enabled)
-                                  : window.api.gateway.toggleKiroAccount(acc.id, !acc.enabled),
+                                  : isGptWeb
+                                    ? window.api.gateway.toggleGptWebAccount(acc.id, !acc.enabled)
+                                    : window.api.gateway.toggleKiroAccount(acc.id, !acc.enabled),
                       acc.enabled ? t('gateway.disabled') : t('gateway.enabled')
                     )
                   }
@@ -449,7 +458,9 @@ export default function GatewayDetail(): React.JSX.Element {
                                 ? window.api.gateway.resetOpenRouterAccount(acc.id)
                                 : isNvidia
                                   ? window.api.gateway.resetNvidiaAccount(acc.id)
-                                  : window.api.gateway.resetKiroAccount(acc.id),
+                                  : isGptWeb
+                                    ? window.api.gateway.resetGptWebAccount(acc.id)
+                                    : window.api.gateway.resetKiroAccount(acc.id),
                       t('gateway.resetDone')
                     )
                   }
@@ -482,16 +493,21 @@ export default function GatewayDetail(): React.JSX.Element {
                                       acc.id,
                                       isPaused ? 'available' : 'manual_disabled'
                                     )
-                                  : window.api.gateway.setKiroAccountStatus(
-                                      acc.id,
-                                      isPaused ? 'available' : 'manual_disabled'
-                                    ),
+                                  : isGptWeb
+                                    ? window.api.gateway.setGptWebAccountStatus(
+                                        acc.id,
+                                        isPaused ? 'available' : 'manual_disabled'
+                                      )
+                                    : window.api.gateway.setKiroAccountStatus(
+                                        acc.id,
+                                        isPaused ? 'available' : 'manual_disabled'
+                                      ),
                       isPaused ? t('gateway.resumed') : t('gateway.paused')
                     )
                   }}
                   onRefreshInfo={() => fetchAccountInfo(acc.id)}
                   onRefreshModels={
-                    isKiro || isWindsurf || isTrae || isOpenRouter || isNvidia
+                    isKiro || isWindsurf || isTrae || isOpenRouter || isNvidia || isGptWeb
                       ? () => refreshAccountModels(acc.id)
                       : undefined
                   }
@@ -549,6 +565,14 @@ export default function GatewayDetail(): React.JSX.Element {
         />
       )}
 
+      {isGptWeb && (
+        <AddGptWebAccountDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          onImported={refresh}
+        />
+      )}
+
       <ConfirmDialog
         open={!!removeTarget}
         onOpenChange={(v) => {
@@ -574,7 +598,9 @@ export default function GatewayDetail(): React.JSX.Element {
                         ? window.api.gateway.removeOpenRouterAccount(removeTarget.id)
                         : isNvidia
                           ? window.api.gateway.removeNvidiaAccount(removeTarget.id)
-                          : window.api.gateway.removeKiroAccount(removeTarget.id),
+                          : isGptWeb
+                            ? window.api.gateway.removeGptWebAccount(removeTarget.id)
+                            : window.api.gateway.removeKiroAccount(removeTarget.id),
               t('gateway.removed')
             ).then(() => setRemoveTarget(null))
           }

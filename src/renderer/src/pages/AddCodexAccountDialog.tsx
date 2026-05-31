@@ -41,7 +41,7 @@ export function AddCodexAccountDialog({
       id: string
       email?: string
       label?: string
-      chatgptAccountId?: string
+      gptWebAccountId?: string
       existing?: boolean
       sourceType?: string
     }>
@@ -374,7 +374,7 @@ export function AddCodexAccountDialog({
                               {c.label || c.email || c.id}
                             </p>
                             <p className="text-[12px] text-fog font-mono truncate">
-                              {c.email || c.chatgptAccountId || c.sourceType || c.id}
+                              {c.email || c.gptWebAccountId || c.sourceType || c.id}
                             </p>
                           </div>
                           <span className="tag text-[12px] !px-1 !py-0 shrink-0">

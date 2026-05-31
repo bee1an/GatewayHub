@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, rename, stat, unlink, writeFile } from 'fs/pr
 import { homedir } from 'os'
 import type {
   ApiKeyEntry,
+  GptWebAccountConfig,
   CodexAccountConfig,
   GatewayHubConfig,
   GatewayHubState,
@@ -28,6 +29,7 @@ import { DEFAULT_TRAE_SETTINGS, LEGACY_TRAE_MODEL_LIST_PATH } from './providers/
 import { scanExternalTraeAccounts } from './providers/trae/localState'
 import { DEFAULT_OPENROUTER_SETTINGS } from './providers/openrouter/constants'
 import { DEFAULT_NVIDIA_SETTINGS } from './providers/nvidia/constants'
+import { DEFAULT_GPT_WEB_SETTINGS } from './providers/gptWeb/constants'
 import { generateApiKey, readJsonFile, sha256Short, writeJsonFile, atomicWrite } from './core/utils'
 import { getPaths } from './core/paths'
 
@@ -64,6 +66,10 @@ export class GatewayConfigStore {
 
   nvidiaAccountsDir(): string {
     return join(dirname(this.configPath), 'nvidia', 'accounts')
+  }
+
+  gptWebAccountsDir(): string {
+    return join(dirname(this.configPath), 'gptWeb', 'accounts')
   }
 
   logsDir(): string {
@@ -142,6 +148,7 @@ export class GatewayConfigStore {
       migratedFromV2 ||
       Boolean(parsed.providers?.kiro?.accounts) ||
       !parsed.providers?.nvidia ||
+      !parsed.providers?.gptWeb ||
       parsed.providers?.trae?.settings?.modelListPath === LEGACY_TRAE_MODEL_LIST_PATH ||
       JSON.stringify(parsed.modelMappings ?? []) !== JSON.stringify(config.modelMappings)
 
@@ -718,6 +725,69 @@ export class GatewayConfigStore {
     await atomicWrite(account.path, `${JSON.stringify(data, null, 2)}\n`)
   }
 
+  // ============== GptWeb account file management ==============
+
+  async readGptWebAccountFiles(): Promise<GptWebAccountConfig[]> {
+    const dir = this.gptWebAccountsDir()
+    let files: string[]
+    try {
+      files = await readdir(dir)
+    } catch {
+      return []
+    }
+    const accounts: GptWebAccountConfig[] = []
+    for (const file of files) {
+      if (!file.endsWith('.json') || file.startsWith('.')) continue
+      const filePath = join(dir, file)
+      try {
+        const data = await readJsonFile<any>(filePath)
+        if (!data.accessToken) continue
+        if (!data.id) data.id = `gptWeb-${sha256Short(data.accessToken.slice(0, 32))}`
+        if (data.enabled === undefined) data.enabled = true
+        data.path = filePath
+        accounts.push(data as GptWebAccountConfig)
+      } catch (err) {
+        console.warn(`[GatewayHub] Skipping corrupt gptWeb account file: ${file}`, err)
+      }
+    }
+    return accounts
+  }
+
+  async writeGptWebAccountFile(data: GptWebAccountConfig): Promise<string> {
+    const dir = this.gptWebAccountsDir()
+    await mkdir(dir, { recursive: true })
+    const fileBase = safeFileName(data.label || data.email || data.id) || 'account'
+    const targetPath = join(dir, `${fileBase}.json`)
+    const existing = await readJsonFile<any>(targetPath).catch(() => null)
+    if (existing && existing.id && existing.id !== data.id) {
+      const altPath = join(dir, `${fileBase}-${sha256Short(data.id)}.json`)
+      await atomicWrite(altPath, `${JSON.stringify(stripGptWebPath(data), null, 2)}\n`)
+      return altPath
+    }
+    await atomicWrite(targetPath, `${JSON.stringify(stripGptWebPath(data), null, 2)}\n`)
+    return targetPath
+  }
+
+  async deleteGptWebAccountFile(accountId: string): Promise<boolean> {
+    const accounts = await this.readGptWebAccountFiles()
+    const account = accounts.find((a) => a.id === accountId)
+    if (!account?.path) return false
+    await unlink(account.path)
+    return true
+  }
+
+  async updateGptWebAccountFile(
+    accountId: string,
+    updates: Partial<GptWebAccountConfig>
+  ): Promise<void> {
+    const accounts = await this.readGptWebAccountFiles()
+    const account = accounts.find((a) => a.id === accountId)
+    if (!account?.path) throw new Error(`GptWeb account not found: ${accountId}`)
+    const data = await readJsonFile<any>(account.path)
+    Object.assign(data, updates)
+    await atomicWrite(account.path, `${JSON.stringify(data, null, 2)}\n`)
+  }
+
   defaultConfig(): GatewayHubConfig {
     return {
       version: 3,
@@ -759,6 +829,11 @@ export class GatewayConfigStore {
           routeName: 'nvidia',
           settings: { ...DEFAULT_NVIDIA_SETTINGS }
         },
+        gptWeb: {
+          enabled: true,
+          routeName: 'gptWeb',
+          settings: { ...DEFAULT_GPT_WEB_SETTINGS }
+        },
         gemini: {
           enabled: false,
           routeName: 'gemini',
@@ -799,6 +874,11 @@ export class GatewayConfigStore {
           logs: []
         },
         nvidia: {
+          accounts: {},
+          currentAccountIndex: 0,
+          logs: []
+        },
+        gptWeb: {
           accounts: {},
           currentAccountIndex: 0,
           logs: []
@@ -980,6 +1060,19 @@ export class GatewayConfigStore {
             ...(input?.providers?.nvidia?.settings ?? {})
           }
         },
+        gptWeb: {
+          ...defaults.providers.gptWeb,
+          ...(input?.providers?.gptWeb ?? {}),
+          routeName: input?.providers?.gptWeb?.routeName || defaults.providers.gptWeb.routeName,
+          enabled:
+            typeof input?.providers?.gptWeb?.enabled === 'boolean'
+              ? input.providers.gptWeb.enabled
+              : defaults.providers.gptWeb.enabled,
+          settings: {
+            ...defaults.providers.gptWeb.settings,
+            ...(input?.providers?.gptWeb?.settings ?? {})
+          }
+        },
         gemini: {
           ...defaults.providers.gemini,
           ...(input?.providers?.gemini ?? {}),
@@ -1148,6 +1241,11 @@ function stripNvidiaPath(data: NvidiaAccountConfig): Omit<NvidiaAccountConfig, '
   return rest
 }
 
+function stripGptWebPath(data: GptWebAccountConfig): Omit<GptWebAccountConfig, 'path'> {
+  const { path: _, ...rest } = data
+  return rest
+}
+
 function makeTraeStableId(account: Partial<TraeAccountConfig>): string {
   if (account.userId) return `trae-user-${sha256Short(account.userId, 12)}`
   if (account.refreshToken) return `trae-refresh-${sha256Short(account.refreshToken, 12)}`
@@ -1157,7 +1255,7 @@ function makeTraeStableId(account: Partial<TraeAccountConfig>): string {
 
 function codexIdentityKeys(account: Partial<CodexAccountConfig>): string[] {
   const keys: string[] = []
-  if (account.chatgptAccountId) keys.push(`codex-acct:${account.chatgptAccountId}`)
+  if (account.gptWebAccountId) keys.push(`codex-acct:${account.gptWebAccountId}`)
   if (account.email) keys.push(`codex-email:${account.email.toLowerCase()}`)
   if (account.refreshToken) keys.push(`codex-refresh:${sha256Short(account.refreshToken)}`)
   if (!keys.length && account.accessToken)

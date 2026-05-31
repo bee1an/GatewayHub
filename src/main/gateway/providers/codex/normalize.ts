@@ -29,7 +29,7 @@ function pickClaim(claims: Record<string, unknown>, prefix: string, key: string)
   return claims[`${prefix}${key}`] ?? claims[key]
 }
 
-export function resolveChatGptAccountId(
+export function resolveGptWebAccountId(
   tokens: { access_token?: string; id_token?: string; account_id?: string } | undefined
 ): string | undefined {
   if (!tokens) return undefined
@@ -91,13 +91,13 @@ export function buildCodexAccountFromAuth(
   if (!refreshToken && !accessToken) return null
 
   const profile = resolveProfileFromTokens(tokens)
-  const chatgptAccountId = resolveChatGptAccountId(tokens)
+  const gptWebAccountId = resolveGptWebAccountId(tokens)
   const subscriptionActiveUntil = resolveSubscriptionActiveUntil(tokens)
   const expiresAt = resolveAccessTokenExpiry(accessToken)
 
   const id = makeCodexAccountId({
     sub: profile.sub,
-    chatgptAccountId,
+    gptWebAccountId,
     refreshToken,
     accessToken,
     idToken: tokens?.id_token
@@ -112,7 +112,7 @@ export function buildCodexAccountFromAuth(
     refreshToken,
     accessToken,
     idToken: tokens?.id_token,
-    chatgptAccountId,
+    gptWebAccountId,
     subscriptionActiveUntil,
     expiresAt,
     lastRefresh: auth.last_refresh || new Date().toISOString()
@@ -122,14 +122,14 @@ export function buildCodexAccountFromAuth(
 /** 把 OAuth /token 返回拼成 auth.json payload */
 export function buildAuthPayloadFromTokenResponse(response: CodexTokenResponse): CodexAuthPayload {
   return {
-    auth_mode: 'chatgpt',
+    auth_mode: 'gptWeb',
     OPENAI_API_KEY: null,
     last_refresh: new Date().toISOString(),
     tokens: {
       access_token: response.access_token,
       refresh_token: response.refresh_token,
       id_token: response.id_token,
-      account_id: resolveChatGptAccountId({
+      account_id: resolveGptWebAccountId({
         access_token: response.access_token,
         id_token: response.id_token
       })
@@ -139,13 +139,13 @@ export function buildAuthPayloadFromTokenResponse(response: CodexTokenResponse):
 
 export function makeCodexAccountId(input: {
   sub?: string
-  chatgptAccountId?: string
+  gptWebAccountId?: string
   refreshToken?: string
   accessToken?: string
   idToken?: string
 }): string {
-  if (input.sub && input.chatgptAccountId) return `codex-${input.sub}-${input.chatgptAccountId}`
-  if (input.chatgptAccountId) return `codex-acct-${input.chatgptAccountId}`
+  if (input.sub && input.gptWebAccountId) return `codex-${input.sub}-${input.gptWebAccountId}`
+  if (input.gptWebAccountId) return `codex-acct-${input.gptWebAccountId}`
   if (input.sub) return `codex-sub-${input.sub}`
   const seed = input.refreshToken || input.idToken || input.accessToken || randomUUID()
   return `codex-token-${sha256Short(seed)}`
@@ -157,7 +157,7 @@ export function summarizeAccount(account: CodexAccountConfig): CodexAccountInfo 
     id: account.id,
     email: account.email,
     name: account.name,
-    chatgptAccountId: account.chatgptAccountId,
+    gptWebAccountId: account.gptWebAccountId,
     subscriptionActiveUntil: account.subscriptionActiveUntil,
     expiresAt: account.expiresAt,
     lastRefresh: account.lastRefresh
@@ -217,7 +217,7 @@ function adaptCodexDockAccount(node: Record<string, unknown>): CodexAuthPayload 
   if (!accessToken && !refreshToken) return null
   const accountId = typeof c.chatgpt_account_id === 'string' ? c.chatgpt_account_id : undefined
   return {
-    auth_mode: 'chatgpt',
+    auth_mode: 'gptWeb',
     OPENAI_API_KEY: null,
     last_refresh: typeof c.last_refresh === 'string' ? c.last_refresh : undefined,
     tokens: {

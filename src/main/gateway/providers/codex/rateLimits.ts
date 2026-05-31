@@ -16,7 +16,7 @@ interface ApiPayload {
 }
 
 /**
- * 拉取 ChatGPT 后端的 codex 速率窗口信息（5h primary + weekly secondary）。
+ * 拉取 GptWeb 后端的 codex 速率窗口信息（5h primary + weekly secondary）。
  * 失败抛错；调用方负责降级（不影响其它账号字段展示）。
  */
 export async function fetchCodexRateLimits(

@@ -5,7 +5,7 @@ import {
   decodeJwtPayload,
   parseCodexAuthInput,
   resolveAccessTokenExpiry,
-  resolveChatGptAccountId,
+  resolveGptWebAccountId,
   resolveProfileFromTokens,
   resolveSubscriptionActiveUntil
 } from '../normalize'
@@ -28,16 +28,16 @@ describe('codex/normalize', () => {
     expect(decodeJwtPayload('not-a-jwt')).toBeUndefined()
   })
 
-  it('extracts chatgpt account id from id_token claim', () => {
+  it('extracts gptWeb account id from id_token claim', () => {
     const id = makeJwt({
       sub: 'sub_x',
       'https://api.openai.com/auth.chatgpt_account_id': 'acct_xyz'
     })
-    expect(resolveChatGptAccountId({ id_token: id })).toBe('acct_xyz')
+    expect(resolveGptWebAccountId({ id_token: id })).toBe('acct_xyz')
   })
 
   it('falls back to tokens.account_id when no JWT claim', () => {
-    expect(resolveChatGptAccountId({ account_id: 'acct_fallback' })).toBe('acct_fallback')
+    expect(resolveGptWebAccountId({ account_id: 'acct_fallback' })).toBe('acct_fallback')
   })
 
   it('reads subscription active until from id_token', () => {
@@ -73,21 +73,21 @@ describe('codex/normalize', () => {
     })
     const access = makeJwt({ exp: 2000000000 })
     const account = buildCodexAccountFromAuth({
-      auth_mode: 'chatgpt',
+      auth_mode: 'gptWeb',
       tokens: { access_token: access, refresh_token: 'rt_test', id_token: id }
     })
     expect(account).toMatchObject({
       id: 'codex-sub_test-acct_test',
       enabled: true,
       email: 'test@example.com',
-      chatgptAccountId: 'acct_test',
+      gptWebAccountId: 'acct_test',
       refreshToken: 'rt_test'
     })
     expect(account?.expiresAt).toBe(2000000000 * 1000)
   })
 
   it('returns null when payload has no tokens', () => {
-    expect(buildCodexAccountFromAuth({ auth_mode: 'chatgpt' })).toBeNull()
+    expect(buildCodexAccountFromAuth({ auth_mode: 'gptWeb' })).toBeNull()
   })
 
   it('parses single-object and array auth.json input', () => {

@@ -3,7 +3,7 @@ import { normalizeCodexModel } from './constants'
 
 /**
  * 把 OpenAI Chat Completions 请求体转成 Responses API payload。
- * 由于 ChatGPT 后端 /codex/responses 只接受 Responses 协议（不接受 chat/completions），
+ * 由于 GptWeb 后端 /codex/responses 只接受 Responses 协议（不接受 chat/completions），
  * 我们必须先把 messages 折叠为 instructions + input。
  */
 export function chatToResponsesPayload(body: any): any {

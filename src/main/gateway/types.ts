@@ -5,6 +5,7 @@ export type ProviderName =
   | 'trae'
   | 'openrouter'
   | 'nvidia'
+  | 'gptWeb'
   | 'gemini'
   | string
 
@@ -19,6 +20,7 @@ export interface GatewayHubConfig {
     trae: TraeProviderConfig
     openrouter: OpenRouterProviderConfig
     nvidia: NvidiaProviderConfig
+    gptWeb: GptWebProviderConfig
     gemini: PlaceholderProviderConfig
     [name: string]: unknown
   }
@@ -129,10 +131,10 @@ export interface CodexAccountConfig {
   refreshToken?: string
   /** OAuth access token（短期 JWT） */
   accessToken?: string
-  /** OAuth id_token（含 chatgpt_account_id 等 claims） */
+  /** OAuth id_token（含 gptWeb_account_id 等 claims） */
   idToken?: string
-  /** ChatGPT 后端账号 ID（来自 id_token 的 auth.chatgpt_account_id claim） */
-  chatgptAccountId?: string
+  /** GptWeb 后端账号 ID（来自 id_token 的 auth.chatgpt_account_id claim） */
+  gptWebAccountId?: string
   /** 上次 token 刷新的 ISO 时间 */
   lastRefresh?: string
   /** access_token 解码出的 exp（毫秒） */
@@ -299,6 +301,44 @@ export interface NvidiaProviderState {
   logs: GatewayLogEntry[]
 }
 
+export interface GptWebProviderConfig {
+  enabled: boolean
+  routeName?: string
+  displayName?: string
+  settings: GptWebProviderSettings
+}
+
+export interface GptWebProviderSettings {
+  /** GptWeb backend base URL */
+  baseUrl: string
+  /** HTTP/SOCKS5 proxy URL */
+  vpnProxyUrl: string
+  firstTokenTimeoutSeconds: number
+  streamingReadTimeoutSeconds: number
+  maxRetries: number
+}
+
+export interface GptWebAccountConfig {
+  id: string
+  label?: string
+  email?: string
+  enabled: boolean
+  path?: string
+  accessToken?: string
+  sessionToken?: string
+  accountId: string
+  planType?: string
+  expiresAt?: string
+  oaiDeviceId: string
+  name?: string
+}
+
+export interface GptWebProviderState {
+  accounts: Record<string, AccountRuntimeState>
+  currentAccountIndex: number
+  logs: GatewayLogEntry[]
+}
+
 export interface GatewayHubState {
   version: 1
   providers: {
@@ -308,6 +348,7 @@ export interface GatewayHubState {
     trae: TraeProviderState
     openrouter: OpenRouterProviderState
     nvidia: NvidiaProviderState
+    gptWeb: GptWebProviderState
     [name: string]: unknown
   }
 }

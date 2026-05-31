@@ -23,7 +23,7 @@ export const OPENAI_DEVICE_TOKEN_URL = `${OPENAI_AUTH_ISSUER}/api/accounts/devic
 export const OPENAI_DEVICE_VERIFICATION_URL = `${OPENAI_AUTH_ISSUER}/codex/device`
 export const OPENAI_DEVICE_REDIRECT_URI = `${OPENAI_AUTH_ISSUER}/deviceauth/callback`
 
-/** ChatGPT 后端必带的 originator 头 */
+/** GptWeb 后端必带的 originator 头 */
 export const CODEX_ORIGINATOR = 'codex_cli_rs'
 /** 用 GatewayHub 自己的 UA 标识 */
 export const CODEX_USER_AGENT = 'gatewayhub-codex'

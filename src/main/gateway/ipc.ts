@@ -7,12 +7,14 @@ import { DEFAULT_CODEX_SETTINGS } from './providers/codex/constants'
 import { DEFAULT_TRAE_SETTINGS } from './providers/trae/constants'
 import { DEFAULT_OPENROUTER_SETTINGS } from './providers/openrouter/constants'
 import { DEFAULT_NVIDIA_SETTINGS } from './providers/nvidia/constants'
+import { DEFAULT_GPT_WEB_SETTINGS } from './providers/gptWeb/constants'
 
 const KIRO_KEYS = new Set(Object.keys(DEFAULT_KIRO_SETTINGS))
 const CODEX_KEYS = new Set(Object.keys(DEFAULT_CODEX_SETTINGS))
 const TRAE_KEYS = new Set(Object.keys(DEFAULT_TRAE_SETTINGS))
 const OPENROUTER_KEYS = new Set(Object.keys(DEFAULT_OPENROUTER_SETTINGS))
 const NVIDIA_KEYS = new Set(Object.keys(DEFAULT_NVIDIA_SETTINGS))
+const GPT_WEB_KEYS = new Set(Object.keys(DEFAULT_GPT_WEB_SETTINGS))
 
 function safeHandler(fn: (...args: any[]) => any) {
   return async (...args: any[]) => {
@@ -540,6 +542,60 @@ export function registerGatewayIpc(): void {
         Object.entries(settings).filter(([k]) => NVIDIA_KEYS.has(k))
       )
       return gatewayHubService.updateNvidiaSettings(filtered)
+    })
+  )
+
+  // ============== GptWeb ==============
+
+  ipcMain.handle(
+    'gateway:importGptWebJson',
+    safeHandler((_event, text: string) => gatewayHubService.importGptWebAuthJson(text))
+  )
+  ipcMain.handle(
+    'gateway:testGptWebAccount',
+    safeHandler((_event, accountId: string) => gatewayHubService.testGptWebAccount(accountId))
+  )
+  ipcMain.handle(
+    'gateway:toggleGptWebAccount',
+    safeHandler((_event, accountId: string, enabled: boolean) =>
+      gatewayHubService.toggleGptWebAccount(accountId, enabled)
+    )
+  )
+  ipcMain.handle(
+    'gateway:removeGptWebAccount',
+    safeHandler((_event, accountId: string) => gatewayHubService.removeGptWebAccount(accountId))
+  )
+  ipcMain.handle(
+    'gateway:getGptWebAccountInfo',
+    safeHandler((_event, accountId: string) => gatewayHubService.getGptWebAccountInfo(accountId))
+  )
+  ipcMain.handle(
+    'gateway:refreshGptWebAccountModels',
+    safeHandler((_event, accountId: string) =>
+      gatewayHubService.refreshGptWebAccountModels(accountId)
+    )
+  )
+  ipcMain.handle(
+    'gateway:resetGptWebAccount',
+    safeHandler((_event, accountId: string) => gatewayHubService.resetGptWebAccount(accountId))
+  )
+  ipcMain.handle(
+    'gateway:setGptWebAccountStatus',
+    safeHandler((_event, accountId: string, status: string, reason?: string) =>
+      gatewayHubService.setGptWebAccountStatus(accountId, status as AccountStatus, reason)
+    )
+  )
+  ipcMain.handle(
+    'gateway:getGptWebSettings',
+    safeHandler(() => gatewayHubService.getGptWebSettings())
+  )
+  ipcMain.handle(
+    'gateway:updateGptWebSettings',
+    safeHandler((_event, settings: Record<string, any>) => {
+      const filtered = Object.fromEntries(
+        Object.entries(settings).filter(([k]) => GPT_WEB_KEYS.has(k))
+      )
+      return gatewayHubService.updateGptWebSettings(filtered)
     })
   )
 }

@@ -279,6 +279,7 @@ const zh = {
     traeTitle: '添加 Trae 账号',
     openrouterTitle: '添加 OpenRouter Key',
     nvidiaTitle: '添加 NVIDIA API Key',
+    gptWebTitle: '添加 GptWeb 账号',
     type: '类型',
     label: '标签',
     path: '路径',
@@ -320,7 +321,7 @@ const zh = {
     discoverRunning: '扫描中...',
     discoverResult: '{{skipped}} 个已导入',
     discoverEmpty: '未发现新凭证',
-    codexBrowserDesc: '通过 ChatGPT OAuth 在系统浏览器中登录，授权后会自动捕获回调。',
+    codexBrowserDesc: '通过 GptWeb OAuth 在系统浏览器中登录，授权后会自动捕获回调。',
     codexLoginBrowser: '打开浏览器登录',
     codexAwaitingBrowser: '正在准备 OAuth...',
     codexBrowserOpened: '已打开浏览器；如果没有自动跳转，可手动复制下面链接打开。',
@@ -332,7 +333,7 @@ const zh = {
     codexDeviceCodeHint: '在任意设备上打开下面的链接并输入用户码：',
     codexJsonHint: '粘贴官方 codex CLI 的 ~/.codex/auth.json 文件内容（单对象或数组）',
     codexJsonPlaceholder:
-      '{ "auth_mode": "chatgpt", "tokens": {"access_token": "...", "refresh_token": "..."} }',
+      '{ "auth_mode": "gptWeb", "tokens": {"access_token": "...", "refresh_token": "..."} }',
     codexDiscoverDesc: '扫描本机已有的 ~/.codex/auth.json 凭据',
     windsurfTokenHint:
       '粘贴 Windsurf/Codeium 的 apiKey（例如本机 Windsurf 登录态中的会话 token），仅保存在本地配置目录。',
@@ -362,7 +363,11 @@ const zh = {
       '粘贴 NVIDIA NIM API Key。GatewayHub 会使用 https://integrate.api.nvidia.com/v1 代理 OpenAI 兼容的 /chat/completions。',
     nvidiaKeyPlaceholder: '粘贴 NVIDIA API Key...',
     nvidiaJsonHint: '粘贴包含 apiKey/key 的 JSON（单对象或数组），可选包含 label/name/enabled。',
-    nvidiaJsonPlaceholder: '{ "apiKey": "nvapi-...", "label": "NVIDIA" }'
+    nvidiaJsonPlaceholder: '{ "apiKey": "nvapi-...", "label": "NVIDIA" }',
+    gptWebJsonHint:
+      '粘贴从 chatgpt.com 登录态导出的 JSON（单对象或数组），需包含 accessToken、sessionToken、user 和 account 字段；凭据只保存在本机配置目录。',
+    gptWebJsonPlaceholder:
+      '{ "accessToken": "...", "sessionToken": "...", "user": {"id": "...", "email": "..."}, "account": {"id": "...", "planType": "free"} }'
   },
   updater: {
     title: '发现新版本',

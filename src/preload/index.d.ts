@@ -143,7 +143,7 @@ declare global {
             id: string
             label?: string
             email?: string
-            chatgptAccountId?: string
+            gptWebAccountId?: string
             existing?: boolean
             sourceType?: string
           }>
@@ -156,7 +156,7 @@ declare global {
           id: string
           email?: string
           name?: string
-          chatgptAccountId?: string
+          gptWebAccountId?: string
           subscriptionActiveUntil?: string
           expiresAt?: number
           lastRefresh?: string
@@ -265,6 +265,23 @@ declare global {
         setNvidiaAccountStatus: (accountId: string, status: string, reason?: string) => Promise<any>
         getNvidiaSettings: () => Promise<any>
         updateNvidiaSettings: (settings: Record<string, any>) => Promise<any>
+        // ========== GptWeb ==========
+        importGptWebJson: (
+          text: string
+        ) => Promise<{ added: number; skipped: number; errors: string[]; status: any }>
+        testGptWebAccount: (accountId: string) => Promise<any>
+        toggleGptWebAccount: (accountId: string, enabled: boolean) => Promise<any>
+        removeGptWebAccount: (accountId: string) => Promise<any>
+        getGptWebAccountInfo: (accountId: string) => Promise<any>
+        refreshGptWebAccountModels: (accountId: string) => Promise<any>
+        resetGptWebAccount: (accountId: string) => Promise<any>
+        setGptWebAccountStatus: (
+          accountId: string,
+          status: string,
+          reason?: string
+        ) => Promise<any>
+        getGptWebSettings: () => Promise<any>
+        updateGptWebSettings: (settings: Record<string, any>) => Promise<any>
       }
       updater: {
         check: () => Promise<any>

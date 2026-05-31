@@ -356,7 +356,7 @@ export class CodexAccountPool {
       accessToken: snapshot.accessToken || account.config.accessToken,
       refreshToken: snapshot.refreshToken || account.config.refreshToken,
       idToken: snapshot.idToken || account.config.idToken,
-      chatgptAccountId: snapshot.chatgptAccountId || account.config.chatgptAccountId,
+      gptWebAccountId: snapshot.gptWebAccountId || account.config.gptWebAccountId,
       expiresAt: snapshot.expiresAt ?? account.config.expiresAt,
       lastRefresh: snapshot.lastRefresh ?? account.config.lastRefresh,
       subscriptionActiveUntil:
@@ -370,7 +370,7 @@ export class CodexAccountPool {
           accessToken: account.config.accessToken,
           refreshToken: account.config.refreshToken,
           idToken: account.config.idToken,
-          chatgptAccountId: account.config.chatgptAccountId,
+          gptWebAccountId: account.config.gptWebAccountId,
           expiresAt: account.config.expiresAt,
           lastRefresh: account.config.lastRefresh,
           subscriptionActiveUntil: account.config.subscriptionActiveUntil,

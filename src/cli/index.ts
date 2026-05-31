@@ -16,9 +16,16 @@ import { registerShellCommands } from './commands/shell'
 import { registerTraeCommands } from './commands/trae'
 import { registerOpenRouterCommands } from './commands/openrouter'
 import { registerNvidiaCommands } from './commands/nvidia'
+import { registerGptWebCommands } from './commands/gptWeb'
+import { runGptWebWorkerCli } from './commands/gptWebWorker'
 
 async function main(): Promise<void> {
   configureCliRuntime()
+
+  if (process.argv[2] === '__gptWeb-upstream') {
+    await runGptWebWorkerCli()
+    return
+  }
 
   const cli = createApp()
   registerGatewayCommands(cli)
@@ -31,6 +38,7 @@ async function main(): Promise<void> {
   registerTraeCommands(cli)
   registerOpenRouterCommands(cli)
   registerNvidiaCommands(cli)
+  registerGptWebCommands(cli)
   registerConfigCommands(cli)
   registerLogsCommands(cli)
   registerShellCommands(cli)

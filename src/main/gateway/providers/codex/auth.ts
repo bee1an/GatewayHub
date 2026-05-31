@@ -10,7 +10,7 @@ import {
   buildAuthPayloadFromTokenResponse,
   decodeJwtPayload,
   resolveAccessTokenExpiry,
-  resolveChatGptAccountId,
+  resolveGptWebAccountId,
   resolveProfileFromTokens,
   resolveSubscriptionActiveUntil
 } from './normalize'
@@ -87,10 +87,10 @@ async function safeText(response: Response): Promise<string> {
 /**
  * 管理一个 Codex 账户的 token 状态。
  *
- * 与 KiroAuthManager 类似，但语义针对 ChatGPT OAuth：
+ * 与 KiroAuthManager 类似，但语义针对 GptWeb OAuth：
  * - access_token 是短期 JWT，exp 来自 JWT 自身
  * - refresh_token 长期有效；如果上游返回 401 视为永久失效，不再重试
- * - chatgpt-account-id / originator 是请求 ChatGPT 后端的强制头部
+ * - gptWeb-account-id / originator 是请求 GptWeb 后端的强制头部
  */
 export class CodexAuthManager {
   readonly account: CodexAccountConfig
@@ -99,7 +99,7 @@ export class CodexAuthManager {
   private accessToken = ''
   private refreshToken = ''
   private idToken = ''
-  private chatgptAccountId = ''
+  private gptWebAccountId = ''
   private expiresAtMs = 0
   private lastRefreshIso = ''
   private subscriptionActiveUntil = ''
@@ -124,9 +124,9 @@ export class CodexAuthManager {
     this.accessToken = this.account.accessToken || ''
     this.refreshToken = this.account.refreshToken || ''
     this.idToken = this.account.idToken || ''
-    this.chatgptAccountId =
-      this.account.chatgptAccountId ||
-      resolveChatGptAccountId({
+    this.gptWebAccountId =
+      this.account.gptWebAccountId ||
+      resolveGptWebAccountId({
         access_token: this.accessToken,
         id_token: this.idToken
       }) ||
@@ -143,11 +143,11 @@ export class CodexAuthManager {
   }
 
   get authType(): string {
-    return 'chatgpt-oauth'
+    return 'gptWeb-oauth'
   }
 
   get authenticatedAccountId(): string {
-    return this.chatgptAccountId
+    return this.gptWebAccountId
   }
 
   /** 获取一个有效 access_token，必要时刷新 */
@@ -176,16 +176,16 @@ export class CodexAuthManager {
     return this.refreshInFlight
   }
 
-  /** 构造 ChatGPT 后端必带头部 */
+  /** 构造 GptWeb 后端必带头部 */
   buildHeaders(token: string): Record<string, string> {
-    if (!this.chatgptAccountId) {
+    if (!this.gptWebAccountId) {
       throw new Error(
-        `Codex account ${this.account.id} is missing chatgpt-account-id; please re-login`
+        `Codex account ${this.account.id} is missing gptWeb-account-id; please re-login`
       )
     }
     return {
       authorization: `Bearer ${token}`,
-      'chatgpt-account-id': this.chatgptAccountId,
+      'gptWeb-account-id': this.gptWebAccountId,
       originator: CODEX_ORIGINATOR,
       'user-agent': CODEX_USER_AGENT,
       'content-type': 'application/json'
@@ -226,8 +226,8 @@ export class CodexAuthManager {
     })
     this.lastRefreshIso = auth.last_refresh || new Date().toISOString()
     this.expiresAtMs = resolveAccessTokenExpiry(this.accessToken) || 0
-    const accountId = resolveChatGptAccountId(auth.tokens)
-    if (accountId) this.chatgptAccountId = accountId
+    const accountId = resolveGptWebAccountId(auth.tokens)
+    if (accountId) this.gptWebAccountId = accountId
     const profile = resolveProfileFromTokens(auth.tokens)
     if (profile.email) this.email = profile.email
     if (profile.name) this.name = profile.name
@@ -240,7 +240,7 @@ export class CodexAuthManager {
       accessToken: this.accessToken,
       refreshToken: this.refreshToken,
       idToken: this.idToken,
-      chatgptAccountId: this.chatgptAccountId,
+      gptWebAccountId: this.gptWebAccountId,
       expiresAt: this.expiresAtMs || undefined,
       lastRefresh: this.lastRefreshIso || undefined,
       subscriptionActiveUntil: this.subscriptionActiveUntil || undefined,
@@ -254,7 +254,7 @@ export interface CodexAccountSnapshot {
   accessToken: string
   refreshToken: string
   idToken: string
-  chatgptAccountId: string
+  gptWebAccountId: string
   expiresAt?: number
   lastRefresh?: string
   subscriptionActiveUntil?: string

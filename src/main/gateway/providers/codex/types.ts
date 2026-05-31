@@ -48,7 +48,7 @@ export interface CodexAccountInfo {
   id: string
   email?: string
   name?: string
-  chatgptAccountId?: string
+  gptWebAccountId?: string
   subscriptionActiveUntil?: string
   expiresAt?: number
   lastRefresh?: string

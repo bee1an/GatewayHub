@@ -2,6 +2,17 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.3.0 - 2026-06-01
+
+Added Trae, OpenRouter, NVIDIA, and GptWeb as new providers.
+
+- Added GptWeb provider: account pool with round-robin failover, Node.js sidecar for upstream requests, Sentinel/Turnstile challenge support, and streaming/non-streaming output
+- Added Trae provider: account pool with CLI login, streaming support, and model discovery
+- Added OpenRouter provider: API-key based accounts with immediate validation and redact patterns
+- Added NVIDIA provider: API-key based accounts with immediate validation and redact patterns
+- Fixed Windsurf model list filtering: disabled and BYOK-only models are now excluded
+- Refactored ProviderLogo component to use local assets with logo.dev fallback
+
 ## 0.2.0 - 2026-05-29
 
 Added Windsurf as a new provider and refactored the gateway detail UI into smaller components.

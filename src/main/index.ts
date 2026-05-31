@@ -48,7 +48,7 @@ function applyContentSecurityPolicy(): void {
     "default-src 'self'",
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data:",
+    "img-src 'self' data: https://img.logo.dev",
     "connect-src 'self'",
     "font-src 'self' data:"
   ]
@@ -56,7 +56,7 @@ function applyContentSecurityPolicy(): void {
     "default-src 'self'",
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:* ws://localhost:*",
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data:",
+    "img-src 'self' data: https://img.logo.dev",
     "connect-src 'self' http://localhost:* ws://localhost:*",
     "font-src 'self' data:"
   ]

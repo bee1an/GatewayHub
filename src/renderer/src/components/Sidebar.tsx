@@ -7,9 +7,8 @@ import { Button } from './ui/Button'
 import { TooltipWrapper } from './ui/Tooltip'
 import { useToast } from './ui/ToastContext'
 import { UpdateModal } from './UpdateModal'
-import kiroIcon from '../assets/kiro-icon.svg'
-import codexIconDark from '../assets/codex-icon-dark.svg'
-import codexIconLight from '../assets/codex-icon-light.svg'
+import { ProviderLogo } from './ProviderLogo'
+import { getProviderLogoLabel } from './providerLogoData'
 
 type ProviderStatus = {
   name: string
@@ -24,11 +23,6 @@ type ProviderStatus = {
 
 type ServerInfo = {
   running: boolean
-}
-
-const GATEWAY_LOGOS: Record<string, { light: string; dark: string }> = {
-  kiro: { light: kiroIcon, dark: kiroIcon },
-  codex: { light: codexIconLight, dark: codexIconDark }
 }
 
 export default function Sidebar(): React.JSX.Element {
@@ -267,34 +261,18 @@ function GatewayNavItem({
       : status === 'error'
         ? 'pulse-dot-red'
         : 'pulse-dot-gray'
-  const logoSet = GATEWAY_LOGOS[providerType]
-  const logo = logoSet ? logoSet[theme] : undefined
-  const label = displayName || providerType
+  const label = getProviderLogoLabel(providerType, displayName)
 
   return (
     <NavLink
       to={`/gateway/${name}`}
       className={({ isActive }) => (isActive ? 'sidebar-item-active' : 'sidebar-item')}
     >
-      <div className="w-4 h-4 flex items-center justify-center shrink-0">
-        {logo ? (
-          <img
-            src={logo}
-            alt={label}
-            width="14"
-            height="14"
-            className="w-3.5 h-3.5 rounded-[2.5px] object-contain"
-          />
-        ) : (
-          <span className={`${dotClass} !w-1.5 !h-1.5`} aria-hidden="true" />
-        )}
-      </div>
+      <ProviderLogo providerType={providerType} label={label} theme={theme} size="sm" />
       <span className="capitalize ml-0.5">{label}</span>
-      {logo && (
-        <div className="ml-auto w-4 h-4 flex items-center justify-center shrink-0">
-          <span className={`${dotClass} !w-1.5 !h-1.5`} aria-hidden="true" />
-        </div>
-      )}
+      <div className="ml-auto w-4 h-4 flex items-center justify-center shrink-0">
+        <span className={`${dotClass} !w-1.5 !h-1.5`} aria-hidden="true" />
+      </div>
     </NavLink>
   )
 }

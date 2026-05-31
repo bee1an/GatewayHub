@@ -44,6 +44,13 @@ export class WindsurfAccountPool {
     await this.dispose()
     this.accounts = accountFiles.map((account) => {
       const state = this.state.accounts[account.id] ?? defaultAccountState()
+      // Windsurf's GetUserStatus can include disabled/internal/BYOK-only model
+      // configs. Older GatewayHub builds cached those raw ids, so do not trust
+      // persisted Windsurf model lists across runtime reloads. The next
+      // listModelsFresh/getAccountInfo call will repopulate it through the
+      // current extractor.
+      state.modelsCachedAt = 0
+      state.modelIds = []
       state.status ??= 'available'
       state.statusUpdatedAt ??= 0
       this.state.accounts[account.id] = state

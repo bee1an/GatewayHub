@@ -13,6 +13,11 @@ describe('windsurf/cascade', () => {
           clientModelConfigs: [
             { modelUid: 'swe-1-6-slow' },
             { modelInfo: { modelUid: 'claude-sonnet-4-6-thinking' } },
+            { modelUid: 'disabled-model', disabled: true },
+            {
+              modelUid: 'MODEL_CLAUDE_4_SONNET_BYOK',
+              pricingType: 'MODEL_PRICING_TYPE_BYOK'
+            },
             { label: 'label-model' }
           ]
         }

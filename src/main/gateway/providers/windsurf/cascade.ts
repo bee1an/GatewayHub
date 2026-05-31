@@ -83,9 +83,20 @@ export function extractWindsurfModelIds(response: any): string[] {
     ...(response?.planInfo?.cascadeModelConfigData?.clientModelConfigs || [])
   ]
   const models = configs
+    .filter(isUsableWindsurfModelConfig)
     .map((item: any) => item?.modelUid || item?.modelInfo?.modelUid || item?.label)
     .filter((value: any): value is string => typeof value === 'string' && value.trim().length > 0)
   return [...new Set(models)].sort()
+}
+
+function isUsableWindsurfModelConfig(item: any): boolean {
+  if (!item || typeof item !== 'object') return false
+  if (item.disabled === true) return false
+  // BYOK entries can be listed as non-disabled even when this Windsurf account
+  // has no provider API key configured. Sending them to Cascade fails with
+  // "model requires BYOK", so do not advertise them as GatewayHub-routable.
+  if (item.pricingType === 'MODEL_PRICING_TYPE_BYOK') return false
+  return true
 }
 
 export function extractWindsurfCascadeResult(

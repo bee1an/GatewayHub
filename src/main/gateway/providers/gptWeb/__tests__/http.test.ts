@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchConduitToken, fetchSentinelTokens } from '../http'
+import { fetchConduitToken, fetchModels, fetchSentinelTokens } from '../http'
 import type { GptWebRequestContext } from '../http'
 
 function buildCtx(): GptWebRequestContext {
@@ -49,11 +49,14 @@ describe('gptWeb/http', () => {
       expect.objectContaining({
         body: JSON.stringify(body),
         headers: expect.objectContaining({
+          'chatgpt-account-id': 'gptWeb-account',
           'openai-sentinel-chat-requirements-token': 'chat-requirements-token',
           'openai-sentinel-proof-token': 'proof-token'
         })
       })
     )
+    const headers = fetchMock.mock.calls[0][1]?.headers as Record<string, string>
+    expect(headers['gptWeb-account-id']).toBeUndefined()
   })
 
   it('surfaces conduit prepare errors instead of silently dropping the token', async () => {
@@ -67,6 +70,27 @@ describe('gptWeb/http', () => {
     await expect(fetchConduitToken(ctx, { action: 'next' })).rejects.toThrow(
       'GptWeb conduit prepare error 422'
     )
+  })
+
+  it('uses the upstream chatgpt-account-id header when fetching models', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const headers = init?.headers as Record<string, string>
+      expect(headers['chatgpt-account-id']).toBe('gptWeb-account')
+      expect(headers['gptWeb-account-id']).toBeUndefined()
+      return Response.json({ models: [{ slug: 'gpt-5' }] })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(fetchModels(buildCtx())).resolves.toEqual(['gpt-5', 'auto'])
+  })
+
+  it('throws model fetch errors instead of returning an empty model list', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('blocked', { status: 403 }))
+    )
+
+    await expect(fetchModels(buildCtx())).rejects.toThrow('GptWeb models error 403')
   })
 
   it('uses browserless requirements and official proofofwork finalize key', async () => {

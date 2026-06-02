@@ -4,7 +4,8 @@ import {
   GPT_WEB_USER_AGENT,
   GPT_WEB_CLIENT_BUILD_NUMBER,
   GPT_WEB_CLIENT_VERSION,
-  DEFAULT_GPT_WEB_BASE_URL
+  DEFAULT_GPT_WEB_BASE_URL,
+  GPT_WEB_KNOWN_MODELS
 } from './constants'
 import type {
   SentinelPrepareResponse,
@@ -52,7 +53,10 @@ function buildHeaders(
     'oai-language': 'en-US',
     'oai-client-build-number': GPT_WEB_CLIENT_BUILD_NUMBER,
     'oai-client-version': GPT_WEB_CLIENT_VERSION,
-    'gptWeb-account-id': account.accountId,
+    // ChatGPT Web backend expects this literal header name.  The provider is
+    // branded as gptWeb inside GatewayHub, but the upstream contract is still
+    // chatgpt-account-id.
+    'chatgpt-account-id': account.accountId,
     'content-type': 'application/json',
     'user-agent': GPT_WEB_USER_AGENT,
     'oai-session-id': randomUUID(),
@@ -233,13 +237,23 @@ export async function fetchModels(ctx: GptWebRequestContext): Promise<string[]> 
     settings.vpnProxyUrl
   )
 
-  if (!res.ok) return []
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`GptWeb models error ${res.status}: ${body.slice(0, 200)}`)
+  }
 
   const data = await res.json()
   if (data?.models && Array.isArray(data.models)) {
-    return normalizeModelIds(data.models.map((m: { slug?: string }) => m.slug).filter(Boolean))
+    const modelIds = normalizeModelIds(
+      data.models.map((m: { slug?: string }) => m.slug).filter(Boolean)
+    )
+    if ((account.planType || 'free') === 'free') {
+      const knownUsable = new Set(GPT_WEB_KNOWN_MODELS)
+      return modelIds.filter((id) => knownUsable.has(id))
+    }
+    return modelIds
   }
-  return []
+  throw new Error('GptWeb models response missing models array')
 }
 
 function applySentinelHeaders(

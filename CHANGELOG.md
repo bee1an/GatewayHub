@@ -2,6 +2,18 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.4.0 - 2026-06-02
+
+Added Grok Web provider and improved existing provider resilience.
+
+- Added Grok Web provider: account pool with cookie-based auth, streaming support, model normalization, CLI commands, and renderer dialog
+- Added Kiro account discovery: scan kiro-account-manager backup for AWS SSO OIDC accounts with auto-update of existing credentials
+- Added AWS SSO OIDC refresh flow for Kiro accounts with client credentials
+- Improved GptWeb model discovery: fallback to known models when Cloudflare-blocked instead of showing empty model list
+- Fixed GptWeb upstream header: use correct `chatgpt-account-id` header name expected by ChatGPT Web backend
+- Extracted reusable `accountModelUtils` for renderer model display logic
+- Added `normalizeKiroExpiresAt` to handle numeric epoch timestamps from account-manager exports
+
 ## 0.3.0 - 2026-06-01
 
 Added Trae, OpenRouter, NVIDIA, and GptWeb as new providers.

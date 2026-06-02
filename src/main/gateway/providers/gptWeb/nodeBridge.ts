@@ -175,9 +175,7 @@ async function runWorkerJson<T>(input: WorkerInput): Promise<T> {
         } catch (err) {
           reject(
             new Error(
-              `Invalid GptWeb Node worker JSON: ${
-                err instanceof Error ? err.message : String(err)
-              }`
+              `Invalid GptWeb Node worker JSON: ${err instanceof Error ? err.message : String(err)}`
             )
           )
         }

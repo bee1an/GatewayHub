@@ -138,15 +138,9 @@ function handleDelta(
   delta: GptWebDelta,
   state: StreamingState
 ): { chunk: string | null; done: boolean } {
+  captureMessageMetadata(delta.v, state)
+
   if (delta.o === 'add' && delta.v && typeof delta.v === 'object') {
-    const v = delta.v as Record<string, unknown>
-    const msg = v.message as Record<string, unknown> | undefined
-    if (msg) {
-      if (msg.id) state.messageId = msg.id as string
-      const meta = msg.metadata as Record<string, unknown> | undefined
-      if (meta?.resolved_model_slug) state.model = meta.resolved_model_slug as string
-      if (meta?.model_slug) state.model = meta.model_slug as string
-    }
     return { chunk: null, done: false }
   }
 
@@ -187,6 +181,16 @@ function handleDelta(
   }
 
   return { chunk: null, done: false }
+}
+
+function captureMessageMetadata(value: unknown, state: StreamingState): void {
+  if (!value || typeof value !== 'object') return
+  const msg = (value as Record<string, unknown>).message as Record<string, unknown> | undefined
+  if (!msg) return
+  if (msg.id) state.messageId = msg.id as string
+  const meta = msg.metadata as Record<string, unknown> | undefined
+  if (meta?.resolved_model_slug) state.model = meta.resolved_model_slug as string
+  if (meta?.model_slug) state.model = meta.model_slug as string
 }
 
 function buildOpenAIChunk(

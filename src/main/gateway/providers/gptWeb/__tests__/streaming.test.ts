@@ -19,4 +19,30 @@ describe('gptWeb/streaming', () => {
     expect(result.chunk).toContain('stop')
     expect(result.done).toBe(false)
   })
+
+  it('captures model metadata from current v1 message envelopes without an add op', () => {
+    const state = createStreamingState()
+
+    parseGptWebSSE(
+      `data: ${JSON.stringify({
+        v: {
+          message: {
+            id: 'assistant-message',
+            metadata: { model_slug: 'gpt-5' }
+          }
+        }
+      })}`,
+      state
+    )
+    const result = parseGptWebSSE(
+      `data: ${JSON.stringify({
+        o: 'patch',
+        v: [{ o: 'append', p: '/message/content/parts/0', v: 'OK' }]
+      })}`,
+      state
+    )
+
+    expect(result.chunk).toContain('"model":"gpt-5"')
+    expect(result.chunk).toContain('OK')
+  })
 })

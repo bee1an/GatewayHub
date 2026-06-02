@@ -40,8 +40,12 @@ export class GptWebAccountPool {
   async reload(accountFiles: GptWebAccountConfig[]): Promise<void> {
     this.accounts = accountFiles.map((account) => {
       const state = this.state.accounts[account.id] ?? defaultAccountState()
-      state.modelsCachedAt = 0
-      state.modelIds = []
+      state.modelIds = Array.isArray(state.modelIds) ? state.modelIds : []
+      state.modelsCachedAt = Number(state.modelsCachedAt || 0)
+      if (isFreeAccount(account) && !state.modelIds.length) {
+        state.modelIds = [...GPT_WEB_KNOWN_MODELS]
+        state.modelsCachedAt = Date.now()
+      }
       state.status ??= 'available'
       state.statusUpdatedAt ??= 0
       this.state.accounts[account.id] = state
@@ -61,7 +65,12 @@ export class GptWebAccountPool {
   listAccounts(): GptWebAccountRuntime[] {
     return this.accounts.map((runtime) => ({
       ...runtime,
-      config: redactAccount(runtime.config)
+      config: redactAccount(runtime.config),
+      state: {
+        ...runtime.state,
+        stats: { ...runtime.state.stats },
+        modelIds: effectiveModelIds(runtime.state)
+      }
     }))
   }
 
@@ -127,6 +136,20 @@ export class GptWebAccountPool {
       return { ok: true, accountId, message: 'GptWeb account is valid', models }
     } catch (error) {
       const message = toErrorMessage(error)
+      if (shouldFallbackToKnownModels(error)) {
+        const models = effectiveModelIds(account.state)
+        account.state.modelIds = models
+        account.state.modelsCachedAt = Date.now()
+        account.state.lastError = message
+        this.transitionStatus(account, 'available', 'Model discovery blocked; using known models')
+        this.onStateChanged()
+        return {
+          ok: true,
+          accountId,
+          message: `GptWeb models endpoint blocked; using known models: ${message}`,
+          models
+        }
+      }
       account.state.failures += 1
       account.state.lastFailureAt = Date.now()
       account.state.lastError = message
@@ -156,9 +179,27 @@ export class GptWebAccountPool {
   async refreshAccountModelsById(accountId: string): Promise<{ models: string[] }> {
     const account = this.accounts.find((a) => a.config.id === accountId)
     if (!account) throw new Error('Account not found')
+    const previousModels = [...(account.state.modelIds || [])]
     account.state.modelsCachedAt = 0
-    await this.maybeRefreshModels(account)
-    return { models: account.state.modelIds }
+    try {
+      const models = await fetchModels(this.buildRequestContext(account))
+      if (!models.length) throw new Error('GptWeb models response is empty')
+      account.state.modelIds = models
+      account.state.modelsCachedAt = Date.now()
+      this.onStateChanged()
+      return { models }
+    } catch (error) {
+      const fallbackModels = previousModels.length
+        ? previousModels
+        : shouldFallbackToKnownModels(error)
+          ? [...GPT_WEB_KNOWN_MODELS]
+          : []
+      account.state.modelIds = fallbackModels
+      account.state.modelsCachedAt = fallbackModels.length ? Date.now() : 0
+      this.onStateChanged()
+      if (fallbackModels.length) return { models: fallbackModels }
+      throw error
+    }
   }
 
   reportSuccess(account: GptWebAccountRuntime): void {
@@ -240,6 +281,13 @@ export class GptWebAccountPool {
 
   private async maybeRefreshModels(account: GptWebAccountRuntime): Promise<void> {
     const now = Date.now()
+    if (isFreeAccount(account.config) && isKnownFallback(account.state.modelIds)) {
+      if (!account.state.modelsCachedAt) {
+        account.state.modelsCachedAt = now
+        this.onStateChanged()
+      }
+      return
+    }
     if (account.state.modelsCachedAt && now - account.state.modelsCachedAt < MODELS_CACHE_TTL_MS)
       return
     try {
@@ -293,6 +341,33 @@ export function classifyGptWebError(error: unknown): GptWebClassifiedError {
 
 function isHardOffline(status?: AccountStatus): boolean {
   return status === 'auth_failed' || status === 'quota_exceeded' || status === 'manual_disabled'
+}
+
+function shouldFallbackToKnownModels(error: unknown): boolean {
+  const msg = toErrorMessage(error).toLowerCase()
+  if (msg.includes('401') || msg.includes('unauthorized') || msg.includes('invalid_token')) {
+    return false
+  }
+  return (
+    msg.includes('403') ||
+    msg.includes('challenge') ||
+    msg.includes('unusual activity') ||
+    msg.includes('cloudflare')
+  )
+}
+
+function effectiveModelIds(state: AccountRuntimeState): string[] {
+  return state.modelIds?.length ? [...state.modelIds] : [...GPT_WEB_KNOWN_MODELS]
+}
+
+function isFreeAccount(account: GptWebAccountConfig): boolean {
+  return (account.planType || 'free') === 'free'
+}
+
+function isKnownFallback(models?: string[]): boolean {
+  if (!models?.length) return true
+  const known = new Set(GPT_WEB_KNOWN_MODELS)
+  return models.every((model) => known.has(model))
 }
 
 function defaultAccountState(): AccountRuntimeState {

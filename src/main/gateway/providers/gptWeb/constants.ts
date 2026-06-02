@@ -14,15 +14,18 @@ export const GPT_WEB_USER_AGENT =
 export const GPT_WEB_CLIENT_BUILD_NUMBER = '7034670'
 export const GPT_WEB_CLIENT_VERSION = 'prod-355892676443208d0eb87aeaeb17d3ef3327f23f'
 
+export const GPT_WEB_DEFAULT_MODEL = 'gpt-5'
+
 export const GPT_WEB_KNOWN_MODELS = [
-  // Safe fallback when the live GptWeb /models endpoint is unavailable.
-  // Account-specific model discovery normally replaces this with the exact
-  // slugs returned by chatgpt.com for the current account.
-  'auto'
+  // Safe, verified fallback when the live ChatGPT Web /models endpoint is
+  // Cloudflare-blocked. Keep this list conservative: these are the models that
+  // should be exposed as usable routes for a free ChatGPT Web account.
+  'auto',
+  GPT_WEB_DEFAULT_MODEL
 ]
 
 export function normalizeGptWebModel(model: string): string {
   const trimmed = model.trim()
-  if (!trimmed) return 'auto'
+  if (!trimmed || trimmed === 'auto') return GPT_WEB_DEFAULT_MODEL
   return trimmed
 }

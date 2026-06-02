@@ -123,3 +123,46 @@ describe('GatewayHubService API-key provider imports', () => {
     expect(serviceAny.rebuildRuntime).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('GatewayHubService Kiro scanned imports', () => {
+  it('updates existing Kiro accounts when scanned credentials are richer', async () => {
+    const service = new GatewayHubService()
+    const serviceAny = service as any
+
+    serviceAny.initPromise = Promise.resolve()
+    serviceAny.store = {
+      scanKiroAccounts: vi.fn().mockResolvedValue({
+        candidates: [
+          {
+            id: 'kiro-refresh-candidate',
+            existing: true,
+            existingAccountId: 'kiro-refresh-existing',
+            updatable: true,
+            enabled: true,
+            refreshToken: 'refresh-token',
+            clientId: 'client-id',
+            clientSecret: 'client-secret',
+            region: 'us-east-1',
+            sourceType: 'account-manager'
+          }
+        ]
+      }),
+      updateAccountFile: vi.fn().mockResolvedValue(undefined),
+      writeAccountFile: vi.fn()
+    }
+    serviceAny.rebuildRuntime = vi.fn().mockResolvedValue(undefined)
+    serviceAny.getStatus = vi.fn().mockResolvedValue({ providers: [] })
+
+    const result = await service.importScannedAccounts(['kiro-refresh-candidate'])
+
+    expect(serviceAny.store.updateAccountFile).toHaveBeenCalledWith('kiro-refresh-existing', {
+      refreshToken: 'refresh-token',
+      clientId: 'client-id',
+      clientSecret: 'client-secret',
+      region: 'us-east-1'
+    })
+    expect(serviceAny.store.writeAccountFile).not.toHaveBeenCalled()
+    expect(serviceAny.rebuildRuntime).toHaveBeenCalledOnce()
+    expect(result.updated).toBe(1)
+  })
+})

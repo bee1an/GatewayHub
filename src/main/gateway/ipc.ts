@@ -8,6 +8,7 @@ import { DEFAULT_TRAE_SETTINGS } from './providers/trae/constants'
 import { DEFAULT_OPENROUTER_SETTINGS } from './providers/openrouter/constants'
 import { DEFAULT_NVIDIA_SETTINGS } from './providers/nvidia/constants'
 import { DEFAULT_GPT_WEB_SETTINGS } from './providers/gptWeb/constants'
+import { DEFAULT_GROK_WEB_SETTINGS } from './providers/grokWeb/constants'
 
 const KIRO_KEYS = new Set(Object.keys(DEFAULT_KIRO_SETTINGS))
 const CODEX_KEYS = new Set(Object.keys(DEFAULT_CODEX_SETTINGS))
@@ -15,6 +16,7 @@ const TRAE_KEYS = new Set(Object.keys(DEFAULT_TRAE_SETTINGS))
 const OPENROUTER_KEYS = new Set(Object.keys(DEFAULT_OPENROUTER_SETTINGS))
 const NVIDIA_KEYS = new Set(Object.keys(DEFAULT_NVIDIA_SETTINGS))
 const GPT_WEB_KEYS = new Set(Object.keys(DEFAULT_GPT_WEB_SETTINGS))
+const GROK_WEB_KEYS = new Set(Object.keys(DEFAULT_GROK_WEB_SETTINGS))
 
 function safeHandler(fn: (...args: any[]) => any) {
   return async (...args: any[]) => {
@@ -596,6 +598,60 @@ export function registerGatewayIpc(): void {
         Object.entries(settings).filter(([k]) => GPT_WEB_KEYS.has(k))
       )
       return gatewayHubService.updateGptWebSettings(filtered)
+    })
+  )
+
+  // ============== Grok Web ==============
+
+  ipcMain.handle(
+    'gateway:importGrokWebJson',
+    safeHandler((_event, text: string) => gatewayHubService.importGrokWebAuthJson(text))
+  )
+  ipcMain.handle(
+    'gateway:testGrokWebAccount',
+    safeHandler((_event, accountId: string) => gatewayHubService.testGrokWebAccount(accountId))
+  )
+  ipcMain.handle(
+    'gateway:toggleGrokWebAccount',
+    safeHandler((_event, accountId: string, enabled: boolean) =>
+      gatewayHubService.toggleGrokWebAccount(accountId, enabled)
+    )
+  )
+  ipcMain.handle(
+    'gateway:removeGrokWebAccount',
+    safeHandler((_event, accountId: string) => gatewayHubService.removeGrokWebAccount(accountId))
+  )
+  ipcMain.handle(
+    'gateway:getGrokWebAccountInfo',
+    safeHandler((_event, accountId: string) => gatewayHubService.getGrokWebAccountInfo(accountId))
+  )
+  ipcMain.handle(
+    'gateway:refreshGrokWebAccountModels',
+    safeHandler((_event, accountId: string) =>
+      gatewayHubService.refreshGrokWebAccountModels(accountId)
+    )
+  )
+  ipcMain.handle(
+    'gateway:resetGrokWebAccount',
+    safeHandler((_event, accountId: string) => gatewayHubService.resetGrokWebAccount(accountId))
+  )
+  ipcMain.handle(
+    'gateway:setGrokWebAccountStatus',
+    safeHandler((_event, accountId: string, status: string, reason?: string) =>
+      gatewayHubService.setGrokWebAccountStatus(accountId, status as AccountStatus, reason)
+    )
+  )
+  ipcMain.handle(
+    'gateway:getGrokWebSettings',
+    safeHandler(() => gatewayHubService.getGrokWebSettings())
+  )
+  ipcMain.handle(
+    'gateway:updateGrokWebSettings',
+    safeHandler((_event, settings: Record<string, any>) => {
+      const filtered = Object.fromEntries(
+        Object.entries(settings).filter(([k]) => GROK_WEB_KEYS.has(k))
+      )
+      return gatewayHubService.updateGrokWebSettings(filtered)
     })
   )
 }

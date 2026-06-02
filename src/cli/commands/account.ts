@@ -217,7 +217,7 @@ async function runAutoDiscover(
   await notifyDaemonReload().catch(() => false)
   emitSuccess(result, () => {
     process.stdout.write(
-      `${colors.green('discovered')} added=${(result as any).added ?? 0}, skipped=${(result as any).skipped ?? 0}\n`
+      `${colors.green('discovered')} added=${(result as any).added ?? 0}, updated=${(result as any).updated ?? 0}, skipped=${(result as any).skipped ?? 0}\n`
     )
   })
 }

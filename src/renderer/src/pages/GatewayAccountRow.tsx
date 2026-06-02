@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '../components/ui/Button'
 import { TooltipWrapper } from '../components/ui/Tooltip'
+import { normalizeAccountModels } from './accountModelUtils'
 import type { Account, AccountInfo, AccountStatus } from './gatewayDetailTypes'
 
 function useNow(intervalMs = 60_000): number {
@@ -55,7 +56,7 @@ export function AccountRow({
   const success = acc.stats?.successfulRequests ?? 0
   const rate = total > 0 ? Math.round((success / total) * 100) : null
   const accountInfo = info?.data
-  const models = accountInfo?.models ?? []
+  const models = normalizeAccountModels(accountInfo?.models)
 
   const expiresAt = acc.expiresAt ? new Date(acc.expiresAt) : null
   const expiresIn = expiresAt ? expiresAt.getTime() - now : null
@@ -122,7 +123,7 @@ export function AccountRow({
           accountInfo.subscription.type !== 'unknown' &&
           accountInfo.subscription.title &&
           !/^[\s—–-]+$/.test(accountInfo.subscription.title) && (
-            <span className="tag text-[10px] !px-1.5 !py-0 text-lime bg-lime/10 border border-lime/20 shrink-0">
+            <span className="tag text-[10px] !px-1.5 !py-0 text-porcelain bg-charcoal border border-ash/20 shrink-0">
               {accountInfo.subscription.title}
             </span>
           )}

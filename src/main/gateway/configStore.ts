@@ -7,6 +7,7 @@ import type {
   CodexAccountConfig,
   GatewayHubConfig,
   GatewayHubState,
+  GrokWebAccountConfig,
   KiroAccountConfig,
   ModelMapping,
   NvidiaAccountConfig,
@@ -30,8 +31,11 @@ import { scanExternalTraeAccounts } from './providers/trae/localState'
 import { DEFAULT_OPENROUTER_SETTINGS } from './providers/openrouter/constants'
 import { DEFAULT_NVIDIA_SETTINGS } from './providers/nvidia/constants'
 import { DEFAULT_GPT_WEB_SETTINGS } from './providers/gptWeb/constants'
+import { DEFAULT_GROK_WEB_SETTINGS } from './providers/grokWeb/constants'
 import { generateApiKey, readJsonFile, sha256Short, writeJsonFile, atomicWrite } from './core/utils'
 import { getPaths } from './core/paths'
+import { normalizeKiroExpiresAt } from './providers/kiro/normalize'
+import { importNodeSqlite } from './providers/kiro/sqlite'
 
 export class GatewayConfigStore {
   readonly configPath: string
@@ -70,6 +74,10 @@ export class GatewayConfigStore {
 
   gptWebAccountsDir(): string {
     return join(dirname(this.configPath), 'gptWeb', 'accounts')
+  }
+
+  grokWebAccountsDir(): string {
+    return join(dirname(this.configPath), 'grokWeb', 'accounts')
   }
 
   logsDir(): string {
@@ -149,6 +157,7 @@ export class GatewayConfigStore {
       Boolean(parsed.providers?.kiro?.accounts) ||
       !parsed.providers?.nvidia ||
       !parsed.providers?.gptWeb ||
+      !parsed.providers?.grokWeb ||
       parsed.providers?.trae?.settings?.modelListPath === LEGACY_TRAE_MODEL_LIST_PATH ||
       JSON.stringify(parsed.modelMappings ?? []) !== JSON.stringify(config.modelMappings)
 
@@ -263,6 +272,15 @@ export class GatewayConfigStore {
     const kiroJsonAccount = await extractAccountFromJson(kiroJson, 'Kiro IDE credentials')
     if (kiroJsonAccount) candidates.push(kiroJsonAccount)
 
+    const accountManagerBackup = join(
+      home,
+      'Library',
+      'Application Support',
+      'kiro-account-manager',
+      'kiro-accounts.backup.json'
+    )
+    candidates.push(...(await extractAccountsFromKiroAccountManager(accountManagerBackup)))
+
     const ssoCache = join(home, '.aws', 'sso', 'cache')
     try {
       const files = await readdir(ssoCache)
@@ -277,6 +295,8 @@ export class GatewayConfigStore {
     }
 
     for (const dbPath of [
+      join(home, 'Library', 'Application Support', 'kiro-cli', 'data.sqlite3'),
+      join(home, 'Library', 'Application Support', 'amazon-q', 'data.sqlite3'),
       join(home, '.local', 'share', 'kiro-cli', 'data.sqlite3'),
       join(home, '.local', 'share', 'amazon-q', 'data.sqlite3')
     ]) {
@@ -288,20 +308,45 @@ export class GatewayConfigStore {
   }
 
   async scanKiroAccounts(): Promise<{
-    candidates: Array<KiroAccountConfig & { existing?: boolean; sourceType?: string }>
+    candidates: Array<
+      KiroAccountConfig & {
+        existing?: boolean
+        existingAccountId?: string
+        sourceType?: string
+        updatable?: boolean
+      }
+    >
   }> {
     const external = await this.scanExternalAccounts()
     const existing = await this.readAccountFiles()
-    const existingKeys = new Set<string>()
+    const existingKeys = new Map<string, KiroAccountConfig>()
     for (const acc of existing) {
-      for (const k of accountIdentityKeys(acc)) existingKeys.add(k)
+      for (const k of accountIdentityKeys(acc)) {
+        if (!existingKeys.has(k)) existingKeys.set(k, acc)
+      }
     }
 
-    const result: Array<KiroAccountConfig & { existing?: boolean; sourceType?: string }> = []
+    const result: Array<
+      KiroAccountConfig & {
+        existing?: boolean
+        existingAccountId?: string
+        sourceType?: string
+        updatable?: boolean
+      }
+    > = []
     for (const candidate of external) {
       const keys = accountIdentityKeys(candidate)
-      const isExisting = keys.some((k) => existingKeys.has(k))
-      result.push({ ...candidate, existing: isExisting || undefined })
+      const existingAccount = keys.map((k) => existingKeys.get(k)).find(Boolean)
+      const isExisting = Boolean(existingAccount)
+      result.push({
+        ...candidate,
+        existing: isExisting || undefined,
+        existingAccountId: existingAccount?.id,
+        updatable:
+          existingAccount && isKiroAccountCandidateNewer(candidate, existingAccount)
+            ? true
+            : undefined
+      })
     }
     return { candidates: result }
   }
@@ -788,6 +833,69 @@ export class GatewayConfigStore {
     await atomicWrite(account.path, `${JSON.stringify(data, null, 2)}\n`)
   }
 
+  // ============== Grok Web account file management ==============
+
+  async readGrokWebAccountFiles(): Promise<GrokWebAccountConfig[]> {
+    const dir = this.grokWebAccountsDir()
+    let files: string[]
+    try {
+      files = await readdir(dir)
+    } catch {
+      return []
+    }
+    const accounts: GrokWebAccountConfig[] = []
+    for (const file of files) {
+      if (!file.endsWith('.json') || file.startsWith('.')) continue
+      const filePath = join(dir, file)
+      try {
+        const data = await readJsonFile<any>(filePath)
+        if (!data.cookieHeader) continue
+        if (!data.id) data.id = `grokWeb-${sha256Short(data.cookieHeader.slice(0, 64))}`
+        if (data.enabled === undefined) data.enabled = true
+        data.path = filePath
+        accounts.push(data as GrokWebAccountConfig)
+      } catch (err) {
+        console.warn(`[GatewayHub] Skipping corrupt grokWeb account file: ${file}`, err)
+      }
+    }
+    return accounts
+  }
+
+  async writeGrokWebAccountFile(data: GrokWebAccountConfig): Promise<string> {
+    const dir = this.grokWebAccountsDir()
+    await mkdir(dir, { recursive: true })
+    const fileBase = safeFileName(data.label || data.email || data.id) || 'account'
+    const targetPath = join(dir, `${fileBase}.json`)
+    const existing = await readJsonFile<any>(targetPath).catch(() => null)
+    if (existing && existing.id && existing.id !== data.id) {
+      const altPath = join(dir, `${fileBase}-${sha256Short(data.id)}.json`)
+      await atomicWrite(altPath, `${JSON.stringify(stripGrokWebPath(data), null, 2)}\n`)
+      return altPath
+    }
+    await atomicWrite(targetPath, `${JSON.stringify(stripGrokWebPath(data), null, 2)}\n`)
+    return targetPath
+  }
+
+  async deleteGrokWebAccountFile(accountId: string): Promise<boolean> {
+    const accounts = await this.readGrokWebAccountFiles()
+    const account = accounts.find((a) => a.id === accountId)
+    if (!account?.path) return false
+    await unlink(account.path)
+    return true
+  }
+
+  async updateGrokWebAccountFile(
+    accountId: string,
+    updates: Partial<GrokWebAccountConfig>
+  ): Promise<void> {
+    const accounts = await this.readGrokWebAccountFiles()
+    const account = accounts.find((a) => a.id === accountId)
+    if (!account?.path) throw new Error(`Grok Web account not found: ${accountId}`)
+    const data = await readJsonFile<any>(account.path)
+    Object.assign(data, updates)
+    await atomicWrite(account.path, `${JSON.stringify(data, null, 2)}\n`)
+  }
+
   defaultConfig(): GatewayHubConfig {
     return {
       version: 3,
@@ -834,6 +942,11 @@ export class GatewayConfigStore {
           routeName: 'gptWeb',
           settings: { ...DEFAULT_GPT_WEB_SETTINGS }
         },
+        grokWeb: {
+          enabled: true,
+          routeName: 'grokWeb',
+          settings: { ...DEFAULT_GROK_WEB_SETTINGS }
+        },
         gemini: {
           enabled: false,
           routeName: 'gemini',
@@ -879,6 +992,11 @@ export class GatewayConfigStore {
           logs: []
         },
         gptWeb: {
+          accounts: {},
+          currentAccountIndex: 0,
+          logs: []
+        },
+        grokWeb: {
           accounts: {},
           currentAccountIndex: 0,
           logs: []
@@ -1073,6 +1191,19 @@ export class GatewayConfigStore {
             ...(input?.providers?.gptWeb?.settings ?? {})
           }
         },
+        grokWeb: {
+          ...defaults.providers.grokWeb,
+          ...(input?.providers?.grokWeb ?? {}),
+          routeName: input?.providers?.grokWeb?.routeName || defaults.providers.grokWeb.routeName,
+          enabled:
+            typeof input?.providers?.grokWeb?.enabled === 'boolean'
+              ? input.providers.grokWeb.enabled
+              : defaults.providers.grokWeb.enabled,
+          settings: {
+            ...defaults.providers.grokWeb.settings,
+            ...(input?.providers?.grokWeb?.settings ?? {})
+          }
+        },
         gemini: {
           ...defaults.providers.gemini,
           ...(input?.providers?.gemini ?? {}),
@@ -1146,6 +1277,22 @@ export class GatewayConfigStore {
           logs: Array.isArray(input?.providers?.nvidia?.logs)
             ? input.providers.nvidia.logs.slice(-1000)
             : []
+        },
+        gptWeb: {
+          ...defaults.providers.gptWeb,
+          ...(input?.providers?.gptWeb ?? {}),
+          accounts: input?.providers?.gptWeb?.accounts ?? {},
+          logs: Array.isArray(input?.providers?.gptWeb?.logs)
+            ? input.providers.gptWeb.logs.slice(-1000)
+            : []
+        },
+        grokWeb: {
+          ...defaults.providers.grokWeb,
+          ...(input?.providers?.grokWeb ?? {}),
+          accounts: input?.providers?.grokWeb?.accounts ?? {},
+          logs: Array.isArray(input?.providers?.grokWeb?.logs)
+            ? input.providers.grokWeb.logs.slice(-1000)
+            : []
         }
       }
     }
@@ -1166,6 +1313,26 @@ function accountIdentityKeys(account: Partial<KiroAccountConfig>): string[] {
   if (account.email) keys.push(`email:${account.email.toLowerCase()}`)
   if (!keys.length && account.accessToken) keys.push(`access:${sha256Short(account.accessToken)}`)
   return keys
+}
+
+function isKiroAccountCandidateNewer(
+  candidate: Partial<KiroAccountConfig>,
+  existing: Partial<KiroAccountConfig>
+): boolean {
+  for (const key of [
+    'refreshToken',
+    'accessToken',
+    'expiresAt',
+    'profileArn',
+    'clientId',
+    'clientSecret',
+    'region',
+    'apiRegion',
+    'email'
+  ] as const) {
+    if (candidate[key] && candidate[key] !== existing[key]) return true
+  }
+  return false
 }
 
 function normalizeEmail(value: unknown): string | undefined {
@@ -1246,6 +1413,11 @@ function stripGptWebPath(data: GptWebAccountConfig): Omit<GptWebAccountConfig, '
   return rest
 }
 
+function stripGrokWebPath(data: GrokWebAccountConfig): Omit<GrokWebAccountConfig, 'path'> {
+  const { path: _, ...rest } = data
+  return rest
+}
+
 function makeTraeStableId(account: Partial<TraeAccountConfig>): string {
   if (account.userId) return `trae-user-${sha256Short(account.userId, 12)}`
   if (account.refreshToken) return `trae-refresh-${sha256Short(account.refreshToken, 12)}`
@@ -1319,10 +1491,6 @@ function kiroMappingProviders(config: GatewayHubConfig): Set<string> {
   return names
 }
 
-const dynamicImport = new Function('specifier', 'return import(specifier)') as (
-  specifier: string
-) => Promise<any>
-
 async function extractAccountFromJson(
   path: string,
   label: string
@@ -1351,9 +1519,96 @@ async function extractAccountFromJson(
       profileArn: profileArn || undefined,
       clientId: data.clientId || data.client_id || undefined,
       clientSecret: data.clientSecret || data.client_secret || undefined,
+      expiresAt: normalizeKiroExpiresAt(data.expiresAt ?? data.expires_at),
       region: data.region || undefined,
+      apiRegion: data.apiRegion || data.api_region || undefined,
       sourceType: 'json'
     }
+  } catch {
+    return null
+  }
+}
+
+async function extractAccountsFromKiroAccountManager(
+  path: string
+): Promise<Array<KiroAccountConfig & { sourceType: string }>> {
+  try {
+    const data = await readJsonFile<any>(path)
+    const rawAccounts = data?.accounts
+    const activeAccountId =
+      typeof data?.activeAccountId === 'string' && data.activeAccountId ? data.activeAccountId : ''
+    const entries: Array<[string, any]> = Array.isArray(rawAccounts)
+      ? rawAccounts.map((account, index) => [String(account?.id ?? index), account])
+      : rawAccounts && typeof rawAccounts === 'object'
+        ? Object.entries(rawAccounts)
+        : []
+
+    entries.sort(([leftId], [rightId]) => {
+      if (leftId === activeAccountId) return -1
+      if (rightId === activeAccountId) return 1
+      return 0
+    })
+
+    const accounts: Array<KiroAccountConfig & { sourceType: string }> = []
+    for (const [entryId, account] of entries) {
+      if (!account || typeof account !== 'object') continue
+      const credentials = parseCredentialsObject(account.credentials)
+      if (!credentials) continue
+
+      const refreshToken = credentials.refreshToken || credentials.refresh_token || ''
+      const accessToken = credentials.accessToken || credentials.access_token || ''
+      if (!refreshToken && !accessToken) continue
+
+      const profileArn =
+        credentials.profileArn ||
+        credentials.profile_arn ||
+        account.profileArn ||
+        account.profile_arn ||
+        ''
+      const email = normalizeEmail(account.email || credentials.email)
+      const label =
+        email ||
+        (typeof account.nickname === 'string' && account.nickname.trim()) ||
+        (entryId === activeAccountId
+          ? 'Kiro account-manager active account'
+          : 'Kiro account-manager')
+      const id = profileArn
+        ? `kiro-profile-${sha256Short(profileArn)}`
+        : refreshToken
+          ? `kiro-refresh-${sha256Short(refreshToken)}`
+          : `kiro-access-${sha256Short(accessToken)}`
+
+      accounts.push({
+        id,
+        email,
+        label,
+        enabled: true,
+        refreshToken: refreshToken || undefined,
+        accessToken: accessToken || undefined,
+        expiresAt: normalizeKiroExpiresAt(credentials.expiresAt ?? credentials.expires_at),
+        profileArn: profileArn || undefined,
+        clientId: credentials.clientId || credentials.client_id || undefined,
+        clientSecret: credentials.clientSecret || credentials.client_secret || undefined,
+        region: credentials.region || account.region || undefined,
+        apiRegion:
+          credentials.apiRegion || credentials.api_region || account.apiRegion || undefined,
+        sourceType: 'account-manager'
+      })
+    }
+
+    return accounts
+  } catch {
+    return []
+  }
+}
+
+function parseCredentialsObject(value: unknown): Record<string, any> | null {
+  if (!value) return null
+  if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, any>
+  if (typeof value !== 'string') return null
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null
   } catch {
     return null
   }
@@ -1369,7 +1624,7 @@ async function extractAccountFromSqlite(
   }
 
   try {
-    const sqlite = await dynamicImport('node:sqlite')
+    const sqlite = await importNodeSqlite()
     const db = new sqlite.DatabaseSync(dbPath)
     try {
       let refreshToken = ''
@@ -1429,7 +1684,7 @@ async function extractAccountFromSqlite(
         label: dbPath.includes('amazon-q') ? 'Amazon Q CLI' : 'kiro-cli',
         refreshToken: refreshToken || undefined,
         accessToken: accessToken || undefined,
-        expiresAt: expiresAt || undefined,
+        expiresAt: normalizeKiroExpiresAt(expiresAt),
         profileArn: profileArn || undefined,
         clientId: clientId || undefined,
         clientSecret: clientSecret || undefined,

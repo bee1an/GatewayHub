@@ -71,6 +71,7 @@ const en = {
     successRate: 'Success Rate',
     discover: 'Discover',
     exists: 'Imported',
+    updatable: 'Updatable',
     discoverTip: 'Scan local Kiro credentials',
     addAccount: 'Add Account',
     noAccounts: 'No accounts configured',
@@ -284,6 +285,7 @@ const en = {
     openrouterTitle: 'Add OpenRouter Key',
     nvidiaTitle: 'Add NVIDIA API Key',
     gptWebTitle: 'Add GptWeb Account',
+    grokWebTitle: 'Add Grok Web Account',
     type: 'Type',
     label: 'Label',
     path: 'Path',
@@ -376,7 +378,11 @@ const en = {
     gptWebJsonHint:
       'Paste exported chatgpt.com auth JSON (single object or array) with accessToken, sessionToken, user, and account fields. Credentials are stored only in the local config directory.',
     gptWebJsonPlaceholder:
-      '{ "accessToken": "...", "sessionToken": "...", "user": {"id": "...", "email": "..."}, "account": {"id": "...", "planType": "free"} }'
+      '{ "accessToken": "...", "sessionToken": "...", "user": {"id": "...", "email": "..."}, "account": {"id": "...", "planType": "free"} }',
+    grokWebJsonHint:
+      'Paste grok.com sign-in cookie JSON (single object or array). Supports a cookieHeader/cookie string or browser-exported cookies[]. Credentials are stored only in the local config directory.',
+    grokWebJsonPlaceholder:
+      '{ "cookieHeader": "sso=...; sso-rw=...; cf_clearance=...; grok_device_id=...; x-userid=...", "email": "you@example.com" }'
   },
   updater: {
     title: 'Update Available',

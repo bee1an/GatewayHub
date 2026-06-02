@@ -5,6 +5,7 @@ import type {
   GatewayHubConfig,
   GatewayRequestContext,
   GatewayResponse,
+  GrokWebAccountConfig,
   KiroAccountConfig,
   ModelMapping,
   NvidiaAccountConfig,
@@ -24,6 +25,7 @@ import { TraeProvider } from './providers/trae/provider'
 import { OpenRouterProvider } from './providers/openrouter/provider'
 import { NvidiaProvider } from './providers/nvidia/provider'
 import { GptWebProvider } from './providers/gptWeb/provider'
+import { GrokWebProvider } from './providers/grokWeb/provider'
 import type { GatewayHubState } from './types'
 
 class PlaceholderProvider implements ProviderAdapter {
@@ -105,7 +107,8 @@ export class ProviderRegistry {
     traeAccountFiles: TraeAccountConfig[] = [],
     openrouterAccountFiles: OpenRouterAccountConfig[] = [],
     nvidiaAccountFiles: NvidiaAccountConfig[] = [],
-    gptWebAccountFiles: GptWebAccountConfig[] = []
+    gptWebAccountFiles: GptWebAccountConfig[] = [],
+    grokWebAccountFiles: GrokWebAccountConfig[] = []
   ): Promise<void> {
     const kiro = new KiroProvider(
       this.config.providers.kiro,
@@ -123,6 +126,9 @@ export class ProviderRegistry {
       this.config.providers.kiro.settings.vpnProxyUrl
     this.config.providers.gptWeb.settings.vpnProxyUrl =
       this.config.providers.gptWeb.settings.vpnProxyUrl ||
+      this.config.providers.kiro.settings.vpnProxyUrl
+    this.config.providers.grokWeb.settings.vpnProxyUrl =
+      this.config.providers.grokWeb.settings.vpnProxyUrl ||
       this.config.providers.kiro.settings.vpnProxyUrl
 
     const codex = new CodexProvider(
@@ -190,6 +196,15 @@ export class ProviderRegistry {
     )
     await gptWeb.initialize(gptWebAccountFiles)
     this.registerProvider('gptWeb', gptWeb, this.config.providers.gptWeb.routeName || 'gptWeb')
+
+    const grokWeb = new GrokWebProvider(
+      this.config.providers.grokWeb,
+      this.state.providers.grokWeb,
+      this.logger,
+      this.onStateChanged
+    )
+    await grokWeb.initialize(grokWebAccountFiles)
+    this.registerProvider('grokWeb', grokWeb, this.config.providers.grokWeb.routeName || 'grokWeb')
 
     this.registerProvider(
       'gemini',

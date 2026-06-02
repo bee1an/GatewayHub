@@ -29,6 +29,8 @@ export function AddKiroAccountDialog({
       refreshToken?: string
       profileArn?: string
       existing?: boolean
+      existingAccountId?: string
+      updatable?: boolean
       sourceType?: string
     }>
   } | null>(null)
@@ -111,7 +113,9 @@ export function AddKiroAccountDialog({
     try {
       const r = await window.api.gateway.scanKiroAccounts()
       setScanResult(r)
-      const newIds = new Set(r.candidates.filter((c: any) => !c.existing).map((c: any) => c.id))
+      const newIds = new Set(
+        r.candidates.filter((c: any) => !c.existing || c.updatable).map((c: any) => c.id)
+      )
       setSelectedIds(newIds)
     } finally {
       setDiscoverLoading(false)
@@ -398,12 +402,16 @@ export function AddKiroAccountDialog({
                       {scanResult.candidates.map((c) => (
                         <label
                           key={c.id}
-                          className={`flex items-center gap-2 px-2 py-1.5 rounded-[var(--radius-sm)] ${c.existing ? 'opacity-40' : 'hover:bg-[color-mix(in_srgb,var(--c-slate)_30%,transparent)]'}`}
+                          className={`flex items-center gap-2 px-2 py-1.5 rounded-[var(--radius-sm)] ${
+                            c.existing && !c.updatable
+                              ? 'opacity-40'
+                              : 'hover:bg-[color-mix(in_srgb,var(--c-slate)_30%,transparent)]'
+                          }`}
                         >
                           <input
                             type="checkbox"
                             checked={selectedIds.has(c.id)}
-                            disabled={c.existing}
+                            disabled={c.existing && !c.updatable}
                             onChange={(e) => {
                               const next = new Set(selectedIds)
                               if (e.target.checked) next.add(c.id)
@@ -424,7 +432,11 @@ export function AddKiroAccountDialog({
                             </p>
                           </div>
                           <span className="tag text-[12px] !px-1 !py-0 shrink-0">
-                            {c.existing ? t('gateway.exists') : c.sourceType || 'account'}
+                            {c.existing
+                              ? c.updatable
+                                ? `${t('gateway.exists')} · ${t('gateway.updatable')}`
+                                : t('gateway.exists')
+                              : c.sourceType || 'account'}
                           </span>
                         </label>
                       ))}

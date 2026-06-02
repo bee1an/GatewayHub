@@ -69,6 +69,7 @@ const zh = {
     successRate: '成功率',
     discover: '发现',
     exists: '已导入',
+    updatable: '可更新',
     discoverTip: '扫描本机 Kiro 凭据',
     addAccount: '添加账号',
     noAccounts: '暂无账号',
@@ -280,6 +281,7 @@ const zh = {
     openrouterTitle: '添加 OpenRouter Key',
     nvidiaTitle: '添加 NVIDIA API Key',
     gptWebTitle: '添加 GptWeb 账号',
+    grokWebTitle: '添加 Grok Web 账号',
     type: '类型',
     label: '标签',
     path: '路径',
@@ -367,7 +369,11 @@ const zh = {
     gptWebJsonHint:
       '粘贴从 chatgpt.com 登录态导出的 JSON（单对象或数组），需包含 accessToken、sessionToken、user 和 account 字段；凭据只保存在本机配置目录。',
     gptWebJsonPlaceholder:
-      '{ "accessToken": "...", "sessionToken": "...", "user": {"id": "...", "email": "..."}, "account": {"id": "...", "planType": "free"} }'
+      '{ "accessToken": "...", "sessionToken": "...", "user": {"id": "...", "email": "..."}, "account": {"id": "...", "planType": "free"} }',
+    grokWebJsonHint:
+      '粘贴 grok.com 登录态 Cookie JSON（单对象或数组）。支持 cookieHeader/cookie 字符串，或浏览器导出的 cookies[]；凭据只保存在本机配置目录。',
+    grokWebJsonPlaceholder:
+      '{ "cookieHeader": "sso=...; sso-rw=...; cf_clearance=...; grok_device_id=...; x-userid=...", "email": "you@example.com" }'
   },
   updater: {
     title: '发现新版本',

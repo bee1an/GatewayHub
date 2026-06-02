@@ -17,6 +17,7 @@ import { registerTraeCommands } from './commands/trae'
 import { registerOpenRouterCommands } from './commands/openrouter'
 import { registerNvidiaCommands } from './commands/nvidia'
 import { registerGptWebCommands } from './commands/gptWeb'
+import { registerGrokWebCommands } from './commands/grokWeb'
 import { runGptWebWorkerCli } from './commands/gptWebWorker'
 
 async function main(): Promise<void> {
@@ -39,6 +40,7 @@ async function main(): Promise<void> {
   registerOpenRouterCommands(cli)
   registerNvidiaCommands(cli)
   registerGptWebCommands(cli)
+  registerGrokWebCommands(cli)
   registerConfigCommands(cli)
   registerLogsCommands(cli)
   registerShellCommands(cli)

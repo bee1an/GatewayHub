@@ -7,12 +7,16 @@ import { DEFAULT_KIRO_SETTINGS } from '../../main/gateway/providers/kiro/constan
 import { DEFAULT_TRAE_SETTINGS } from '../../main/gateway/providers/trae/constants'
 import { DEFAULT_OPENROUTER_SETTINGS } from '../../main/gateway/providers/openrouter/constants'
 import { DEFAULT_NVIDIA_SETTINGS } from '../../main/gateway/providers/nvidia/constants'
+import { DEFAULT_GPT_WEB_SETTINGS } from '../../main/gateway/providers/gptWeb/constants'
+import { DEFAULT_GROK_WEB_SETTINGS } from '../../main/gateway/providers/grokWeb/constants'
 
 const PROVIDER_SETTING_KEYS = {
   kiro: new Set(Object.keys(DEFAULT_KIRO_SETTINGS)),
   trae: new Set(Object.keys(DEFAULT_TRAE_SETTINGS)),
   openrouter: new Set(Object.keys(DEFAULT_OPENROUTER_SETTINGS)),
-  nvidia: new Set(Object.keys(DEFAULT_NVIDIA_SETTINGS))
+  nvidia: new Set(Object.keys(DEFAULT_NVIDIA_SETTINGS)),
+  gptWeb: new Set(Object.keys(DEFAULT_GPT_WEB_SETTINGS)),
+  grokWeb: new Set(Object.keys(DEFAULT_GROK_WEB_SETTINGS))
 } as const
 
 type ProviderSettingsGroup = keyof typeof PROVIDER_SETTING_KEYS
@@ -21,7 +25,7 @@ export function registerSettingsCommands(cli: CAC): void {
   cli
     .command(
       'settings <group> <action> [...kvs]',
-      'Settings management (kiro|trae|openrouter|nvidia show/set, auto-start show/on/off)'
+      'Settings management (kiro|trae|openrouter|nvidia|gptWeb|grokWeb show/set, auto-start show/on/off)'
     )
     .action(async (group: string, action: string, kvs: string[] = []) => {
       const service = await ensureServiceInitialized()
@@ -94,13 +98,22 @@ export function registerSettingsCommands(cli: CAC): void {
 type Service = Awaited<ReturnType<typeof ensureServiceInitialized>>
 
 function isProviderSettingsGroup(group: string): group is ProviderSettingsGroup {
-  return group === 'kiro' || group === 'trae' || group === 'openrouter' || group === 'nvidia'
+  return (
+    group === 'kiro' ||
+    group === 'trae' ||
+    group === 'openrouter' ||
+    group === 'nvidia' ||
+    group === 'gptWeb' ||
+    group === 'grokWeb'
+  )
 }
 
 function getProviderSettings(service: Service, group: ProviderSettingsGroup): Promise<any> {
   if (group === 'trae') return service.getTraeSettings()
   if (group === 'openrouter') return service.getOpenRouterSettings()
   if (group === 'nvidia') return service.getNvidiaSettings()
+  if (group === 'gptWeb') return service.getGptWebSettings()
+  if (group === 'grokWeb') return service.getGrokWebSettings()
   return service.getKiroSettings()
 }
 
@@ -112,6 +125,8 @@ function updateProviderSettings(
   if (group === 'trae') return service.updateTraeSettings(updates)
   if (group === 'openrouter') return service.updateOpenRouterSettings(updates)
   if (group === 'nvidia') return service.updateNvidiaSettings(updates)
+  if (group === 'gptWeb') return service.updateGptWebSettings(updates)
+  if (group === 'grokWeb') return service.updateGrokWebSettings(updates)
   return service.updateKiroSettings(updates)
 }
 

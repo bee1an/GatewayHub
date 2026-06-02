@@ -22,7 +22,8 @@ setCliLoginSink({
 
 // ===== 单实例锁 =====
 // 必须在 app.whenReady() 之前注册，否则第二个实例已经把 IPC handler 重复注册一遍。
-if (!app.requestSingleInstanceLock()) {
+// dev 模式跳过，允许与正式环境共存。
+if (!import.meta.env.DEV && !app.requestSingleInstanceLock()) {
   app.exit(0)
 }
 app.on('second-instance', () => {

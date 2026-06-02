@@ -23,10 +23,14 @@ declare global {
             refreshToken?: string
             profileArn?: string
             existing?: boolean
+            existingAccountId?: string
+            updatable?: boolean
             sourceType?: string
           }>
         }>
-        importScannedAccounts: (ids: string[]) => Promise<{ added: any[]; status: any }>
+        importScannedAccounts: (
+          ids: string[]
+        ) => Promise<{ added: any[]; updated?: number; status: any }>
         testKiroAccount: (accountId: string) => Promise<any>
         toggleKiroAccount: (accountId: string, enabled: boolean) => Promise<any>
         removeKiroAccount: (accountId: string) => Promise<any>
@@ -275,13 +279,26 @@ declare global {
         getGptWebAccountInfo: (accountId: string) => Promise<any>
         refreshGptWebAccountModels: (accountId: string) => Promise<any>
         resetGptWebAccount: (accountId: string) => Promise<any>
-        setGptWebAccountStatus: (
+        setGptWebAccountStatus: (accountId: string, status: string, reason?: string) => Promise<any>
+        getGptWebSettings: () => Promise<any>
+        updateGptWebSettings: (settings: Record<string, any>) => Promise<any>
+        // ========== Grok Web ==========
+        importGrokWebJson: (
+          text: string
+        ) => Promise<{ added: number; skipped: number; errors: string[]; status: any }>
+        testGrokWebAccount: (accountId: string) => Promise<any>
+        toggleGrokWebAccount: (accountId: string, enabled: boolean) => Promise<any>
+        removeGrokWebAccount: (accountId: string) => Promise<any>
+        getGrokWebAccountInfo: (accountId: string) => Promise<any>
+        refreshGrokWebAccountModels: (accountId: string) => Promise<any>
+        resetGrokWebAccount: (accountId: string) => Promise<any>
+        setGrokWebAccountStatus: (
           accountId: string,
           status: string,
           reason?: string
         ) => Promise<any>
-        getGptWebSettings: () => Promise<any>
-        updateGptWebSettings: (settings: Record<string, any>) => Promise<any>
+        getGrokWebSettings: () => Promise<any>
+        updateGrokWebSettings: (settings: Record<string, any>) => Promise<any>
       }
       updater: {
         check: () => Promise<any>

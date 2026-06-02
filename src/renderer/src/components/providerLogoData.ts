@@ -17,6 +17,7 @@ type ProviderLogoSet = {
 export const LOCAL_PROVIDER_LOGOS: Record<string, ProviderLogoSet> = {
   kiro: { light: kiroIcon, dark: kiroIcon },
   codex: { light: codexIconLight, dark: codexIconDark },
+  gptWeb: { light: codexIconLight, dark: codexIconDark },
   windsurf: { light: windsurfIcon, dark: windsurfIcon },
   trae: { light: traeIcon, dark: traeIcon },
   openrouter: { light: openRouterIcon, dark: openRouterIcon },
@@ -27,6 +28,8 @@ export const LOCAL_PROVIDER_LOGOS: Record<string, ProviderLogoSet> = {
 export const LOGO_DEV_DOMAINS: Record<string, string> = {
   kiro: 'kiro.dev',
   codex: 'openai.com',
+  gptWeb: 'openai.com',
+  grokWeb: 'grok.com',
   windsurf: 'windsurf.com',
   trae: 'trae.ai',
   openrouter: 'openrouter.ai',
@@ -37,6 +40,8 @@ export const LOGO_DEV_DOMAINS: Record<string, string> = {
 export const FALLBACK_CLASSES: Record<string, string> = {
   kiro: 'bg-[#9046FF] text-white',
   codex: 'bg-porcelain text-pitch',
+  gptWeb: 'bg-porcelain text-pitch',
+  grokWeb: 'bg-[#111111] text-white',
   windsurf: 'bg-[#0B100F] text-[#F9F3E9]',
   trae: 'bg-[#101828] text-[#2EF58D]',
   openrouter: 'bg-porcelain text-pitch',
@@ -47,6 +52,8 @@ export const FALLBACK_CLASSES: Record<string, string> = {
 const PROVIDER_LABELS: Record<string, string> = {
   kiro: 'Kiro',
   codex: 'Codex',
+  gptWeb: 'GPT Web',
+  grokWeb: 'Grok Web',
   windsurf: 'Windsurf',
   trae: 'Trae',
   openrouter: 'OpenRouter',

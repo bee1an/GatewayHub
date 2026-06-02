@@ -6,6 +6,7 @@ export type ProviderName =
   | 'openrouter'
   | 'nvidia'
   | 'gptWeb'
+  | 'grokWeb'
   | 'gemini'
   | string
 
@@ -21,6 +22,7 @@ export interface GatewayHubConfig {
     openrouter: OpenRouterProviderConfig
     nvidia: NvidiaProviderConfig
     gptWeb: GptWebProviderConfig
+    grokWeb: GrokWebProviderConfig
     gemini: PlaceholderProviderConfig
     [name: string]: unknown
   }
@@ -339,6 +341,45 @@ export interface GptWebProviderState {
   logs: GatewayLogEntry[]
 }
 
+export interface GrokWebProviderConfig {
+  enabled: boolean
+  routeName?: string
+  displayName?: string
+  settings: GrokWebProviderSettings
+}
+
+export interface GrokWebProviderSettings {
+  /** Grok Web base URL */
+  baseUrl: string
+  /** Grok Web gateway WebSocket URL */
+  wsUrl: string
+  /** HTTP/SOCKS5 proxy URL */
+  vpnProxyUrl: string
+  firstTokenTimeoutSeconds: number
+  streamingReadTimeoutSeconds: number
+  maxRetries: number
+}
+
+export interface GrokWebAccountConfig {
+  id: string
+  label?: string
+  email?: string
+  enabled: boolean
+  path?: string
+  /** Browser Cookie header for grok.com. Do not log or expose this value. */
+  cookieHeader: string
+  userId?: string
+  grokDeviceId?: string
+  planType?: string
+  name?: string
+}
+
+export interface GrokWebProviderState {
+  accounts: Record<string, AccountRuntimeState>
+  currentAccountIndex: number
+  logs: GatewayLogEntry[]
+}
+
 export interface GatewayHubState {
   version: 1
   providers: {
@@ -349,6 +390,7 @@ export interface GatewayHubState {
     openrouter: OpenRouterProviderState
     nvidia: NvidiaProviderState
     gptWeb: GptWebProviderState
+    grokWeb: GrokWebProviderState
     [name: string]: unknown
   }
 }

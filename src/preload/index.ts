@@ -212,7 +212,26 @@ const api = {
       ipcRenderer.invoke('gateway:setGptWebAccountStatus', accountId, status, reason),
     getGptWebSettings: () => ipcRenderer.invoke('gateway:getGptWebSettings'),
     updateGptWebSettings: (settings: Record<string, any>) =>
-      ipcRenderer.invoke('gateway:updateGptWebSettings', settings)
+      ipcRenderer.invoke('gateway:updateGptWebSettings', settings),
+    // ========== Grok Web ==========
+    importGrokWebJson: (text: string) => ipcRenderer.invoke('gateway:importGrokWebJson', text),
+    testGrokWebAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:testGrokWebAccount', accountId),
+    toggleGrokWebAccount: (accountId: string, enabled: boolean) =>
+      ipcRenderer.invoke('gateway:toggleGrokWebAccount', accountId, enabled),
+    removeGrokWebAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:removeGrokWebAccount', accountId),
+    getGrokWebAccountInfo: (accountId: string) =>
+      ipcRenderer.invoke('gateway:getGrokWebAccountInfo', accountId),
+    refreshGrokWebAccountModels: (accountId: string) =>
+      ipcRenderer.invoke('gateway:refreshGrokWebAccountModels', accountId),
+    resetGrokWebAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:resetGrokWebAccount', accountId),
+    setGrokWebAccountStatus: (accountId: string, status: string, reason?: string) =>
+      ipcRenderer.invoke('gateway:setGrokWebAccountStatus', accountId, status, reason),
+    getGrokWebSettings: () => ipcRenderer.invoke('gateway:getGrokWebSettings'),
+    updateGrokWebSettings: (settings: Record<string, any>) =>
+      ipcRenderer.invoke('gateway:updateGrokWebSettings', settings)
   },
   updater: {
     check: () => ipcRenderer.invoke('updater:check'),

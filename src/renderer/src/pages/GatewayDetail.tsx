@@ -19,6 +19,8 @@ import { AddTraeAccountDialog } from './AddTraeAccountDialog'
 import { AddOpenRouterAccountDialog } from './AddOpenRouterAccountDialog'
 import { AddNvidiaAccountDialog } from './AddNvidiaAccountDialog'
 import { AddGptWebAccountDialog } from './AddGptWebAccountDialog'
+import { AddGrokWebAccountDialog } from './AddGrokWebAccountDialog'
+import { normalizeAccountModels } from './accountModelUtils'
 
 import type { Account, AccountFilter, AccountInfo, GatewayStatus } from './gatewayDetailTypes'
 const accountInfoCache: Record<string, { data?: AccountInfo; loading: boolean; error?: string }> =
@@ -59,8 +61,9 @@ export default function GatewayDetail(): React.JSX.Element {
   const isOpenRouter = gateway?.providerType === 'openrouter'
   const isNvidia = gateway?.providerType === 'nvidia'
   const isGptWeb = gateway?.providerType === 'gptWeb'
+  const isGrokWeb = gateway?.providerType === 'grokWeb'
   const supportsAccounts =
-    isKiro || isCodex || isWindsurf || isTrae || isOpenRouter || isNvidia || isGptWeb
+    isKiro || isCodex || isWindsurf || isTrae || isOpenRouter || isNvidia || isGptWeb || isGrokWeb
   const accountIdsKey = useMemo(() => accounts.map((a) => a.id).join(','), [accounts])
 
   const filteredAccounts = useMemo(() => {
@@ -103,9 +106,12 @@ export default function GatewayDetail(): React.JSX.Element {
                   ? await window.api.gateway.getNvidiaAccountInfo(accountId)
                   : isGptWeb
                     ? await window.api.gateway.getGptWebAccountInfo(accountId)
-                    : await window.api.gateway.getAccountInfo(accountId)
+                    : isGrokWeb
+                      ? await window.api.gateway.getGrokWebAccountInfo(accountId)
+                      : await window.api.gateway.getAccountInfo(accountId)
+        const normalizedInfo = { ...info, models: normalizeAccountModels(info?.models) }
         setAccountInfoMap((prev) => {
-          const next = { ...prev, [accountId]: { data: info, loading: false } }
+          const next = { ...prev, [accountId]: { data: normalizedInfo, loading: false } }
           accountInfoCache[accountId] = next[accountId]
           return next
         })
@@ -117,7 +123,7 @@ export default function GatewayDetail(): React.JSX.Element {
         }))
       }
     },
-    [isCodex, isWindsurf, isTrae, isOpenRouter, isNvidia, isGptWeb]
+    [isCodex, isWindsurf, isTrae, isOpenRouter, isNvidia, isGptWeb, isGrokWeb]
   )
 
   const fetchAllUsage = useCallback(() => {
@@ -126,7 +132,16 @@ export default function GatewayDetail(): React.JSX.Element {
 
   const refreshAccountModels = useCallback(
     async (accountId: string) => {
-      if (!isKiro && !isWindsurf && !isTrae && !isOpenRouter && !isNvidia && !isGptWeb) return
+      if (
+        !isKiro &&
+        !isWindsurf &&
+        !isTrae &&
+        !isOpenRouter &&
+        !isNvidia &&
+        !isGptWeb &&
+        !isGrokWeb
+      )
+        return
       setModelRefreshIds((prev) => new Set(prev).add(accountId))
       try {
         const result = isWindsurf
@@ -139,9 +154,11 @@ export default function GatewayDetail(): React.JSX.Element {
                 ? await window.api.gateway.refreshNvidiaAccountModels(accountId)
                 : isGptWeb
                   ? await window.api.gateway.refreshGptWebAccountModels(accountId)
-                  : await window.api.gateway.refreshKiroAccountModels(accountId)
+                  : isGrokWeb
+                    ? await window.api.gateway.refreshGrokWebAccountModels(accountId)
+                    : await window.api.gateway.refreshKiroAccountModels(accountId)
         if (result?.ok === false) throw new Error(result.error || t('gateway.infoError'))
-        const models = Array.isArray(result?.models) ? result.models : []
+        const models = normalizeAccountModels(result?.models)
         setAccountInfoMap((prev) => {
           const previous = prev[accountId]
           if (!previous?.data) return prev
@@ -174,7 +191,7 @@ export default function GatewayDetail(): React.JSX.Element {
         })
       }
     },
-    [isKiro, isWindsurf, isTrae, isOpenRouter, isNvidia, isGptWeb, refresh, t, toast]
+    [isKiro, isWindsurf, isTrae, isOpenRouter, isNvidia, isGptWeb, isGrokWeb, refresh, t, toast]
   )
 
   useEffect(() => {
@@ -440,7 +457,12 @@ export default function GatewayDetail(): React.JSX.Element {
                                   ? window.api.gateway.toggleNvidiaAccount(acc.id, !acc.enabled)
                                   : isGptWeb
                                     ? window.api.gateway.toggleGptWebAccount(acc.id, !acc.enabled)
-                                    : window.api.gateway.toggleKiroAccount(acc.id, !acc.enabled),
+                                    : isGrokWeb
+                                      ? window.api.gateway.toggleGrokWebAccount(
+                                          acc.id,
+                                          !acc.enabled
+                                        )
+                                      : window.api.gateway.toggleKiroAccount(acc.id, !acc.enabled),
                       acc.enabled ? t('gateway.disabled') : t('gateway.enabled')
                     )
                   }
@@ -460,7 +482,9 @@ export default function GatewayDetail(): React.JSX.Element {
                                   ? window.api.gateway.resetNvidiaAccount(acc.id)
                                   : isGptWeb
                                     ? window.api.gateway.resetGptWebAccount(acc.id)
-                                    : window.api.gateway.resetKiroAccount(acc.id),
+                                    : isGrokWeb
+                                      ? window.api.gateway.resetGrokWebAccount(acc.id)
+                                      : window.api.gateway.resetKiroAccount(acc.id),
                       t('gateway.resetDone')
                     )
                   }
@@ -498,16 +522,27 @@ export default function GatewayDetail(): React.JSX.Element {
                                         acc.id,
                                         isPaused ? 'available' : 'manual_disabled'
                                       )
-                                    : window.api.gateway.setKiroAccountStatus(
-                                        acc.id,
-                                        isPaused ? 'available' : 'manual_disabled'
-                                      ),
+                                    : isGrokWeb
+                                      ? window.api.gateway.setGrokWebAccountStatus(
+                                          acc.id,
+                                          isPaused ? 'available' : 'manual_disabled'
+                                        )
+                                      : window.api.gateway.setKiroAccountStatus(
+                                          acc.id,
+                                          isPaused ? 'available' : 'manual_disabled'
+                                        ),
                       isPaused ? t('gateway.resumed') : t('gateway.paused')
                     )
                   }}
                   onRefreshInfo={() => fetchAccountInfo(acc.id)}
                   onRefreshModels={
-                    isKiro || isWindsurf || isTrae || isOpenRouter || isNvidia || isGptWeb
+                    isKiro ||
+                    isWindsurf ||
+                    isTrae ||
+                    isOpenRouter ||
+                    isNvidia ||
+                    isGptWeb ||
+                    isGrokWeb
                       ? () => refreshAccountModels(acc.id)
                       : undefined
                   }
@@ -573,6 +608,14 @@ export default function GatewayDetail(): React.JSX.Element {
         />
       )}
 
+      {isGrokWeb && (
+        <AddGrokWebAccountDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          onImported={refresh}
+        />
+      )}
+
       <ConfirmDialog
         open={!!removeTarget}
         onOpenChange={(v) => {
@@ -600,7 +643,9 @@ export default function GatewayDetail(): React.JSX.Element {
                           ? window.api.gateway.removeNvidiaAccount(removeTarget.id)
                           : isGptWeb
                             ? window.api.gateway.removeGptWebAccount(removeTarget.id)
-                            : window.api.gateway.removeKiroAccount(removeTarget.id),
+                            : isGrokWeb
+                              ? window.api.gateway.removeGrokWebAccount(removeTarget.id)
+                              : window.api.gateway.removeKiroAccount(removeTarget.id),
               t('gateway.removed')
             ).then(() => setRemoveTarget(null))
           }

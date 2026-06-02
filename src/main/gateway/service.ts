@@ -56,6 +56,7 @@ import {
   parseOpenRouterAuthInput
 } from './providers/openrouter/normalize'
 import { buildNvidiaAccountFromInput, parseNvidiaAuthInput } from './providers/nvidia/normalize'
+import { normalizeGrokWebImportedAccount } from './providers/grokWeb/normalize'
 
 export class GatewayHubService {
   private readonly store = new GatewayConfigStore()
@@ -226,23 +227,39 @@ export class GatewayHubService {
 
   async autoDiscoverKiroAccounts(): Promise<{
     added: KiroAccountConfig[]
+    updated?: number
     skipped: number
     status: GatewayStatusSnapshot
   }> {
     await this.ensureReady()
     const { candidates } = await this.store.scanKiroAccounts()
-    const newCandidates = candidates.filter((c) => !c.existing)
     const added: KiroAccountConfig[] = []
-    for (const candidate of newCandidates) {
+    let updated = 0
+    for (const candidate of candidates) {
       try {
-        await this.store.writeAccountFile(candidate)
-        added.push(candidate)
+        if (candidate.existingAccountId) {
+          if (candidate.updatable) {
+            await this.store.updateAccountFile(
+              candidate.existingAccountId,
+              kiroAccountImportUpdates(candidate)
+            )
+            updated++
+          }
+        } else {
+          await this.store.writeAccountFile(candidate)
+          added.push(candidate)
+        }
       } catch {
         // skip failed writes
       }
     }
-    await this.rebuildRuntime(this.server?.running ?? false)
-    return { added, skipped: candidates.length - added.length, status: await this.getStatus() }
+    if (added.length || updated > 0) await this.rebuildRuntime(this.server?.running ?? false)
+    return {
+      added,
+      updated,
+      skipped: candidates.length - added.length - updated,
+      status: await this.getStatus()
+    }
   }
 
   async scanKiroAccounts(): Promise<{ candidates: any[] }> {
@@ -252,21 +269,32 @@ export class GatewayHubService {
 
   async importScannedAccounts(
     ids: string[]
-  ): Promise<{ added: KiroAccountConfig[]; status: GatewayStatusSnapshot }> {
+  ): Promise<{ added: KiroAccountConfig[]; updated?: number; status: GatewayStatusSnapshot }> {
     await this.ensureReady()
     const { candidates } = await this.store.scanKiroAccounts()
-    const selected = candidates.filter((c) => ids.includes(c.id) && !c.existing)
+    const selected = candidates.filter((c) => ids.includes(c.id))
     const added: KiroAccountConfig[] = []
+    let updated = 0
     for (const candidate of selected) {
       try {
-        await this.store.writeAccountFile(candidate)
-        added.push(candidate)
+        if (candidate.existingAccountId) {
+          if (candidate.updatable) {
+            await this.store.updateAccountFile(
+              candidate.existingAccountId,
+              kiroAccountImportUpdates(candidate)
+            )
+            updated++
+          }
+        } else {
+          await this.store.writeAccountFile(candidate)
+          added.push(candidate)
+        }
       } catch {
         // skip
       }
     }
-    await this.rebuildRuntime(this.server?.running ?? false)
-    return { added, status: await this.getStatus() }
+    if (added.length || updated > 0) await this.rebuildRuntime(this.server?.running ?? false)
+    return { added, updated, status: await this.getStatus() }
   }
 
   async testKiroAccount(accountId: string): Promise<AccountTestResult> {
@@ -406,6 +434,8 @@ export class GatewayHubService {
       this.state.providers.trae.logs = []
       this.state.providers.openrouter.logs = []
       this.state.providers.nvidia.logs = []
+      this.state.providers.gptWeb.logs = []
+      this.state.providers.grokWeb.logs = []
       await this.store.saveState(this.state)
     }
   }
@@ -1440,9 +1470,20 @@ export class GatewayHubService {
         const accountId = entry.account?.id || ''
         const planType = entry.account?.planType || 'free'
         const expiresAt = entry.expires || ''
+        const oaiDeviceId =
+          entry.oaiDeviceId ||
+          entry.oai_device_id ||
+          entry.deviceId ||
+          entry.device?.id ||
+          entry['oai-device-id'] ||
+          ''
 
         const existing = await this.store.readGptWebAccountFiles()
-        if (existing.find((a) => a.accessToken === accessToken)) {
+        const existingAccount = existing.find((a) => a.accessToken === accessToken)
+        if (existingAccount) {
+          if (oaiDeviceId && existingAccount.oaiDeviceId !== oaiDeviceId) {
+            await this.store.updateGptWebAccountFile(existingAccount.id, { oaiDeviceId })
+          }
           skipped++
           continue
         }
@@ -1457,7 +1498,7 @@ export class GatewayHubService {
           accountId,
           planType,
           expiresAt,
-          oaiDeviceId: randomUUID(),
+          oaiDeviceId: oaiDeviceId || randomUUID(),
           name: entry.user?.name || ''
         }
 
@@ -1539,6 +1580,128 @@ export class GatewayHubService {
     return this.getStatus()
   }
 
+  // ============== Grok Web provider ==============
+
+  async importGrokWebAuthJson(text: string): Promise<{
+    added: number
+    skipped: number
+    errors: { message: string }[]
+    status: GatewayStatusSnapshot
+  }> {
+    await this.ensureReady()
+    let parsed: any
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      return {
+        added: 0,
+        skipped: 0,
+        errors: [{ message: 'Invalid JSON' }],
+        status: await this.getStatus()
+      }
+    }
+
+    const entries = Array.isArray(parsed) ? parsed : [parsed]
+    const existing = await this.store.readGrokWebAccountFiles()
+    const existingIds = new Set(existing.map((account) => account.id))
+    let added = 0
+    let skipped = 0
+    const errors: { message: string }[] = []
+
+    for (const entry of entries) {
+      try {
+        const account = normalizeGrokWebImportedAccount(entry)
+        if (!account) {
+          errors.push({
+            message:
+              'Missing Grok cookie data. Provide cookieHeader/cookie, cookies[], or sso/sso-rw/cf_clearance fields.'
+          })
+          continue
+        }
+        if (existingIds.has(account.id)) {
+          await this.store.updateGrokWebAccountFile(account.id, account)
+          skipped++
+        } else {
+          await this.store.writeGrokWebAccountFile(account)
+          existingIds.add(account.id)
+          added++
+        }
+      } catch (err: any) {
+        errors.push({ message: err?.message || String(err) })
+      }
+    }
+
+    if (added > 0 || skipped > 0) await this.rebuildRuntime(this.server?.running ?? false)
+    return { added, skipped, errors, status: await this.getStatus() }
+  }
+
+  async testGrokWebAccount(accountId: string): Promise<AccountTestResult> {
+    await this.ensureReady()
+    const result = await this.registry!.testAccount('grokWeb', accountId)
+    await this.persistStateSoon()
+    return result
+  }
+
+  async toggleGrokWebAccount(accountId: string, enabled: boolean): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.store.updateGrokWebAccountFile(accountId, { enabled })
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async removeGrokWebAccount(accountId: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const deleted = await this.store.deleteGrokWebAccountFile(accountId)
+    if (!deleted) throw new Error(`Grok Web account not found: ${accountId}`)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async getGrokWebAccountInfo(accountId: string) {
+    await this.ensureReady()
+    return this.registry!.getAccountInfo('grokWeb', accountId)
+  }
+
+  async refreshGrokWebAccountModels(accountId: string) {
+    await this.ensureReady()
+    const models = await this.registry!.refreshAccountModels('grokWeb', accountId)
+    await this.persistStateSoon()
+    return models
+  }
+
+  async resetGrokWebAccount(accountId: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.registry!.resetAccount('grokWeb', accountId)
+    await this.persistStateSoon()
+    return this.getStatus()
+  }
+
+  async setGrokWebAccountStatus(
+    accountId: string,
+    status: AccountStatus,
+    reason?: string
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.registry!.setAccountStatus('grokWeb', accountId, status, reason)
+    await this.persistStateSoon()
+    return this.getStatus()
+  }
+
+  async getGrokWebSettings() {
+    await this.ensureReady()
+    return this.config!.providers.grokWeb.settings
+  }
+
+  async updateGrokWebSettings(
+    settings: Partial<Record<string, any>>
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    Object.assign(this.config!.providers.grokWeb.settings, settings)
+    await this.store.saveConfig(this.config!)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
   private ensureReady(): Promise<void> {
     return this.initialize()
   }
@@ -1563,6 +1726,7 @@ export class GatewayHubService {
     const openrouterFiles = await this.store.readOpenRouterAccountFiles()
     const nvidiaFiles = await this.store.readNvidiaAccountFiles()
     const gptWebFiles = await this.store.readGptWebAccountFiles()
+    const grokWebFiles = await this.store.readGrokWebAccountFiles()
     this.registry = new ProviderRegistry(
       this.config!,
       this.state!,
@@ -1612,7 +1776,8 @@ export class GatewayHubService {
       traeFiles,
       openrouterFiles,
       nvidiaFiles,
-      gptWebFiles
+      gptWebFiles,
+      grokWebFiles
     )
     this.server = new GatewayServer(
       this.config!,
@@ -1635,6 +1800,7 @@ export class GatewayHubService {
     this.state.providers.openrouter.logs = this.logger.getEntries()
     this.state.providers.nvidia.logs = this.logger.getEntries()
     this.state.providers.gptWeb.logs = this.logger.getEntries()
+    this.state.providers.grokWeb.logs = this.logger.getEntries()
     if (this.saveTimer) clearTimeout(this.saveTimer)
     this.saveTimer = setTimeout(() => {
       this.saveTimer = undefined
@@ -1651,6 +1817,8 @@ export class GatewayHubService {
     this.state.providers.trae.logs = this.logger.getEntries()
     this.state.providers.openrouter.logs = this.logger.getEntries()
     this.state.providers.nvidia.logs = this.logger.getEntries()
+    this.state.providers.gptWeb.logs = this.logger.getEntries()
+    this.state.providers.grokWeb.logs = this.logger.getEntries()
     await this.store.saveState(this.state)
   }
 
@@ -1658,7 +1826,27 @@ export class GatewayHubService {
     if (!this.state) return
     this.state.providers.nvidia ??= { accounts: {}, currentAccountIndex: 0, logs: [] }
     this.state.providers.gptWeb ??= { accounts: {}, currentAccountIndex: 0, logs: [] }
+    this.state.providers.grokWeb ??= { accounts: {}, currentAccountIndex: 0, logs: [] }
   }
+}
+
+function kiroAccountImportUpdates(account: KiroAccountConfig): Partial<KiroAccountConfig> {
+  const updates: Partial<KiroAccountConfig> = {
+    refreshToken: account.refreshToken,
+    accessToken: account.accessToken,
+    expiresAt: account.expiresAt,
+    profileArn: account.profileArn,
+    clientId: account.clientId,
+    clientSecret: account.clientSecret,
+    email: account.email,
+    label: account.label,
+    region: account.region,
+    apiRegion: account.apiRegion
+  }
+  for (const key of Object.keys(updates) as Array<keyof KiroAccountConfig>) {
+    if (updates[key] === undefined) delete updates[key]
+  }
+  return updates
 }
 
 export const gatewayHubService = new GatewayHubService()

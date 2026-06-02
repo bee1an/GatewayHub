@@ -16,6 +16,8 @@ import type { KiroAccountConfig } from '../../types'
 import { sha256Short } from '../../core/utils'
 import { KiroAuthManager } from './auth'
 import { emitCliLoginEvent, type CliLoginOutputEvent } from '../../events/cliLoginEvents'
+import { normalizeKiroExpiresAt } from './normalize'
+import { importNodeSqlite } from './sqlite'
 
 export interface CliDetectResult {
   found: boolean
@@ -55,10 +57,6 @@ interface MacosKeychainState {
 }
 
 type CliLoginOutputEventLocal = CliLoginOutputEvent
-
-const dynamicImport = new Function('specifier', 'return import(specifier)') as (
-  specifier: string
-) => Promise<unknown>
 
 const MACOS_SANDBOX_PROFILE = `(version 1)
 (allow default)
@@ -243,7 +241,7 @@ async function extractAccountFromProfile(profileDir: string): Promise<CliLoginRe
     if (!existsSync(dbPath)) continue
 
     try {
-      const sqlite = (await dynamicImport('node:sqlite')) as typeof import('node:sqlite')
+      const sqlite = await importNodeSqlite()
       const db = new sqlite.DatabaseSync(dbPath)
       try {
         let refreshToken = ''
@@ -306,7 +304,7 @@ async function extractAccountFromProfile(profileDir: string): Promise<CliLoginRe
           label: `CLI ${new Date().toLocaleDateString()}`,
           refreshToken: refreshToken || undefined,
           accessToken: accessToken || undefined,
-          expiresAt: expiresAt || undefined,
+          expiresAt: normalizeKiroExpiresAt(expiresAt),
           profileArn: profileArn || undefined,
           clientId: clientId || undefined,
           clientSecret: clientSecret || undefined,

@@ -10,8 +10,7 @@ import type {
   UsageSummary
 } from '../types'
 import { PricingTable, normalizeModelKey } from './pricing'
-// TODO: wrap record()/clear() with withLock for cross-process safety
-// import { withLock } from './lockfile'
+import { withLock } from './lockfile'
 
 const STORE_VERSION = 1
 const RETENTION_DAYS = 30
@@ -278,21 +277,23 @@ export class UsageStore {
     const updatedAt = this.now().toISOString()
 
     await this.enqueueWrite(async () => {
-      // 写前丢弃缓存重读，避免多实例并发覆盖
-      this.cache = null
-      const store = await this.loadStore()
-      const dayAccounts = store.days[dayKey] ?? (store.days[dayKey] = {})
-      const accountModels = dayAccounts[accountId] ?? (dayAccounts[accountId] = {})
-      const entry =
-        accountModels[model] ?? (accountModels[model] = { packed: emptyPacked(), updatedAt })
-      addPacked(entry.packed, packed)
-      if (input.apiFormat) entry.apiFormat = input.apiFormat
-      if (input.provider) entry.provider = input.provider
-      entry.updatedAt = updatedAt
+      await withLock(this.options.filePath, async () => {
+        // 锁内丢弃缓存重读，避免多进程/多 daemon read-modify-write 覆盖
+        this.cache = null
+        const store = await this.loadStore()
+        const dayAccounts = store.days[dayKey] ?? (store.days[dayKey] = {})
+        const accountModels = dayAccounts[accountId] ?? (dayAccounts[accountId] = {})
+        const entry =
+          accountModels[model] ?? (accountModels[model] = { packed: emptyPacked(), updatedAt })
+        addPacked(entry.packed, packed)
+        if (input.apiFormat) entry.apiFormat = input.apiFormat
+        if (input.provider) entry.provider = input.provider
+        entry.updatedAt = updatedAt
 
-      const cutoffKey = localDayKey(addDays(this.now(), -(RETENTION_DAYS - 1)))
-      pruneOlderThan(store, cutoffKey)
-      await this.persistStore(store)
+        const cutoffKey = localDayKey(addDays(this.now(), -(RETENTION_DAYS - 1)))
+        pruneOlderThan(store, cutoffKey)
+        await this.persistStore(store)
+      })
     })
   }
 
@@ -348,8 +349,10 @@ export class UsageStore {
 
   async clear(): Promise<void> {
     await this.enqueueWrite(async () => {
-      this.cache = emptyStoreFile()
-      await this.persistStore(this.cache)
+      await withLock(this.options.filePath, async () => {
+        this.cache = emptyStoreFile()
+        await this.persistStore(this.cache)
+      })
     })
   }
 

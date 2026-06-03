@@ -1,18 +1,18 @@
-import { randomUUID } from 'crypto'
-import { readFile } from 'fs/promises'
+import { randomBytes, randomUUID } from 'crypto'
+import { readFile, rename, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import { mkdir } from 'fs/promises'
 import { ProxyAgent, fetch as undiciFetch } from 'undici'
 import type { KiroAccountConfig, KiroProviderSettings } from '../../types'
 import { apiUrl, awsSsoOidcUrl, kiroRefreshUrl, runtimeUrl } from './constants'
 import {
-  atomicWrite,
   expandHome,
   machineFingerprint,
   parseIsoDate,
   readJsonFile,
   toErrorMessage
 } from '../../core/utils'
+import { withLock } from '../../core/lockfile'
 
 export type KiroAuthType = 'kiro_desktop' | 'aws_sso_oidc'
 
@@ -327,14 +327,18 @@ export class KiroAuthManager {
     const path = expandHome(this.account.path)
     try {
       await mkdir(dirname(path), { recursive: true })
-      // 用 atomicWrite（lockfile + tmp + rename）保证跨进程并发刷新不丢 token
-      const raw = await readFile(path, 'utf8').catch(() => '{}')
-      const data = JSON.parse(raw || '{}')
-      data.accessToken = this.accessToken
-      data.refreshToken = this.refreshToken
-      data.expiresAt = this.expiresAt?.toISOString()
-      if (this.profileArnValue) data.profileArn = this.profileArnValue
-      await atomicWrite(path, `${JSON.stringify(data, null, 2)}\n`)
+      // read-modify-write 全段加锁，避免多个 daemon 同时刷新 token 时互相覆盖。
+      await withLock(path, async () => {
+        const raw = await readFile(path, 'utf8').catch(() => '{}')
+        const data = JSON.parse(raw || '{}')
+        data.accessToken = this.accessToken
+        data.refreshToken = this.refreshToken
+        data.expiresAt = this.expiresAt?.toISOString()
+        if (this.profileArnValue) data.profileArn = this.profileArnValue
+        const tmp = `${path}.${randomBytes(4).toString('hex')}.tmp`
+        await writeFile(tmp, `${JSON.stringify(data, null, 2)}\n`, 'utf8')
+        await rename(tmp, path)
+      })
     } catch (error) {
       console.warn(`Failed to persist Kiro credentials: ${toErrorMessage(error)}`)
     }

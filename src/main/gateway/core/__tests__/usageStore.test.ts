@@ -76,6 +76,26 @@ describe('UsageStore', () => {
     })
   })
 
+  it('serializes concurrent records from multiple store instances', async () => {
+    const fixedNow = new Date('2026-05-23T12:00:00')
+    const writers = Array.from({ length: 20 }, (_, i) => {
+      const store = new UsageStore({ filePath: storePath, pricing, now: () => fixedNow })
+      return store.record({
+        accountId: `acc-${i % 4}`,
+        model: 'claude-haiku-4-5',
+        usage: { inputTokens: i + 1, outputTokens: 1 }
+      })
+    })
+
+    await Promise.all(writers)
+
+    const reader = new UsageStore({ filePath: storePath, pricing, now: () => fixedNow })
+    const detail = await reader.read()
+    expect(detail.summary.todayRequests).toBe(20)
+    expect(detail.summary.todayInputTokens).toBe(210)
+    expect(detail.summary.todayOutputTokens).toBe(20)
+  })
+
   it('returns null cost when model is unknown to pricing table', async () => {
     const fixedNow = new Date('2026-05-23T12:00:00')
     const store = new UsageStore({ filePath: storePath, pricing, now: () => fixedNow })

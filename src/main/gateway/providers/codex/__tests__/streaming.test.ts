@@ -69,6 +69,57 @@ describe('codex/streaming', () => {
     expect(usageEvent.usage).toMatchObject({ input_tokens: 5, output_tokens: 2 })
   })
 
+  it('openAiJsonFromCodex aggregates reasoning and tool arguments by item_id aliases', async () => {
+    const stream = makeStream([
+      'event: response.reasoning_summary_text.delta\n',
+      'data: {"delta":"thinking"}\n\n',
+      'event: response.output_item.added\n',
+      'data: {"item":{"id":"item_1","type":"function_call","call_id":"call_1","name":"lookup"}}\n\n',
+      'event: response.function_call_arguments.delta\n',
+      'data: {"item_id":"item_1","delta":"{\\"q\\":"}\n\n',
+      'event: response.function_call_arguments.delta\n',
+      'data: {"item_id":"item_1","delta":"\\"x\\"}"}\n\n',
+      'event: response.output_item.done\n',
+      'data: {"item":{"id":"item_1","type":"function_call","call_id":"call_1","name":"lookup"}}\n\n',
+      'event: response.completed\n',
+      'data: {"response":{"usage":{"input_tokens":10,"output_tokens":3}}}\n\n'
+    ])
+
+    const result = await openAiJsonFromCodex(stream, 'gpt-5', 30)
+    const message = result.choices[0].message
+    expect(message.reasoning_content).toBe('thinking')
+    expect(message.tool_calls).toEqual([
+      {
+        id: 'call_1',
+        type: 'function',
+        function: { name: 'lookup', arguments: '{"q":"x"}' }
+      }
+    ])
+    expect(result.choices[0].finish_reason).toBe('tool_calls')
+  })
+
+  it('anthropicJsonFromCodex aggregates tool_use input by item_id aliases', async () => {
+    const stream = makeStream([
+      'event: response.output_item.added\n',
+      'data: {"item":{"id":"item_1","type":"function_call","call_id":"call_1","name":"lookup"}}\n\n',
+      'event: response.function_call_arguments.delta\n',
+      'data: {"item_id":"item_1","delta":"{\\"q\\":\\"x\\"}"}\n\n',
+      'event: response.output_item.done\n',
+      'data: {"item":{"id":"item_1","type":"function_call","call_id":"call_1","name":"lookup"}}\n\n',
+      'event: response.completed\n',
+      'data: {"response":{"usage":{"input_tokens":10,"output_tokens":3}}}\n\n'
+    ])
+
+    const result = await anthropicJsonFromCodex(stream, 'gpt-5', 30)
+    expect(result.content).toContainEqual({
+      type: 'tool_use',
+      id: 'call_1',
+      name: 'lookup',
+      input: { q: 'x' }
+    })
+    expect(result.stop_reason).toBe('tool_use')
+  })
+
   it('openAiJsonFromCodex aggregates text and forwards usage', async () => {
     const stream = makeStream([
       'event: response.output_text.delta\n',

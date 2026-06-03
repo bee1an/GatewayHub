@@ -124,6 +124,55 @@ describe('GatewayHubService API-key provider imports', () => {
   })
 })
 
+describe('GatewayHubService API-key provider settings', () => {
+  it('clamps OpenRouter and NVIDIA request race concurrency to 2..6 on save', async () => {
+    const service = new GatewayHubService()
+    const serviceAny = service as any
+    serviceAny.initPromise = Promise.resolve()
+    serviceAny.store = { saveConfig: vi.fn().mockResolvedValue(undefined) }
+    serviceAny.rebuildRuntime = vi.fn().mockResolvedValue(undefined)
+    serviceAny.getStatus = vi.fn().mockResolvedValue({ providers: [] })
+    serviceAny.config = {
+      providers: {
+        openrouter: {
+          settings: {
+            baseUrl: 'https://openrouter.test',
+            firstTokenTimeoutSeconds: 120,
+            streamingReadTimeoutSeconds: 300,
+            maxRetries: 2,
+            requestRaceEnabled: false,
+            requestRaceMaxConcurrent: 3
+          }
+        },
+        nvidia: {
+          settings: {
+            baseUrl: 'https://nvidia.test',
+            firstTokenTimeoutSeconds: 120,
+            streamingReadTimeoutSeconds: 300,
+            maxRetries: 2,
+            requestRaceEnabled: false,
+            requestRaceMaxConcurrent: 3
+          }
+        }
+      }
+    }
+
+    await service.updateOpenRouterSettings({
+      requestRaceEnabled: true,
+      requestRaceMaxConcurrent: 99
+    })
+    await service.updateNvidiaSettings({
+      requestRaceEnabled: true,
+      requestRaceMaxConcurrent: 1
+    })
+
+    expect(serviceAny.config.providers.openrouter.settings.requestRaceEnabled).toBe(true)
+    expect(serviceAny.config.providers.openrouter.settings.requestRaceMaxConcurrent).toBe(6)
+    expect(serviceAny.config.providers.nvidia.settings.requestRaceEnabled).toBe(true)
+    expect(serviceAny.config.providers.nvidia.settings.requestRaceMaxConcurrent).toBe(2)
+  })
+})
+
 describe('GatewayHubService Kiro scanned imports', () => {
   it('updates existing Kiro accounts when scanned credentials are richer', async () => {
     const service = new GatewayHubService()

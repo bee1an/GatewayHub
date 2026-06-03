@@ -19,7 +19,19 @@ if [[ "$(uname)" == "Darwin" ]]; then
   fi
 fi
 
-# Linux / generic fallback
+APP_DIR="$(cd "$DIR/../.." && pwd)"
+
+# Linux packaged app fallback: use the bundled Electron binary in Node mode so
+# release packages do not depend on a user-installed Node.js runtime.
+if [[ "$(uname)" == "Linux" ]]; then
+  for ELECTRON in "$APP_DIR/gatewayhub" "$APP_DIR/GatewayHub" "$APP_DIR/gatewayhub.bin"; do
+    if [[ -x "$ELECTRON" ]]; then
+      exec env ELECTRON_RUN_AS_NODE=1 "$ELECTRON" "$DIR/gatewayhub.js" "$@"
+    fi
+  done
+fi
+
+# Generic fallback
 if command -v node &>/dev/null; then
   exec node "$DIR/gatewayhub.js" "$@"
 fi

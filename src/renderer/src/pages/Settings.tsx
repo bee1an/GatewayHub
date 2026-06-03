@@ -31,6 +31,32 @@ type GatewayStatus = {
 
 type SnippetFormat = 'curl' | 'fetch' | 'python'
 
+type WindsurfSettingsForm = {
+  apiServerUrl: string
+  inferenceApiServerUrl: string
+  languageServerBinaryPath: string
+  codeiumDir: string
+  vpnProxyUrl: string
+  firstTokenTimeoutSeconds: string
+  streamingReadTimeoutSeconds: string
+  launchTimeoutSeconds: string
+  maxRetries: string
+  detectProxy: boolean
+}
+
+const DEFAULT_WINDSURF_FORM: WindsurfSettingsForm = {
+  apiServerUrl: '',
+  inferenceApiServerUrl: '',
+  languageServerBinaryPath: '',
+  codeiumDir: '.codeium/windsurf',
+  vpnProxyUrl: '',
+  firstTokenTimeoutSeconds: '60',
+  streamingReadTimeoutSeconds: '120',
+  launchTimeoutSeconds: '20',
+  maxRetries: '2',
+  detectProxy: true
+}
+
 function buildSnippet(status: GatewayStatus, format: SnippetFormat): string {
   const url = `${status.server.url}/v1/chat/completions`
   const key = status.server.apiKeys[0]?.key ?? ''
@@ -83,6 +109,9 @@ export default function Settings(): React.JSX.Element {
   const [autoStart, setAutoStart] = useState(false)
   const [autoStartLoaded, setAutoStartLoaded] = useState(false)
   const [portValue, setPortValue] = useState('')
+  const [windsurfSettings, setWindsurfSettings] =
+    useState<WindsurfSettingsForm>(DEFAULT_WINDSURF_FORM)
+  const [windsurfLoaded, setWindsurfLoaded] = useState(false)
   const portInitRef = useRef(false)
   const portLoaded = portInitRef.current
 
@@ -95,6 +124,21 @@ export default function Settings(): React.JSX.Element {
     window.api.gateway.getKiroSettings().then((s: any) => {
       setProxyUrl(s?.vpnProxyUrl || '')
       setProxyLoaded(true)
+    })
+    window.api.gateway.getWindsurfSettings().then((s: any) => {
+      setWindsurfSettings({
+        apiServerUrl: s?.apiServerUrl || '',
+        inferenceApiServerUrl: s?.inferenceApiServerUrl || '',
+        languageServerBinaryPath: s?.languageServerBinaryPath || '',
+        codeiumDir: s?.codeiumDir || '.codeium/windsurf',
+        vpnProxyUrl: s?.vpnProxyUrl || '',
+        firstTokenTimeoutSeconds: String(s?.firstTokenTimeoutSeconds ?? 60),
+        streamingReadTimeoutSeconds: String(s?.streamingReadTimeoutSeconds ?? 120),
+        launchTimeoutSeconds: String(s?.launchTimeoutSeconds ?? 20),
+        maxRetries: String(s?.maxRetries ?? 2),
+        detectProxy: s?.detectProxy !== false
+      })
+      setWindsurfLoaded(true)
     })
     window.api.gateway.getAutoStart().then((v) => {
       setAutoStart(v)
@@ -109,6 +153,47 @@ export default function Settings(): React.JSX.Element {
           window.api.gateway.updateKiroSettings({ vpnProxyUrl: proxyUrl }),
           window.api.gateway.updateCodexSettings({ vpnProxyUrl: proxyUrl })
         ]),
+      t('settings.saved')
+    )
+  }
+
+  async function saveWindsurfSettings(): Promise<void> {
+    const firstTokenTimeoutSeconds = parsePositiveInt(
+      windsurfSettings.firstTokenTimeoutSeconds,
+      'First token timeout'
+    )
+    const streamingReadTimeoutSeconds = parsePositiveInt(
+      windsurfSettings.streamingReadTimeoutSeconds,
+      'Streaming read timeout'
+    )
+    const launchTimeoutSeconds = parsePositiveInt(
+      windsurfSettings.launchTimeoutSeconds,
+      'Launch timeout'
+    )
+    const maxRetries = parseNonNegativeInt(windsurfSettings.maxRetries, 'Max retries')
+    if (
+      firstTokenTimeoutSeconds === undefined ||
+      streamingReadTimeoutSeconds === undefined ||
+      launchTimeoutSeconds === undefined ||
+      maxRetries === undefined
+    ) {
+      return
+    }
+
+    await run(
+      () =>
+        window.api.gateway.updateWindsurfSettings({
+          apiServerUrl: windsurfSettings.apiServerUrl.trim(),
+          inferenceApiServerUrl: windsurfSettings.inferenceApiServerUrl.trim(),
+          languageServerBinaryPath: windsurfSettings.languageServerBinaryPath.trim(),
+          codeiumDir: windsurfSettings.codeiumDir.trim() || '.codeium/windsurf',
+          vpnProxyUrl: windsurfSettings.vpnProxyUrl.trim(),
+          firstTokenTimeoutSeconds,
+          streamingReadTimeoutSeconds,
+          launchTimeoutSeconds,
+          maxRetries,
+          detectProxy: windsurfSettings.detectProxy
+        }),
       t('settings.saved')
     )
   }
@@ -130,6 +215,31 @@ export default function Settings(): React.JSX.Element {
     navigator.clipboard.writeText(text)
     setCopied(label)
     setTimeout(() => setCopied(''), 2000)
+  }
+
+  function updateWindsurfField<K extends keyof WindsurfSettingsForm>(
+    key: K,
+    value: WindsurfSettingsForm[K]
+  ): void {
+    setWindsurfSettings((prev) => ({ ...prev, [key]: value }))
+  }
+
+  function parsePositiveInt(value: string, label: string): number | undefined {
+    const parsed = Number(value)
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      toast(`${label} must be a positive integer`, 'error')
+      return undefined
+    }
+    return parsed
+  }
+
+  function parseNonNegativeInt(value: string, label: string): number | undefined {
+    const parsed = Number(value)
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      toast(`${label} must be a non-negative integer`, 'error')
+      return undefined
+    }
+    return parsed
   }
 
   const snippet = status ? buildSnippet(status, snippetFormat) : ''
@@ -259,6 +369,123 @@ export default function Settings(): React.JSX.Element {
       </div>
 
       <div className="card">
+        <div className="px-3.5 py-2 border-b border-charcoal/60">
+          <h2 className="text-[13px] font-medium text-porcelain">{t('settings.windsurfTitle')}</h2>
+          <p className="text-[12px] text-fog mt-0.5">{t('settings.windsurfDesc')}</p>
+        </div>
+        <div className="px-3.5 py-3 space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <LabeledInput
+              label={t('settings.windsurfApiServerUrl')}
+              value={windsurfSettings.apiServerUrl}
+              onChange={(value) => updateWindsurfField('apiServerUrl', value)}
+              placeholder="https://server.self-serve.windsurf.com"
+              disabled={!windsurfLoaded}
+            />
+            <LabeledInput
+              label={t('settings.windsurfInferenceApiServerUrl')}
+              value={windsurfSettings.inferenceApiServerUrl}
+              onChange={(value) => updateWindsurfField('inferenceApiServerUrl', value)}
+              placeholder="https://inference.codeium.com"
+              disabled={!windsurfLoaded}
+            />
+            <LabeledInput
+              label={t('settings.windsurfLanguageServerPath')}
+              value={windsurfSettings.languageServerBinaryPath}
+              onChange={(value) => updateWindsurfField('languageServerBinaryPath', value)}
+              placeholder="/Applications/Windsurf.app/.../language_server_macos_arm"
+              disabled={!windsurfLoaded}
+            />
+            <LabeledInput
+              label={t('settings.windsurfCodeiumDir')}
+              value={windsurfSettings.codeiumDir}
+              onChange={(value) => updateWindsurfField('codeiumDir', value)}
+              placeholder=".codeium/windsurf"
+              disabled={!windsurfLoaded}
+            />
+            <LabeledInput
+              label={t('settings.windsurfProxy')}
+              value={windsurfSettings.vpnProxyUrl}
+              onChange={(value) => updateWindsurfField('vpnProxyUrl', value)}
+              placeholder="socks5://127.0.0.1:1080"
+              disabled={!windsurfLoaded}
+            />
+            <div className="flex items-end justify-between gap-3 rounded-[var(--radius-md)] border border-charcoal/60 bg-pitch/35 px-3 py-2">
+              <div>
+                <div className="text-[12px] font-medium text-fog">
+                  {t('settings.windsurfDetectProxy')}
+                </div>
+                <div className="text-[11px] text-storm mt-0.5">
+                  {t('settings.windsurfDetectProxyDesc')}
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={windsurfSettings.detectProxy}
+                disabled={!windsurfLoaded}
+                className="outline-none focus-visible:ring-1 focus-visible:ring-accent/40 disabled:opacity-40"
+                onClick={() => updateWindsurfField('detectProxy', !windsurfSettings.detectProxy)}
+              >
+                <div
+                  className={`relative w-8 h-[18px] rounded-full transition-colors duration-200 ${windsurfSettings.detectProxy ? 'bg-emerald' : 'bg-charcoal border border-ash/60'}`}
+                >
+                  <div
+                    className={`absolute top-[3px] w-3 h-3 rounded-full transition-[left,background-color] duration-200 shadow-sm ${windsurfSettings.detectProxy ? 'left-[17px] bg-white' : 'left-[3px] bg-fog'}`}
+                  />
+                </div>
+              </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <LabeledInput
+              label={t('settings.windsurfFirstTokenTimeout')}
+              value={windsurfSettings.firstTokenTimeoutSeconds}
+              onChange={(value) =>
+                updateWindsurfField('firstTokenTimeoutSeconds', value.replace(/\D/g, ''))
+              }
+              placeholder="60"
+              disabled={!windsurfLoaded}
+            />
+            <LabeledInput
+              label={t('settings.windsurfStreamingTimeout')}
+              value={windsurfSettings.streamingReadTimeoutSeconds}
+              onChange={(value) =>
+                updateWindsurfField('streamingReadTimeoutSeconds', value.replace(/\D/g, ''))
+              }
+              placeholder="120"
+              disabled={!windsurfLoaded}
+            />
+            <LabeledInput
+              label={t('settings.windsurfLaunchTimeout')}
+              value={windsurfSettings.launchTimeoutSeconds}
+              onChange={(value) =>
+                updateWindsurfField('launchTimeoutSeconds', value.replace(/\D/g, ''))
+              }
+              placeholder="20"
+              disabled={!windsurfLoaded}
+            />
+            <LabeledInput
+              label={t('settings.windsurfMaxRetries')}
+              value={windsurfSettings.maxRetries}
+              onChange={(value) => updateWindsurfField('maxRetries', value.replace(/\D/g, ''))}
+              placeholder="2"
+              disabled={!windsurfLoaded}
+            />
+          </div>
+          <div className="flex justify-end">
+            <Button
+              variant="primary"
+              disabled={busy || !windsurfLoaded}
+              onClick={saveWindsurfSettings}
+            >
+              {t('settings.save')}
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
         <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-charcoal/60">
           <div>
             <h2 className="text-[13px] font-medium text-porcelain">{t('settings.quickTest')}</h2>
@@ -308,5 +535,32 @@ export default function Settings(): React.JSX.Element {
         </div>
       </div>
     </div>
+  )
+}
+
+function LabeledInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+  disabled
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  disabled?: boolean
+}): React.JSX.Element {
+  return (
+    <label className="block">
+      <span className="block text-[12px] font-medium text-fog mb-1">{label}</span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="input-base w-full font-mono"
+        disabled={disabled}
+      />
+    </label>
   )
 }

@@ -7,5 +7,7 @@ export const DEFAULT_NVIDIA_SETTINGS = {
   baseUrl: NVIDIA_BASE_URL,
   firstTokenTimeoutSeconds: 120,
   streamingReadTimeoutSeconds: 300,
-  maxRetries: 2
+  maxRetries: 2,
+  requestRaceEnabled: false,
+  requestRaceMaxConcurrent: 3
 }

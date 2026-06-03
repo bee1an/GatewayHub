@@ -15,6 +15,11 @@ import type {
 } from '../../types'
 import { GatewayLogger } from '../../core/logger'
 import { jsonResponse, sleep, sseData, toErrorMessage } from '../../core/utils'
+import {
+  anthropicMessagesToOpenAIChatCompletions,
+  openAIChatCompletionSseToAnthropicMessageSse,
+  openAIChatCompletionToAnthropicMessage
+} from '../../core/protocolAdapters'
 import { normalizeGrokWebModel } from './constants'
 import { classifyGrokWebError, GrokWebAccountPool, type GrokWebAccountRuntime } from './accountPool'
 import { streamGrokConversation } from './http'
@@ -67,7 +72,26 @@ export class GrokWebProvider implements ProviderAdapter {
   }
 
   async messages(body: any, context: GatewayRequestContext): Promise<GatewayResponse> {
-    return this.chatCompletions(body, context)
+    const model = normalizeGrokWebModel(String(body.model || 'auto'))
+    const openAiBody = anthropicMessagesToOpenAIChatCompletions(body, model)
+    const stream = body.stream === true
+    if (stream) {
+      return {
+        status: 200,
+        headers: sseHeaders(),
+        stream: openAIChatCompletionSseToAnthropicMessageSse(
+          this.streamWithFailover(model, openAiBody, context.requestId, context.onUsage),
+          model
+        )
+      }
+    }
+    const result = await this.nonStreamWithFailover(
+      model,
+      openAiBody,
+      context.requestId,
+      context.onUsage
+    )
+    return jsonResponse(200, openAIChatCompletionToAnthropicMessage(result, model, body))
   }
 
   async countTokens(body: any): Promise<GatewayResponse> {

@@ -238,12 +238,19 @@ export class GatewayServer {
           apiFormat: 'openai',
           startedAt
         }
-        const response = await this.registry.chatCompletions(body, {
-          requestId: rid,
-          apiFormat: 'openai',
-          onUsage: this.makeUsageSink(trace)
-        })
-        return this.writeTracedResponse(req, res, response, trace)
+        const upstreamAbort = new AbortController()
+        const unbindClientAbort = this.bindClientAbort(req, res, upstreamAbort)
+        try {
+          const response = await this.registry.chatCompletions(body, {
+            requestId: rid,
+            apiFormat: 'openai',
+            onUsage: this.makeUsageSink(trace),
+            abortSignal: upstreamAbort.signal
+          })
+          return await this.writeTracedResponse(req, res, response, trace)
+        } finally {
+          unbindClientAbort()
+        }
       }
 
       if (req.method === 'POST' && url.pathname === '/v1/messages') {
@@ -262,12 +269,19 @@ export class GatewayServer {
           apiFormat: 'anthropic',
           startedAt
         }
-        const response = await this.registry.messages(body, {
-          requestId: rid,
-          apiFormat: 'anthropic',
-          onUsage: this.makeUsageSink(trace)
-        })
-        return this.writeTracedResponse(req, res, response, trace)
+        const upstreamAbort = new AbortController()
+        const unbindClientAbort = this.bindClientAbort(req, res, upstreamAbort)
+        try {
+          const response = await this.registry.messages(body, {
+            requestId: rid,
+            apiFormat: 'anthropic',
+            onUsage: this.makeUsageSink(trace),
+            abortSignal: upstreamAbort.signal
+          })
+          return await this.writeTracedResponse(req, res, response, trace)
+        } finally {
+          unbindClientAbort()
+        }
       }
 
       if (req.method === 'POST' && url.pathname === '/v1/messages/count_tokens') {
@@ -406,6 +420,22 @@ export class GatewayServer {
       }
     })
     return false
+  }
+
+  private bindClientAbort(
+    req: IncomingMessage,
+    res: ServerResponse,
+    controller: AbortController
+  ): () => void {
+    const abort = (): void => {
+      if (!controller.signal.aborted) controller.abort(new Error('Client aborted request'))
+    }
+    req.on('aborted', abort)
+    res.on('close', abort)
+    return () => {
+      req.off('aborted', abort)
+      res.off('close', abort)
+    }
   }
 
   private async writeTracedResponse(

@@ -2,6 +2,19 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.5.0 - 2026-06-03
+
+Expanded provider reliability, protocol compatibility, and release packaging.
+
+- Added multi-key request racing for OpenRouter and NVIDIA with configurable concurrency, fastest-success selection, and loser cancellation
+- Added Anthropic `/v1/messages` compatibility for OpenRouter, NVIDIA, gptWeb, and grokWeb by converting requests and responses through OpenAI chat completions when needed
+- Improved Windsurf provider with image attachments, non-blocking Cascade streaming, tool-call conversion, workspace edit capture, and provider settings
+- Improved Kiro reliability with configurable concurrency limits, safer token refresh persistence, account file locking, and longer default first-token timeout
+- Improved Codex conversion and streaming support for tools, images, reasoning output, and function-call deltas
+- Improved release packaging so CLI runtime dependencies and gptWeb worker assets are bundled correctly for standalone use
+- Hardened gateway persistence, request tracing, stream lifecycle handling, API key handling, host/CORS checks, and production update safety
+- Added Grok provider logo assets and compact request-race settings UI
+
 ## 0.4.0 - 2026-06-02
 
 Added Grok Web provider and improved existing provider resilience.

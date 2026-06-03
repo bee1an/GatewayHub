@@ -21,12 +21,12 @@ import {
   classifyWindsurfError
 } from './accountPool'
 import { anthropicToWindsurfPrompt, openAiToWindsurfPrompt } from './converters'
-import { runWindsurfCascade, type WindsurfPromptPayload } from './cascade'
+import { runWindsurfCascade, runWindsurfCascadeStream, type WindsurfPromptPayload } from './cascade'
 import {
   anthropicJsonFromText,
-  anthropicSseFromText,
+  anthropicSseFromCascadeDeltas,
   openAiJsonFromText,
-  openAiSseFromText
+  openAiSseFromCascadeDeltas
 } from './streaming'
 
 const UPSTREAM_META = { category: 'upstream' as const, provider: 'windsurf' as const }
@@ -194,8 +194,15 @@ export class WindsurfProvider implements ProviderAdapter {
         )
         const result =
           format === 'openai'
-            ? openAiJsonFromText(cascade.text, model, body, sink, cascade.usage)
-            : anthropicJsonFromText(cascade.text, model, body, sink, cascade.usage)
+            ? openAiJsonFromText(cascade.text, model, body, sink, cascade.usage, cascade.toolCalls)
+            : anthropicJsonFromText(
+                cascade.text,
+                model,
+                body,
+                sink,
+                cascade.usage,
+                cascade.toolCalls
+              )
         await this.pool.reportSuccess(account)
         this.logger.info('Windsurf upstream success', {
           ...UPSTREAM_META,
@@ -243,17 +250,21 @@ export class WindsurfProvider implements ProviderAdapter {
             onUsage(u, { accountId: account.config.id, model, provider: 'windsurf' })
         : undefined
       const startedAt = Date.now()
+      let emitted = false
       try {
-        const result = await runWindsurfCascade(
+        const source = runWindsurfCascadeStream(
           account.client!,
           this.buildPrompt(format, body),
           model,
           this.config.settings
         )
-        if (format === 'openai') {
-          yield* openAiSseFromText(result.text, model, body, sink, result.usage)
-        } else {
-          yield* anthropicSseFromText(result.text, model, body, sink, result.usage)
+        const downstream =
+          format === 'openai'
+            ? openAiSseFromCascadeDeltas(source, model, body, sink)
+            : anthropicSseFromCascadeDeltas(source, model, body, sink)
+        for await (const chunk of downstream) {
+          emitted = true
+          yield chunk
         }
         await this.pool.reportSuccess(account)
         this.logger.info('Windsurf stream success', {
@@ -275,8 +286,7 @@ export class WindsurfProvider implements ProviderAdapter {
           duration: Date.now() - startedAt,
           extra: { kind: classified.kind, attempt: attempt + 1 }
         })
-        // Cascade 在产出任何字节前已完整 await 完成，失败时切换账号重试是安全的，
-        // 与 nonStreamWithFailover 保持一致：仅 timeout/network 继续重试，其余直接中断。
+        if (emitted) break
         if (classified.kind !== 'timeout' && classified.kind !== 'network') break
         await sleep(300 * Math.pow(2, attempt))
       }

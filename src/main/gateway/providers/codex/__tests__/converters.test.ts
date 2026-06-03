@@ -36,6 +36,58 @@ describe('codex/converters', () => {
     })
   })
 
+  it('chatToResponsesPayload: forwards tools, tool calls, images, and reasoning effort', () => {
+    const payload = chatToResponsesPayload({
+      model: 'gpt-5',
+      reasoning_effort: 'high',
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'lookup',
+            description: 'Lookup data',
+            parameters: { type: 'object', properties: { q: { type: 'string' } } }
+          }
+        }
+      ],
+      tool_choice: 'auto',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'describe' },
+            { type: 'image_url', image_url: { url: 'data:image/png;base64,abc' } }
+          ]
+        },
+        {
+          role: 'assistant',
+          content: 'calling',
+          tool_calls: [
+            {
+              id: 'call_1',
+              type: 'function',
+              function: { name: 'lookup', arguments: '{"q":"x"}' }
+            }
+          ]
+        }
+      ]
+    })
+
+    expect(payload.input[0].content).toEqual([
+      { type: 'input_text', text: 'describe' },
+      { type: 'input_image', image_url: 'data:image/png;base64,abc' }
+    ])
+    expect(payload.input[2]).toEqual({
+      type: 'function_call',
+      call_id: 'call_1',
+      name: 'lookup',
+      arguments: '{"q":"x"}'
+    })
+    expect(payload.tools[0]).toMatchObject({ type: 'function', name: 'lookup' })
+    expect(payload.tool_choice).toBe('auto')
+    expect(payload.reasoning).toEqual({ effort: 'high' })
+  })
+
   it('chatToResponsesPayload: provides default instructions when no system', () => {
     const payload = chatToResponsesPayload({
       model: 'gpt-5',
@@ -59,6 +111,60 @@ describe('codex/converters', () => {
     expect(payload.temperature).toBe(0.5)
     expect(payload.top_p).toBe(0.9)
     expect(payload.input).toHaveLength(2)
+  })
+
+  it('anthropicToResponsesPayload: forwards tools, tool_use, tool_result, images, and thinking', () => {
+    const payload = anthropicToResponsesPayload({
+      model: 'gpt-5',
+      thinking: { type: 'enabled', budget_tokens: 1024 },
+      tools: [
+        {
+          name: 'lookup',
+          description: 'Lookup data',
+          input_schema: { type: 'object', properties: { q: { type: 'string' } } }
+        }
+      ],
+      tool_choice: { type: 'tool', name: 'lookup' },
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'see image' },
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'abc' } }
+          ]
+        },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'calling' },
+            { type: 'tool_use', id: 'toolu_1', name: 'lookup', input: { q: 'x' } }
+          ]
+        },
+        {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'result' }]
+        }
+      ]
+    })
+
+    expect(payload.input[0].content).toEqual([
+      { type: 'input_text', text: 'see image' },
+      { type: 'input_image', image_url: 'data:image/png;base64,abc' }
+    ])
+    expect(payload.input[2]).toEqual({
+      type: 'function_call',
+      call_id: 'toolu_1',
+      name: 'lookup',
+      arguments: '{"q":"x"}'
+    })
+    expect(payload.input[3]).toEqual({
+      type: 'function_call_output',
+      call_id: 'toolu_1',
+      output: 'result'
+    })
+    expect(payload.tools[0]).toMatchObject({ type: 'function', name: 'lookup' })
+    expect(payload.tool_choice).toBe('lookup')
+    expect(payload.reasoning).toEqual({ effort: 'high' })
   })
 
   it('normalizeCodexModel: strips date suffix and provider prefix', () => {

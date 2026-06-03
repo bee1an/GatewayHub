@@ -6,6 +6,7 @@ import windsurfIcon from '../assets/provider-logos/windsurf-icon.svg'
 import traeIcon from '../assets/provider-logos/trae-icon.png'
 import geminiIcon from '../assets/provider-logos/gemini-icon.svg'
 import nvidiaIcon from '../assets/provider-logos/nvidia-icon.png'
+import grokIcon from '../assets/provider-logos/grok-icon.png'
 
 export type ProviderLogoTheme = 'light' | 'dark'
 
@@ -18,6 +19,7 @@ export const LOCAL_PROVIDER_LOGOS: Record<string, ProviderLogoSet> = {
   kiro: { light: kiroIcon, dark: kiroIcon },
   codex: { light: codexIconLight, dark: codexIconDark },
   gptWeb: { light: codexIconLight, dark: codexIconDark },
+  grokWeb: { light: grokIcon, dark: grokIcon },
   windsurf: { light: windsurfIcon, dark: windsurfIcon },
   trae: { light: traeIcon, dark: traeIcon },
   openrouter: { light: openRouterIcon, dark: openRouterIcon },

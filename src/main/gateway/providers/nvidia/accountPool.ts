@@ -10,6 +10,12 @@ import type {
 import { GatewayLogger } from '../../core/logger'
 import { toErrorMessage } from '../../core/utils'
 import { NVIDIA_BASE_URL, NVIDIA_DEFAULT_SMOKE_MODEL, NVIDIA_MODELS_PATH } from './constants'
+import {
+  clampRequestRaceMaxConcurrent,
+  recordAccountRaceFailure,
+  recordAccountRaceSuccess,
+  scoreAccountForRace
+} from '../requestRace'
 
 export interface NvidiaAccountRuntime {
   config: NvidiaAccountConfig
@@ -130,6 +136,48 @@ export class NvidiaAccountPool {
     return undefined
   }
 
+  async getRaceAccountsForModel(
+    model: string,
+    maxConcurrent: number
+  ): Promise<NvidiaAccountRuntime[]> {
+    if (!this.accounts.length) return []
+    const normalizedModel = normalizeNvidiaModel(model)
+    const max = clampRequestRaceMaxConcurrent(maxConcurrent)
+    const eligible: Array<{ account: NvidiaAccountRuntime; index: number }> = []
+    const now = Date.now()
+
+    for (let index = 0; index < this.accounts.length; index++) {
+      const account = this.accounts[index]
+      if (account.config.enabled === false) continue
+      if (isHardOffline(account.state.status)) continue
+      if (!this.isAvailable(account, now)) continue
+      await this.maybeRefreshAccountModels(account)
+      if (!this.accountHasModel(account, normalizedModel)) continue
+      eligible.push({ account, index })
+    }
+    if (!eligible.length) return []
+    if (eligible.length < 2) return eligible.map((candidate) => candidate.account)
+
+    const start = this.currentAccountIndex % this.accounts.length
+    let roundRobin = eligible.find(({ index }) => index >= start)
+    if (!roundRobin) roundRobin = eligible[0]
+
+    this.currentAccountIndex = (roundRobin.index + 1) % this.accounts.length
+    this.state.currentAccountIndex = this.currentAccountIndex
+
+    const selected = [
+      roundRobin,
+      ...eligible
+        .filter((candidate) => candidate.account.config.id !== roundRobin.account.config.id)
+        .sort((a, b) => scoreAccountForRace(b.account.state) - scoreAccountForRace(a.account.state))
+    ]
+      .slice(0, max)
+      .map((candidate) => candidate.account)
+
+    this.onStateChanged()
+    return selected
+  }
+
   async testAccount(accountId: string): Promise<AccountTestResult> {
     const account = this.accounts.find((a) => a.config.id === accountId)
     if (!account) return { ok: false, accountId, message: 'Account not found' }
@@ -186,13 +234,14 @@ export class NvidiaAccountPool {
     return { models: account.state.modelIds }
   }
 
-  async reportSuccess(account: NvidiaAccountRuntime): Promise<void> {
+  async reportSuccess(account: NvidiaAccountRuntime, latencyMs?: number): Promise<void> {
     account.state.failures = 0
     account.state.lastError = undefined
     account.state.lastSuccessAt = Date.now()
     account.state.stats.totalRequests += 1
     account.state.stats.successfulRequests += 1
     account.state.lastResponseKind = 'success'
+    recordAccountRaceSuccess(account.state, latencyMs)
     this.transitionStatus(account, 'available', undefined)
     this.onStateChanged()
   }
@@ -208,6 +257,7 @@ export class NvidiaAccountPool {
     account.state.stats.totalRequests += 1
     account.state.stats.failedRequests += 1
     account.state.lastResponseKind = classified.kind
+    recordAccountRaceFailure(account.state, classified.kind)
     const now = Date.now()
     const reason = account.state.lastError.slice(0, 200)
     if (classified.kind === 'auth') {

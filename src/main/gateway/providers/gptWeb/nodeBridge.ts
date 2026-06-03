@@ -1,6 +1,6 @@
 import { createInterface } from 'readline'
 import { existsSync } from 'fs'
-import { delimiter, join, resolve } from 'path'
+import { basename, delimiter, join, resolve } from 'path'
 import { execFile, execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import type { GptWebAccountConfig, GptWebProviderSettings } from '../../types'
 import type { GptWebRequestContext } from './http'
@@ -147,11 +147,12 @@ export async function* streamConversationViaNodeBridge(
 async function runWorkerJson<T>(input: WorkerInput): Promise<T> {
   const nodePath = resolveSystemNodePath()
   const cliPath = resolveCliEntryPath()
+  const workerArgs = gptWebWorkerArgs(cliPath)
 
   return new Promise<T>((resolvePromise, reject) => {
     const child = execFile(
       nodePath,
-      [cliPath, '__gptWeb-upstream'],
+      workerArgs,
       {
         env: buildWorkerEnv(),
         timeout: 180_000,
@@ -198,7 +199,7 @@ function parseWorkerError(stdout: string): string | undefined {
 function spawnWorker(inputForErrorContext: WorkerInput): ChildProcessWithoutNullStreams {
   const nodePath = resolveSystemNodePath()
   const cliPath = resolveCliEntryPath()
-  const child = spawn(nodePath, [cliPath, '__gptWeb-upstream'], {
+  const child = spawn(nodePath, gptWebWorkerArgs(cliPath), {
     env: buildWorkerEnv(),
     stdio: 'pipe'
   })
@@ -255,6 +256,13 @@ function resolveCliEntryPath(): string {
 
   const candidates = dedupe([
     process.env.GATEWAYHUB_CLI_PATH,
+    process.env.GATEWAYHUB_GPT_WEB_WORKER_PATH,
+    join(process.resourcesPath || '', 'cli', 'gptWebWorker.js'),
+    resolve(__dirname, '../gptWebWorker.js'),
+    resolve(__dirname, 'gptWebWorker.js'),
+    resolve(process.cwd(), 'out/main/gptWebWorker.js'),
+    join(process.resourcesPath || '', 'app.asar.unpacked', 'out', 'main', 'gptWebWorker.js'),
+    join(process.resourcesPath || '', 'app', 'out', 'main', 'gptWebWorker.js'),
     join(process.resourcesPath || '', 'cli', 'gatewayhub.js'),
     resolve(__dirname, '../cli.js'),
     resolve(__dirname, 'cli.js'),
@@ -272,6 +280,11 @@ function resolveCliEntryPath(): string {
 
   cachedCliPath = null
   throw new Error('GatewayHub CLI entry not found for GptWeb sidecar')
+}
+
+function gptWebWorkerArgs(entryPath: string): string[] {
+  const file = basename(entryPath).toLowerCase()
+  return file.includes('gptwebworker') ? [entryPath] : [entryPath, '__gptWeb-upstream']
 }
 
 function isUsableSystemNode(candidate: string): boolean {

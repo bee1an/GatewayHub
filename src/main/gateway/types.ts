@@ -76,6 +76,12 @@ export interface KiroProviderSettings {
   firstTokenTimeoutSeconds: number
   streamingReadTimeoutSeconds: number
   maxRetries: number
+  /** Total concurrent Kiro upstream requests allowed in this process. */
+  maxConcurrentRequests: number
+  /** Concurrent large-prompt Kiro upstream requests allowed in this process. */
+  maxConcurrentLargePromptRequests: number
+  /** Request JSON byte length threshold for large-prompt throttling. */
+  largePromptBytes: number
   accountRecoveryTimeoutSeconds: number
   accountMaxBackoffMultiplier: number
   probabilisticRetryChance: number
@@ -163,6 +169,8 @@ export interface WindsurfProviderSettings {
   languageServerBinaryPath: string
   /** 传给 language_server 的 codeium_dir，默认 .codeium/windsurf */
   codeiumDir: string
+  /** HTTP/SOCKS5 proxy URL passed to Windsurf language_server via proxy env vars */
+  vpnProxyUrl: string
   firstTokenTimeoutSeconds: number
   streamingReadTimeoutSeconds: number
   launchTimeoutSeconds: number
@@ -250,6 +258,10 @@ export interface OpenRouterProviderSettings {
   firstTokenTimeoutSeconds: number
   streamingReadTimeoutSeconds: number
   maxRetries: number
+  /** Race multiple API keys for a single request and use the first successful response. */
+  requestRaceEnabled: boolean
+  /** Max concurrent upstream API keys per inbound request when request racing is enabled. */
+  requestRaceMaxConcurrent: number
 }
 
 export interface OpenRouterAccountConfig {
@@ -285,6 +297,10 @@ export interface NvidiaProviderSettings {
   firstTokenTimeoutSeconds: number
   streamingReadTimeoutSeconds: number
   maxRetries: number
+  /** Race multiple API keys for a single request and use the first successful response. */
+  requestRaceEnabled: boolean
+  /** Max concurrent upstream API keys per inbound request when request racing is enabled. */
+  requestRaceMaxConcurrent: number
 }
 
 export interface NvidiaAccountConfig {
@@ -460,6 +476,16 @@ export interface AccountRuntimeState {
     successfulRequests: number
     failedRequests: number
   }
+  raceStats?: AccountRaceStats
+}
+
+export interface AccountRaceStats {
+  attempts: number
+  successes: number
+  failures: number
+  ewmaLatencyMs?: number
+  successRateEwma?: number
+  lastUpdatedAt?: number
 }
 
 export type LogCategory = 'system' | 'auth' | 'request' | 'upstream' | 'account'
@@ -565,6 +591,7 @@ export interface GatewayRequestContext {
   requestId: string
   apiFormat: 'openai' | 'anthropic'
   onUsage?: (usage: UsageStats, meta?: UsageMeta) => void
+  abortSignal?: AbortSignal
 }
 
 export interface UsageMeta {

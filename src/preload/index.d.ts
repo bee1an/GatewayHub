@@ -211,6 +211,8 @@ declare global {
           status: string,
           reason?: string
         ) => Promise<any>
+        getWindsurfSettings: () => Promise<any>
+        updateWindsurfSettings: (settings: Record<string, any>) => Promise<any>
         // ========== Trae ==========
         scanTraeAccounts: () => Promise<{
           candidates: Array<{

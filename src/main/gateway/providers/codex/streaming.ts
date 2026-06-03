@@ -18,9 +18,9 @@ export class CodexStreamIdleTimeoutError extends Error {
 export type CodexEvent =
   | { type: 'text'; text: string }
   | { type: 'reasoning_delta'; text: string }
-  | { type: 'tool_use_start'; id: string; name: string }
-  | { type: 'tool_use_args_delta'; id: string; args: string }
-  | { type: 'tool_use_done'; id: string }
+  | { type: 'tool_use_start'; id: string; itemId?: string; name: string }
+  | { type: 'tool_use_args_delta'; id: string; itemId?: string; args: string }
+  | { type: 'tool_use_done'; id: string; itemId?: string }
   | { type: 'usage'; usage: any; model?: string }
   | { type: 'done' }
   | { type: 'error'; error: any }
@@ -163,9 +163,11 @@ function blockToEvent(block: ParsedBlock): CodexEvent | undefined {
   if (eventName === 'response.output_item.added') {
     const item = parsed?.item
     if (item && (item.type === 'function_call' || item.call_id)) {
+      const itemId = item.id || item.item_id || undefined
       return {
         type: 'tool_use_start',
         id: item.call_id || item.id || randomUUID(),
+        itemId,
         name: item.name || ''
       }
     }
@@ -176,15 +178,17 @@ function blockToEvent(block: ParsedBlock): CodexEvent | undefined {
   // Tool call arguments delta
   if (eventName === 'response.function_call_arguments.delta') {
     const delta = typeof parsed?.delta === 'string' ? parsed.delta : ''
-    const callId = parsed?.call_id || parsed?.item_id || ''
-    return { type: 'tool_use_args_delta', id: callId, args: delta }
+    const itemId = parsed?.item_id || parsed?.item?.id || undefined
+    const callId = parsed?.call_id || parsed?.item?.call_id || itemId || ''
+    return { type: 'tool_use_args_delta', id: callId, itemId, args: delta }
   }
 
   // Tool call done: response.output_item.done with function_call
   if (eventName === 'response.output_item.done') {
     const item = parsed?.item
     if (item && (item.type === 'function_call' || item.call_id)) {
-      return { type: 'tool_use_done', id: item.call_id || item.id || '' }
+      const itemId = item.id || item.item_id || undefined
+      return { type: 'tool_use_done', id: item.call_id || item.id || '', itemId }
     }
     return undefined
   }
@@ -283,7 +287,7 @@ export async function* openAiSseFromCodex(
   let first = true
   let upstreamUsage: any | undefined
   // Track tool calls for final finish_reason
-  const toolCalls: Array<{ id: string; name: string; arguments: string }> = []
+  const toolCalls: Array<{ id: string; itemId?: string; name: string; arguments: string }> = []
   let currentToolIndex = -1
 
   for await (const event of parseCodexStream(body, firstTokenTimeoutSeconds, idleTimeoutSeconds)) {
@@ -322,7 +326,7 @@ export async function* openAiSseFromCodex(
       first = false
     } else if (event.type === 'tool_use_start') {
       currentToolIndex += 1
-      toolCalls.push({ id: event.id, name: event.name, arguments: '' })
+      toolCalls.push({ id: event.id, itemId: event.itemId, name: event.name, arguments: '' })
       yield sseData({
         id,
         object: 'chat.completion.chunk',
@@ -348,7 +352,7 @@ export async function* openAiSseFromCodex(
       })
       first = false
     } else if (event.type === 'tool_use_args_delta') {
-      const idx = toolCalls.findIndex((t) => t.id === event.id)
+      const idx = toolCalls.findIndex((t) => matchesTool(t, event))
       const toolIdx = idx >= 0 ? idx : currentToolIndex
       if (toolIdx >= 0 && toolCalls[toolIdx]) {
         toolCalls[toolIdx].arguments += event.args
@@ -419,15 +423,15 @@ export async function openAiJsonFromCodex(
     type: string
     function: { name: string; arguments: string }
   }> = []
-  let currentTool: { id: string; name: string; arguments: string } | undefined
+  let currentTool: { id: string; itemId?: string; name: string; arguments: string } | undefined
 
   for await (const event of parseCodexStream(body, firstTokenTimeoutSeconds, idleTimeoutSeconds)) {
     if (event.type === 'text') content += event.text
     else if (event.type === 'reasoning_delta') reasoning += event.text
     else if (event.type === 'tool_use_start') {
-      currentTool = { id: event.id, name: event.name, arguments: '' }
+      currentTool = { id: event.id, itemId: event.itemId, name: event.name, arguments: '' }
     } else if (event.type === 'tool_use_args_delta') {
-      if (currentTool && currentTool.id === event.id) currentTool.arguments += event.args
+      if (currentTool && matchesTool(currentTool, event)) currentTool.arguments += event.args
     } else if (event.type === 'tool_use_done') {
       if (currentTool) {
         toolCalls.push({
@@ -591,15 +595,15 @@ export async function anthropicJsonFromCodex(
   let thinking = ''
   let upstreamUsage: any | undefined
   const toolCalls: Array<{ id: string; name: string; input: any }> = []
-  let currentTool: { id: string; name: string; arguments: string } | undefined
+  let currentTool: { id: string; itemId?: string; name: string; arguments: string } | undefined
 
   for await (const event of parseCodexStream(body, firstTokenTimeoutSeconds, idleTimeoutSeconds)) {
     if (event.type === 'text') content += event.text
     else if (event.type === 'reasoning_delta') thinking += event.text
     else if (event.type === 'tool_use_start') {
-      currentTool = { id: event.id, name: event.name, arguments: '' }
+      currentTool = { id: event.id, itemId: event.itemId, name: event.name, arguments: '' }
     } else if (event.type === 'tool_use_args_delta') {
-      if (currentTool && currentTool.id === event.id) currentTool.arguments += event.args
+      if (currentTool && matchesTool(currentTool, event)) currentTool.arguments += event.args
     } else if (event.type === 'tool_use_done') {
       if (currentTool) {
         toolCalls.push({
@@ -668,6 +672,17 @@ function toAnthropicDeltaUsage(usage: UsageStats): any {
   const out: any = { input_tokens: usage.inputTokens || 0, output_tokens: usage.outputTokens || 0 }
   if (usage.cacheReadTokens !== undefined) out.cache_read_input_tokens = usage.cacheReadTokens
   return out
+}
+
+function matchesTool(
+  tool: { id: string; itemId?: string },
+  event: { id: string; itemId?: string }
+): boolean {
+  return (
+    tool.id === event.id ||
+    Boolean(tool.itemId && tool.itemId === event.id) ||
+    Boolean(event.itemId && (tool.id === event.itemId || tool.itemId === event.itemId))
+  )
 }
 
 function stringifyError(error: any): string {

@@ -1,4 +1,3 @@
-import { app } from 'electron'
 import type { CodexProviderSettings } from '../../types'
 import { codexFetch, CodexAuthManager } from './auth'
 import { codexModelsUrl } from './constants'
@@ -20,9 +19,15 @@ interface ApiResponse {
  * 上游会校验 client_version 必须是合法 semver（如 0.1.1）。
  * 优先用 electron 的 app.getVersion()；测试 / 非 electron 环境下回退到一个稳定的 0.0.0。
  */
-function clientVersion(): string {
+async function clientVersion(): Promise<string> {
+  const envVersion = process.env.GATEWAYHUB_APP_VERSION || process.env.npm_package_version
+  if (envVersion) return envVersion
   try {
-    return app?.getVersion?.() || '0.0.0'
+    // CLI / packaged sidecar can run under system Node where electron is not installed.
+    // Keep this import lazy so merely importing Codex provider does not make CLI depend on
+    // the electron package.
+    const electron = await import('electron')
+    return electron.app?.getVersion?.() || '0.0.0'
   } catch {
     return '0.0.0'
   }
@@ -39,7 +44,8 @@ export async function fetchCodexModels(
   settings: CodexProviderSettings
 ): Promise<string[]> {
   const token = await auth.getAccessToken()
-  const url = `${codexModelsUrl(settings.baseUrl)}?client_version=${encodeURIComponent(clientVersion())}`
+  const version = await clientVersion()
+  const url = `${codexModelsUrl(settings.baseUrl)}?client_version=${encodeURIComponent(version)}`
   const response = await codexFetch(
     url,
     {

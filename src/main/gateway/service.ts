@@ -30,6 +30,7 @@ import {
   resolveRefreshTokenAccount,
   buildKiroAccountConfig
 } from './providers/kiro/normalize'
+import { normalizeKiroSettings } from './providers/kiro/constants'
 import {
   detectKiroCli as detectCli,
   loginWithKiroCli as loginCli,
@@ -57,6 +58,7 @@ import {
 } from './providers/openrouter/normalize'
 import { buildNvidiaAccountFromInput, parseNvidiaAuthInput } from './providers/nvidia/normalize'
 import { normalizeGrokWebImportedAccount } from './providers/grokWeb/normalize'
+import { normalizeRequestRaceSettings } from './providers/requestRace'
 
 export class GatewayHubService {
   private readonly store = new GatewayConfigStore()
@@ -360,7 +362,10 @@ export class GatewayHubService {
 
   async updateKiroSettings(settings: Partial<Record<string, any>>): Promise<GatewayStatusSnapshot> {
     await this.ensureReady()
-    Object.assign(this.config!.providers.kiro.settings, settings)
+    this.config!.providers.kiro.settings = normalizeKiroSettings({
+      ...this.config!.providers.kiro.settings,
+      ...settings
+    })
     await this.store.saveConfig(this.config!)
     await this.rebuildRuntime(this.server?.running ?? false)
     return this.getStatus()
@@ -1001,6 +1006,21 @@ export class GatewayHubService {
     return this.getStatus()
   }
 
+  async getWindsurfSettings() {
+    await this.ensureReady()
+    return this.config!.providers.windsurf.settings
+  }
+
+  async updateWindsurfSettings(
+    settings: Partial<Record<string, any>>
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    Object.assign(this.config!.providers.windsurf.settings, settings)
+    await this.store.saveConfig(this.config!)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
   // ============== Trae ==============
 
   async scanTraeAccounts(): Promise<{ candidates: any[] }> {
@@ -1290,7 +1310,13 @@ export class GatewayHubService {
     settings: Partial<Record<string, any>>
   ): Promise<GatewayStatusSnapshot> {
     await this.ensureReady()
-    Object.assign(this.config!.providers.openrouter.settings, settings)
+    Object.assign(
+      this.config!.providers.openrouter.settings,
+      normalizeRequestRaceSettings({
+        ...this.config!.providers.openrouter.settings,
+        ...settings
+      })
+    )
     await this.store.saveConfig(this.config!)
     await this.rebuildRuntime(this.server?.running ?? false)
     return this.getStatus()
@@ -1426,7 +1452,13 @@ export class GatewayHubService {
     settings: Partial<Record<string, any>>
   ): Promise<GatewayStatusSnapshot> {
     await this.ensureReady()
-    Object.assign(this.config!.providers.nvidia.settings, settings)
+    Object.assign(
+      this.config!.providers.nvidia.settings,
+      normalizeRequestRaceSettings({
+        ...this.config!.providers.nvidia.settings,
+        ...settings
+      })
+    )
     await this.store.saveConfig(this.config!)
     await this.rebuildRuntime(this.server?.running ?? false)
     return this.getStatus()

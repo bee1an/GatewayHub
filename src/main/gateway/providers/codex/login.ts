@@ -1,5 +1,4 @@
 import { createServer, type Server } from 'http'
-import { shell } from 'electron'
 import { randomBytes } from 'crypto'
 import type { CodexProviderSettings } from '../../types'
 import { toErrorMessage } from '../../core/utils'
@@ -138,11 +137,7 @@ export async function loginCodexWithBrowser(
 
   const authorizeUrl = buildAuthorizeUrl(challenge, state, redirectUri)
   emit({ kind: 'authorize', authorizeUrl, message: 'Browser launched' })
-  try {
-    await shell.openExternal(authorizeUrl)
-  } catch {
-    // 打开失败也不要紧，前端可以显示链接给用户手动点
-  }
+  await openExternalUrl(authorizeUrl)
 }
 
 export async function cancelCodexBrowserLogin(): Promise<boolean> {
@@ -231,6 +226,17 @@ async function cancelBrowserLoginIfActive(): Promise<void> {
 async function cancelDeviceLoginIfActive(): Promise<void> {
   if (activeDeviceLogin && !activeDeviceLogin.cancelled) {
     await cancelCodexDeviceLogin()
+  }
+}
+
+async function openExternalUrl(url: string): Promise<void> {
+  try {
+    // GatewayHub CLI 可以在没有 electron package 的 system Node 下运行。
+    // 浏览器登录才需要 shell.openExternal，因此延迟 import，失败时让前端/CLI 展示链接。
+    const electron = await import('electron')
+    await electron.shell.openExternal(url)
+  } catch {
+    // 打开失败也不要紧，前端可以显示链接给用户手动点
   }
 }
 

@@ -4,6 +4,7 @@ import type { AccountStatus, LogCategory, ModelMapping } from './types'
 import type { CodexLoginEvent } from './providers/codex/types'
 import { DEFAULT_KIRO_SETTINGS } from './providers/kiro/constants'
 import { DEFAULT_CODEX_SETTINGS } from './providers/codex/constants'
+import { DEFAULT_WINDSURF_SETTINGS } from './providers/windsurf/constants'
 import { DEFAULT_TRAE_SETTINGS } from './providers/trae/constants'
 import { DEFAULT_OPENROUTER_SETTINGS } from './providers/openrouter/constants'
 import { DEFAULT_NVIDIA_SETTINGS } from './providers/nvidia/constants'
@@ -12,6 +13,7 @@ import { DEFAULT_GROK_WEB_SETTINGS } from './providers/grokWeb/constants'
 
 const KIRO_KEYS = new Set(Object.keys(DEFAULT_KIRO_SETTINGS))
 const CODEX_KEYS = new Set(Object.keys(DEFAULT_CODEX_SETTINGS))
+const WINDSURF_KEYS = new Set(Object.keys(DEFAULT_WINDSURF_SETTINGS))
 const TRAE_KEYS = new Set(Object.keys(DEFAULT_TRAE_SETTINGS))
 const OPENROUTER_KEYS = new Set(Object.keys(DEFAULT_OPENROUTER_SETTINGS))
 const NVIDIA_KEYS = new Set(Object.keys(DEFAULT_NVIDIA_SETTINGS))
@@ -357,6 +359,19 @@ export function registerGatewayIpc(): void {
     safeHandler((_event, accountId: string, status: string, reason?: string) =>
       gatewayHubService.setWindsurfAccountStatus(accountId, status as AccountStatus, reason)
     )
+  )
+  ipcMain.handle(
+    'gateway:getWindsurfSettings',
+    safeHandler(() => gatewayHubService.getWindsurfSettings())
+  )
+  ipcMain.handle(
+    'gateway:updateWindsurfSettings',
+    safeHandler((_event, settings: Record<string, any>) => {
+      const filtered = Object.fromEntries(
+        Object.entries(settings).filter(([k]) => WINDSURF_KEYS.has(k))
+      )
+      return gatewayHubService.updateWindsurfSettings(filtered)
+    })
   )
 
   // ============== Trae ==============

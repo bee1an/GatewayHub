@@ -5,6 +5,7 @@ import { usePolling } from '../hooks/usePolling'
 import { Button } from '../components/ui/Button'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
+import { Select } from '../components/ui/Select'
 import { TooltipWrapper } from '../components/ui/Tooltip'
 import { useToast } from '../components/ui/ToastContext'
 import { ProviderLogo } from '../components/ProviderLogo'
@@ -25,6 +26,10 @@ import { normalizeAccountModels } from './accountModelUtils'
 import type { Account, AccountFilter, AccountInfo, GatewayStatus } from './gatewayDetailTypes'
 const accountInfoCache: Record<string, { data?: AccountInfo; loading: boolean; error?: string }> =
   {}
+const raceConcurrentOptions = [2, 3, 4, 5, 6].map((n) => ({
+  value: String(n),
+  label: String(n)
+}))
 
 export default function GatewayDetail(): React.JSX.Element {
   const { t } = useTranslation()
@@ -45,6 +50,13 @@ export default function GatewayDetail(): React.JSX.Element {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [tab, setTab] = useState<'overview' | 'usage'>('overview')
   const [modelRefreshIds, setModelRefreshIds] = useState<Set<string>>(() => new Set())
+  const [raceSettings, setRaceSettings] = useState({
+    providerType: '',
+    loading: false,
+    saving: false,
+    enabled: false,
+    maxConcurrent: 3
+  })
 
   const draftValue =
     routeNameDraft && routeNameDraft.name === name ? routeNameDraft.value : (name ?? '')
@@ -62,6 +74,7 @@ export default function GatewayDetail(): React.JSX.Element {
   const isNvidia = gateway?.providerType === 'nvidia'
   const isGptWeb = gateway?.providerType === 'gptWeb'
   const isGrokWeb = gateway?.providerType === 'grokWeb'
+  const supportsRequestRace = isOpenRouter || isNvidia
   const supportsAccounts =
     isKiro || isCodex || isWindsurf || isTrae || isOpenRouter || isNvidia || isGptWeb || isGrokWeb
   const accountIdsKey = useMemo(() => accounts.map((a) => a.id).join(','), [accounts])
@@ -208,6 +221,34 @@ export default function GatewayDetail(): React.JSX.Element {
     return () => clearInterval(pollRef.current)
   }, [accounts.length, fetchAllUsage, supportsAccounts])
 
+  useEffect(() => {
+    if (!supportsRequestRace || !gateway?.providerType) return
+    let cancelled = false
+    const load = isOpenRouter
+      ? window.api.gateway.getOpenRouterSettings()
+      : window.api.gateway.getNvidiaSettings()
+    load
+      .then((settings) => {
+        if (cancelled) return
+        if (settings?.ok === false) throw new Error(settings.error || t('gateway.infoError'))
+        setRaceSettings({
+          providerType: gateway.providerType,
+          loading: false,
+          saving: false,
+          enabled: settings?.requestRaceEnabled === true,
+          maxConcurrent: clampRaceConcurrent(settings?.requestRaceMaxConcurrent)
+        })
+      })
+      .catch((error) => {
+        if (cancelled) return
+        setRaceSettings((prev) => ({ ...prev, loading: false, saving: false }))
+        toast(error instanceof Error ? error.message : String(error), 'error')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [gateway?.providerType, isOpenRouter, supportsRequestRace, t, toast])
+
   async function run(action: () => Promise<any>, success: string): Promise<void> {
     setBusy(true)
     try {
@@ -218,6 +259,39 @@ export default function GatewayDetail(): React.JSX.Element {
       toast(error instanceof Error ? error.message : String(error), 'error')
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function updateRaceSettings(next: {
+    enabled?: boolean
+    maxConcurrent?: number
+  }): Promise<void> {
+    if (!supportsRequestRace || raceSettings.saving) return
+    const previous = raceSettings
+    const updated = {
+      enabled: next.enabled ?? previous.enabled,
+      maxConcurrent: clampRaceConcurrent(next.maxConcurrent ?? previous.maxConcurrent)
+    }
+    setRaceSettings((prev) => ({ ...prev, ...updated, saving: true }))
+    try {
+      const payload = {
+        requestRaceEnabled: updated.enabled,
+        requestRaceMaxConcurrent: updated.maxConcurrent
+      }
+      const result = isOpenRouter
+        ? await window.api.gateway.updateOpenRouterSettings(payload)
+        : await window.api.gateway.updateNvidiaSettings(payload)
+      if (result?.ok === false) throw new Error(result.error || t('gateway.infoError'))
+      await refresh()
+    } catch (error) {
+      setRaceSettings((prev) => ({
+        ...prev,
+        enabled: previous.enabled,
+        maxConcurrent: previous.maxConcurrent
+      }))
+      toast(error instanceof Error ? error.message : String(error), 'error')
+    } finally {
+      setRaceSettings((prev) => ({ ...prev, saving: false }))
     }
   }
 
@@ -397,6 +471,54 @@ export default function GatewayDetail(): React.JSX.Element {
               </span>
             </div>
           </div>
+
+          {supportsRequestRace && (
+            <div className="card px-3 py-2 flex flex-wrap items-center justify-between gap-2.5">
+              <div className="min-w-[180px] flex-1">
+                <div className="text-[12px] font-[590] text-porcelain">
+                  {t('gateway.requestRace')}
+                </div>
+                <p className="mt-0.5 text-[10px] leading-snug text-fog">
+                  {t('gateway.requestRaceDesc')}
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  aria-pressed={raceSettings.enabled}
+                  disabled={raceSettings.loading || raceSettings.saving}
+                  className={`inline-flex h-7 min-w-[66px] items-center justify-center gap-1.5 rounded-[var(--radius-md)] border px-2 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                    raceSettings.enabled
+                      ? 'border-accent bg-accent text-pitch shadow-[0_0_12px_rgba(216,255,0,0.16)] hover:bg-accent/90'
+                      : 'border-charcoal bg-graphite text-fog hover:border-white/15 hover:text-storm'
+                  }`}
+                  onClick={() => void updateRaceSettings({ enabled: !raceSettings.enabled })}
+                >
+                  <span
+                    className={raceSettings.enabled ? 'i-ph-lightning-fill' : 'i-ph-lightning'}
+                    aria-hidden="true"
+                  />
+                  {raceSettings.enabled ? t('gateway.requestRaceOn') : t('gateway.requestRaceOff')}
+                </button>
+                <label className="flex items-center gap-1.5 whitespace-nowrap text-[11px] text-storm">
+                  <span>{t('gateway.requestRaceConcurrent')}</span>
+                  <Select
+                    size="sm"
+                    className="w-[72px] !py-0.5 !text-[11px]"
+                    value={String(raceSettings.maxConcurrent)}
+                    options={raceConcurrentOptions}
+                    disabled={raceSettings.loading || raceSettings.saving}
+                    onValueChange={(value) =>
+                      void updateRaceSettings({ maxConcurrent: clampRaceConcurrent(value) })
+                    }
+                  />
+                </label>
+                {raceSettings.saving && (
+                  <span className="i-svg-spinners:ring-resize h-3.5 w-3.5 text-fog" />
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="flex items-center justify-between gap-3">
             <SegmentedControl
@@ -653,4 +775,10 @@ export default function GatewayDetail(): React.JSX.Element {
       />
     </div>
   )
+}
+
+function clampRaceConcurrent(value: unknown): number {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return 3
+  return Math.max(2, Math.min(6, Math.trunc(n)))
 }

@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from 'fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -121,6 +121,36 @@ describe('GatewayConfigStore Kiro account discovery', () => {
       updatable: true,
       clientId: 'client-id',
       clientSecret: 'client-secret'
+    })
+  })
+
+  it('preserves concurrent read-modify-write updates to the same account file', async () => {
+    const accountDir = join(home, '.config', 'gatewayhub', 'kiro', 'accounts')
+    const accountPath = join(accountDir, 'user@example.com.json')
+    await mkdir(accountDir, { recursive: true })
+    await writeFile(
+      accountPath,
+      JSON.stringify({
+        id: 'kiro-concurrent',
+        email: 'user@example.com',
+        enabled: true,
+        refreshToken: 'refresh-token'
+      })
+    )
+
+    const storeA = new GatewayConfigStore()
+    const storeB = new GatewayConfigStore()
+    await Promise.all([
+      storeA.updateAccountFile('kiro-concurrent', { accessToken: 'access-token-a' }),
+      storeB.updateAccountFile('kiro-concurrent', { expiresAt: '2026-06-02T12:00:00.000Z' })
+    ])
+
+    const persisted = JSON.parse(await readFile(accountPath, 'utf8'))
+    expect(persisted).toMatchObject({
+      id: 'kiro-concurrent',
+      refreshToken: 'refresh-token',
+      accessToken: 'access-token-a',
+      expiresAt: '2026-06-02T12:00:00.000Z'
     })
   })
 })

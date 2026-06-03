@@ -14,6 +14,11 @@ import type {
 } from '../../types'
 import { GatewayLogger } from '../../core/logger'
 import { jsonResponse, sseData, sleep, toErrorMessage } from '../../core/utils'
+import {
+  anthropicMessagesToOpenAIChatCompletions,
+  openAIChatCompletionSseToAnthropicMessageSse,
+  openAIChatCompletionToAnthropicMessage
+} from '../../core/protocolAdapters'
 import { normalizeGptWebModel } from './constants'
 import { GptWebAccountPool, classifyGptWebError, type GptWebAccountRuntime } from './accountPool'
 import { convertOpenAIToGptWebBody, parseGptWebSSE, createStreamingState } from './streaming'
@@ -69,7 +74,26 @@ export class GptWebProvider implements ProviderAdapter {
   }
 
   async messages(body: any, context: GatewayRequestContext): Promise<GatewayResponse> {
-    return this.chatCompletions(body, context)
+    const model = normalizeGptWebModel(String(body.model || 'auto'))
+    const openAiBody = anthropicMessagesToOpenAIChatCompletions(body, model)
+    const stream = body.stream === true
+    if (stream) {
+      return {
+        status: 200,
+        headers: sseHeaders(),
+        stream: openAIChatCompletionSseToAnthropicMessageSse(
+          this.streamWithFailover(model, openAiBody, context.requestId, context.onUsage),
+          model
+        )
+      }
+    }
+    const result = await this.nonStreamWithFailover(
+      model,
+      openAiBody,
+      context.requestId,
+      context.onUsage
+    )
+    return jsonResponse(200, openAIChatCompletionToAnthropicMessage(result, model, body))
   }
 
   async countTokens(body: any): Promise<GatewayResponse> {

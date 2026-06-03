@@ -31,6 +31,7 @@ import {
   openAiJsonFromKiro,
   openAiSseFromKiro
 } from './streaming'
+import { KiroRequestLimiter } from './concurrency'
 
 const UPSTREAM_META = { category: 'upstream' as const, provider: 'kiro' as const }
 
@@ -43,6 +44,7 @@ class NonRetryableKiroError extends Error {}
 export class KiroProvider implements ProviderAdapter {
   readonly name = 'kiro'
   private readonly pool: KiroAccountPool
+  private readonly limiter: KiroRequestLimiter
 
   constructor(
     private readonly config: KiroProviderConfig,
@@ -51,6 +53,7 @@ export class KiroProvider implements ProviderAdapter {
     onStateChanged: () => void
   ) {
     this.pool = new KiroAccountPool(config, state, logger, onStateChanged)
+    this.limiter = new KiroRequestLimiter(config.settings)
   }
 
   async initialize(accountFiles: KiroAccountConfig[]): Promise<void> {
@@ -192,76 +195,83 @@ export class KiroProvider implements ProviderAdapter {
     rid: string,
     onUsage?: (u: UsageStats, meta?: UsageMeta) => void
   ): Promise<any> {
+    const releaseSlot = await this.limiter.acquire(body)
     const excluded = new Set<string>()
     let lastError: unknown
-    const totalAccounts = this.pool.listAccounts().length
-    for (let attempt = 0; attempt < Math.max(1, totalAccounts); attempt++) {
-      const account = await this.pool.getAccountForModel(kiroModel, excluded)
-      if (!account) break
-      const attemptStart = Date.now()
-      this.logger.debug(`Upstream attempt ${attempt + 1}/${totalAccounts}`, {
+    try {
+      const totalAccounts = this.pool.listAccounts().length
+      for (let attempt = 0; attempt < Math.max(1, totalAccounts); attempt++) {
+        const account = await this.pool.getAccountForModel(kiroModel, excluded)
+        if (!account) break
+        const attemptStart = Date.now()
+        this.logger.debug(`Upstream attempt ${attempt + 1}/${totalAccounts}`, {
+          ...UPSTREAM_META,
+          requestId: rid,
+          accountId: accountLabel(account)
+        })
+        const sink = onUsage
+          ? (u: UsageStats) => onUsage(u, { accountId: account.config.id, model, provider: 'kiro' })
+          : undefined
+        try {
+          const payload = this.buildPayload(format, body, model, account)
+          const response = await this.callKiro(account, payload)
+          if (!response.body) throw new Error('Kiro response body is empty')
+          const result =
+            format === 'openai'
+              ? await openAiJsonFromKiro(
+                  response.body,
+                  model,
+                  body,
+                  this.config.settings.firstTokenTimeoutSeconds,
+                  sink,
+                  this.config.settings.streamingReadTimeoutSeconds
+                )
+              : await anthropicJsonFromKiro(
+                  response.body,
+                  model,
+                  body,
+                  this.config.settings.firstTokenTimeoutSeconds,
+                  sink,
+                  this.config.settings.streamingReadTimeoutSeconds
+                )
+          await this.pool.reportSuccess(account)
+          this.logger.info(`Upstream success`, {
+            ...UPSTREAM_META,
+            requestId: rid,
+            accountId: accountLabel(account),
+            duration: Date.now() - attemptStart
+          })
+          return result
+        } catch (error) {
+          lastError = error
+          const errMsg = toErrorMessage(error)
+          const classified = classifyKiroError(error)
+          if (classified.kind !== 'model_error') {
+            await this.pool.reportFailure(account, error, classified)
+            excluded.add(account.config.id)
+          }
+          this.logger.warn(`Upstream failed: ${errMsg}`, {
+            ...UPSTREAM_META,
+            requestId: rid,
+            accountId: accountLabel(account),
+            duration: Date.now() - attemptStart,
+            error: { upstreamBody: errMsg.slice(0, 500) },
+            extra: { kind: classified.kind, attempt: attempt + 1 }
+          })
+          if (classified.kind === 'model_error') break
+        }
+      }
+      this.logger.error(`All upstream attempts exhausted for model=${kiroModel}`, {
         ...UPSTREAM_META,
         requestId: rid,
-        accountId: accountLabel(account)
+        extra: { totalAttempts: totalAccounts }
       })
-      const sink = onUsage
-        ? (u: UsageStats) => onUsage(u, { accountId: account.config.id, model, provider: 'kiro' })
-        : undefined
-      try {
-        const payload = this.buildPayload(format, body, model, account)
-        const response = await this.callKiro(account, payload)
-        if (!response.body) throw new Error('Kiro response body is empty')
-        const result =
-          format === 'openai'
-            ? await openAiJsonFromKiro(
-                response.body,
-                model,
-                body,
-                this.config.settings.firstTokenTimeoutSeconds,
-                sink,
-                this.config.settings.streamingReadTimeoutSeconds
-              )
-            : await anthropicJsonFromKiro(
-                response.body,
-                model,
-                body,
-                this.config.settings.firstTokenTimeoutSeconds,
-                sink,
-                this.config.settings.streamingReadTimeoutSeconds
-              )
-        await this.pool.reportSuccess(account)
-        this.logger.info(`Upstream success`, {
-          ...UPSTREAM_META,
-          requestId: rid,
-          accountId: accountLabel(account),
-          duration: Date.now() - attemptStart
-        })
-        return result
-      } catch (error) {
-        lastError = error
-        const errMsg = toErrorMessage(error)
-        const classified = classifyKiroError(error)
-        if (classified.kind !== 'model_error') {
-          await this.pool.reportFailure(account, error, classified)
-          excluded.add(account.config.id)
-        }
-        this.logger.warn(`Upstream failed: ${errMsg}`, {
-          ...UPSTREAM_META,
-          requestId: rid,
-          accountId: accountLabel(account),
-          duration: Date.now() - attemptStart,
-          error: { upstreamBody: errMsg.slice(0, 500) },
-          extra: { kind: classified.kind, attempt: attempt + 1 }
-        })
-        if (classified.kind === 'model_error') break
-      }
+      throw new Error(
+        `Kiro request failed: ${toErrorMessage(lastError ?? 'No available accounts')}`
+      )
+    } finally {
+      releaseSlot()
     }
-    this.logger.error(`All upstream attempts exhausted for model=${kiroModel}`, {
-      ...UPSTREAM_META,
-      requestId: rid,
-      extra: { totalAttempts: totalAccounts }
-    })
-    throw new Error(`Kiro request failed: ${toErrorMessage(lastError ?? 'No available accounts')}`)
   }
 
   private async *streamWithFailover(
@@ -272,83 +282,88 @@ export class KiroProvider implements ProviderAdapter {
     rid: string,
     onUsage?: (u: UsageStats, meta?: UsageMeta) => void
   ): AsyncGenerator<string> {
+    const releaseSlot = await this.limiter.acquire(body)
     const excluded = new Set<string>()
     let lastError: unknown
-    const totalAccounts = this.pool.listAccounts().length
-    for (let attempt = 0; attempt < Math.max(1, totalAccounts); attempt++) {
-      const account = await this.pool.getAccountForModel(kiroModel, excluded)
-      if (!account) break
-      const attemptStart = Date.now()
-      this.logger.debug(`Upstream stream attempt ${attempt + 1}/${totalAccounts}`, {
+    try {
+      const totalAccounts = this.pool.listAccounts().length
+      for (let attempt = 0; attempt < Math.max(1, totalAccounts); attempt++) {
+        const account = await this.pool.getAccountForModel(kiroModel, excluded)
+        if (!account) break
+        const attemptStart = Date.now()
+        this.logger.debug(`Upstream stream attempt ${attempt + 1}/${totalAccounts}`, {
+          ...UPSTREAM_META,
+          requestId: rid,
+          accountId: accountLabel(account)
+        })
+        const sink = onUsage
+          ? (u: UsageStats) => onUsage(u, { accountId: account.config.id, model, provider: 'kiro' })
+          : undefined
+        try {
+          const payload = this.buildPayload(format, body, model, account)
+          const response = await this.callKiro(account, payload)
+          if (!response.body) throw new Error('Kiro response body is empty')
+          if (format === 'openai')
+            yield* openAiSseFromKiro(
+              response.body,
+              model,
+              body,
+              this.config.settings.firstTokenTimeoutSeconds,
+              sink,
+              this.config.settings.streamingReadTimeoutSeconds
+            )
+          else
+            yield* anthropicSseFromKiro(
+              response.body,
+              model,
+              body,
+              this.config.settings.firstTokenTimeoutSeconds,
+              sink,
+              this.config.settings.streamingReadTimeoutSeconds
+            )
+          await this.pool.reportSuccess(account)
+          this.logger.info(`Upstream stream success`, {
+            ...UPSTREAM_META,
+            requestId: rid,
+            accountId: accountLabel(account),
+            duration: Date.now() - attemptStart
+          })
+          return
+        } catch (error) {
+          lastError = error
+          const errMsg = toErrorMessage(error)
+          const classified = classifyKiroError(error)
+          if (classified.kind !== 'model_error') {
+            await this.pool.reportFailure(account, error, classified)
+            excluded.add(account.config.id)
+          }
+          this.logger.warn(`Upstream stream failed: ${errMsg}`, {
+            ...UPSTREAM_META,
+            requestId: rid,
+            accountId: accountLabel(account),
+            duration: Date.now() - attemptStart,
+            error: { upstreamBody: errMsg.slice(0, 500) },
+            extra: { kind: classified.kind, attempt: attempt + 1 }
+          })
+          if (classified.kind === 'model_error' || !(error instanceof FirstTokenTimeoutError)) break
+        }
+      }
+
+      this.logger.error(`All upstream stream attempts exhausted for model=${kiroModel}`, {
         ...UPSTREAM_META,
         requestId: rid,
-        accountId: accountLabel(account)
+        extra: { totalAttempts: totalAccounts }
       })
-      const sink = onUsage
-        ? (u: UsageStats) => onUsage(u, { accountId: account.config.id, model, provider: 'kiro' })
-        : undefined
-      try {
-        const payload = this.buildPayload(format, body, model, account)
-        const response = await this.callKiro(account, payload)
-        if (!response.body) throw new Error('Kiro response body is empty')
-        if (format === 'openai')
-          yield* openAiSseFromKiro(
-            response.body,
-            model,
-            body,
-            this.config.settings.firstTokenTimeoutSeconds,
-            sink,
-            this.config.settings.streamingReadTimeoutSeconds
-          )
-        else
-          yield* anthropicSseFromKiro(
-            response.body,
-            model,
-            body,
-            this.config.settings.firstTokenTimeoutSeconds,
-            sink,
-            this.config.settings.streamingReadTimeoutSeconds
-          )
-        await this.pool.reportSuccess(account)
-        this.logger.info(`Upstream stream success`, {
-          ...UPSTREAM_META,
-          requestId: rid,
-          accountId: accountLabel(account),
-          duration: Date.now() - attemptStart
-        })
-        return
-      } catch (error) {
-        lastError = error
-        const errMsg = toErrorMessage(error)
-        const classified = classifyKiroError(error)
-        if (classified.kind !== 'model_error') {
-          await this.pool.reportFailure(account, error, classified)
-          excluded.add(account.config.id)
-        }
-        this.logger.warn(`Upstream stream failed: ${errMsg}`, {
-          ...UPSTREAM_META,
-          requestId: rid,
-          accountId: accountLabel(account),
-          duration: Date.now() - attemptStart,
-          error: { upstreamBody: errMsg.slice(0, 500) },
-          extra: { kind: classified.kind, attempt: attempt + 1 }
-        })
-        if (classified.kind === 'model_error' || !(error instanceof FirstTokenTimeoutError)) break
+
+      const message = `Kiro stream failed: ${toErrorMessage(lastError ?? 'No available accounts')}`
+      if (format === 'openai') {
+        yield sseData({ error: { message, type: 'gateway_error', code: 'kiro_error' } })
+        yield 'data: [DONE]\n\n'
+      } else {
+        yield `event: error\ndata: ${JSON.stringify({ type: 'error', error: { type: 'api_error', message } })}\n\n`
       }
-    }
-
-    this.logger.error(`All upstream stream attempts exhausted for model=${kiroModel}`, {
-      ...UPSTREAM_META,
-      requestId: rid,
-      extra: { totalAttempts: totalAccounts }
-    })
-
-    const message = `Kiro stream failed: ${toErrorMessage(lastError ?? 'No available accounts')}`
-    if (format === 'openai') {
-      yield sseData({ error: { message, type: 'gateway_error', code: 'kiro_error' } })
-      yield 'data: [DONE]\n\n'
-    } else {
-      yield `event: error\ndata: ${JSON.stringify({ type: 'error', error: { type: 'api_error', message } })}\n\n`
+    } finally {
+      releaseSlot()
     }
   }
 

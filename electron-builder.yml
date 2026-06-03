@@ -17,6 +17,8 @@ asarUnpack:
 extraResources:
   - from: out/main/cli.js
     to: cli/gatewayhub.js
+  - from: out/main/gptWebWorker.js
+    to: cli/gptWebWorker.js
   - from: out/main/chunks
     to: cli/chunks/
   - from: build/cli-launcher.sh
@@ -29,15 +31,14 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
-  identity: '-'
-  gatekeeperAssess: false
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.
     - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
-  notarize: false
 dmg:
   artifactName: ${name}-${version}.${ext}
 linux:

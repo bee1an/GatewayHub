@@ -4,6 +4,7 @@ import { mkdir, unlink } from 'fs/promises'
 import { isAbsolute, join } from 'path'
 import { homedir, tmpdir } from 'os'
 import net from 'net'
+import { createServer, type IncomingMessage, type ServerResponse } from 'http'
 import type { WindsurfAccountConfig, WindsurfProviderSettings } from '../../types'
 import { sleep, toErrorMessage } from '../../core/utils'
 import {
@@ -12,10 +13,20 @@ import {
   resolveWindsurfLanguageServerBinary
 } from './constants'
 
+export interface WindsurfCapturedCascadeEdit {
+  uri?: string
+  targetContent?: string
+  cascadeId?: string
+  gitWorktreePath?: string
+  notebookCell?: any
+  receivedAt: number
+}
+
 export class WindsurfLanguageServerClient {
   private process?: ChildProcessWithoutNullStreams
   private port = 0
   private lspPort = 0
+  private extensionServerPort = 0
   private readonly csrfToken = randomBytes(16).toString('hex')
   private readonly sessionId = `gatewayhub-${randomUUID()}`
   private requestId = 0
@@ -23,6 +34,8 @@ export class WindsurfLanguageServerClient {
   private started = false
   private parentServer?: net.Server
   private parentPipePath?: string
+  private extensionServer?: net.Server
+  private readonly capturedCascadeEdits: WindsurfCapturedCascadeEdit[] = []
 
   constructor(
     private readonly account: WindsurfAccountConfig,
@@ -35,7 +48,13 @@ export class WindsurfLanguageServerClient {
     await mkdir(this.runtimeDir, { recursive: true })
     this.port = await getFreePort()
     this.lspPort = await getFreePort()
-    const extensionServerPort = await getFreePort()
+    this.extensionServerPort = await getFreePort()
+    this.extensionServer = await createExtensionServer(this.extensionServerPort, (edit) => {
+      this.capturedCascadeEdits.push(edit)
+      if (this.capturedCascadeEdits.length > 500) {
+        this.capturedCascadeEdits.splice(0, this.capturedCascadeEdits.length - 500)
+      }
+    })
     const binary = resolveWindsurfLanguageServerBinary(this.settings.languageServerBinaryPath)
     const extensionDir = resolveWindsurfExtensionDir()
     const parentPipe = await createParentPipe()
@@ -47,7 +66,7 @@ export class WindsurfLanguageServerClient {
       '--run_child',
       '--enable_lsp',
       '--extension_server_port',
-      String(extensionServerPort),
+      String(this.extensionServerPort),
       '--ide_name',
       'windsurf',
       '--inference_api_server_url',
@@ -87,6 +106,7 @@ export class WindsurfLanguageServerClient {
       cwd: undefined,
       env: {
         ...process.env,
+        ...proxyEnv(this.settings.vpnProxyUrl),
         CODEIUM_EDITOR_APP_ROOT: '/Applications/Windsurf.app/Contents/Resources/app',
         WINDSURF_CSRF_TOKEN: this.csrfToken
       }
@@ -119,10 +139,13 @@ export class WindsurfLanguageServerClient {
     this.process = undefined
     const parentServer = this.parentServer
     const parentPipePath = this.parentPipePath
+    const extensionServer = this.extensionServer
     this.parentServer = undefined
     this.parentPipePath = undefined
+    this.extensionServer = undefined
     const cleanupParent = async () => {
       parentServer?.close()
+      extensionServer?.close()
       if (parentPipePath) await unlink(parentPipePath).catch(() => {})
     }
     if (!child || child.killed) {
@@ -137,6 +160,13 @@ export class WindsurfLanguageServerClient {
       })
     ]).catch(() => {})
     await cleanupParent()
+  }
+
+  getCapturedCascadeEdits(cascadeId?: string): WindsurfCapturedCascadeEdit[] {
+    const edits = cascadeId
+      ? this.capturedCascadeEdits.filter((edit) => edit.cascadeId === cascadeId)
+      : this.capturedCascadeEdits
+    return edits.map((edit) => ({ ...edit }))
   }
 
   metadata(): Record<string, unknown> {
@@ -236,6 +266,63 @@ async function getFreePort(): Promise<number> {
   })
 }
 
+async function createExtensionServer(
+  port: number,
+  onCascadeEdit: (edit: WindsurfCapturedCascadeEdit) => void
+): Promise<net.Server> {
+  const server = createServer(async (req, res) => {
+    try {
+      if (req.method !== 'POST') {
+        writeJson(res, 404, { error: 'not_found' })
+        return
+      }
+      const path = req.url?.split('?')[0] || ''
+      const body = await readJsonBody(req)
+      if (path.endsWith('/WriteCascadeEdit')) {
+        onCascadeEdit({
+          uri: stringField(body?.uri),
+          targetContent: stringField(body?.targetContent ?? body?.target_content),
+          cascadeId: stringField(body?.cascadeId ?? body?.cascade_id),
+          gitWorktreePath: stringField(body?.gitWorktreePath ?? body?.git_worktree_path),
+          notebookCell: body?.notebookCell ?? body?.notebook_cell,
+          receivedAt: Date.now()
+        })
+      }
+      writeJson(res, 200, {})
+    } catch (error) {
+      writeJson(res, 500, { message: toErrorMessage(error) })
+    }
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.listen(port, '127.0.0.1', resolve)
+    server.on('error', reject)
+  })
+  return server
+}
+
+async function readJsonBody(req: IncomingMessage): Promise<any> {
+  const chunks: Buffer[] = []
+  for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  const text = Buffer.concat(chunks).toString('utf8').trim()
+  if (!text) return {}
+  try {
+    return JSON.parse(text)
+  } catch {
+    return {}
+  }
+}
+
+function writeJson(res: ServerResponse, status: number, body: any): void {
+  res.statusCode = status
+  res.setHeader('content-type', 'application/json')
+  res.setHeader('connect-protocol-version', '1')
+  res.end(JSON.stringify(body))
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
 async function waitForPort(port: number, timeoutMs: number): Promise<boolean> {
   const startedAt = Date.now()
   while (Date.now() - startedAt < timeoutMs) {
@@ -277,6 +364,19 @@ function resolveCodeiumDirArg(value?: string): string {
   const configured = value?.trim() || '.codeium/windsurf'
   if (configured.startsWith('~/')) return join(homedir(), configured.slice(2))
   return isAbsolute(configured) ? configured : configured
+}
+
+function proxyEnv(proxyUrl?: string): NodeJS.ProcessEnv {
+  const trimmed = proxyUrl?.trim()
+  if (!trimmed) return {}
+  return {
+    HTTP_PROXY: trimmed,
+    HTTPS_PROXY: trimmed,
+    ALL_PROXY: trimmed,
+    http_proxy: trimmed,
+    https_proxy: trimmed,
+    all_proxy: trimmed
+  }
 }
 
 async function createParentPipe(): Promise<{ pipePath: string; server: net.Server }> {

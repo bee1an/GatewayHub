@@ -11,6 +11,7 @@ export const DEFAULT_WINDSURF_SETTINGS = {
   inferenceApiServerUrl: 'https://inference.codeium.com',
   languageServerBinaryPath: '',
   codeiumDir: '.codeium/windsurf',
+  vpnProxyUrl: '',
   firstTokenTimeoutSeconds: 60,
   streamingReadTimeoutSeconds: 120,
   launchTimeoutSeconds: 20,

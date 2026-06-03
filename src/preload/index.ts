@@ -129,6 +129,9 @@ const api = {
       ipcRenderer.invoke('gateway:resetWindsurfAccount', accountId),
     setWindsurfAccountStatus: (accountId: string, status: string, reason?: string) =>
       ipcRenderer.invoke('gateway:setWindsurfAccountStatus', accountId, status, reason),
+    getWindsurfSettings: () => ipcRenderer.invoke('gateway:getWindsurfSettings'),
+    updateWindsurfSettings: (settings: Record<string, any>) =>
+      ipcRenderer.invoke('gateway:updateWindsurfSettings', settings),
     // ========== Trae ==========
     scanTraeAccounts: () => ipcRenderer.invoke('gateway:scanTraeAccounts'),
     importScannedTraeAccounts: (ids: string[]) =>

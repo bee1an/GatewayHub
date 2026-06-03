@@ -1,6 +1,7 @@
 import { dirname, join } from 'path'
 import { mkdir, readdir, readFile, rename, stat, unlink, writeFile } from 'fs/promises'
 import { homedir } from 'os'
+import { randomBytes } from 'crypto'
 import type {
   ApiKeyEntry,
   GptWebAccountConfig,
@@ -19,6 +20,7 @@ import {
   DEFAULT_KIRO_SETTINGS,
   SQLITE_TOKEN_KEYS,
   SQLITE_REGISTRATION_KEYS,
+  normalizeKiroSettings,
   normalizeKiroModelId
 } from './providers/kiro/constants'
 import { DEFAULT_CODEX_SETTINGS } from './providers/codex/constants'
@@ -32,8 +34,10 @@ import { DEFAULT_OPENROUTER_SETTINGS } from './providers/openrouter/constants'
 import { DEFAULT_NVIDIA_SETTINGS } from './providers/nvidia/constants'
 import { DEFAULT_GPT_WEB_SETTINGS } from './providers/gptWeb/constants'
 import { DEFAULT_GROK_WEB_SETTINGS } from './providers/grokWeb/constants'
+import { normalizeRequestRaceSettings } from './providers/requestRace'
 import { generateApiKey, readJsonFile, sha256Short, writeJsonFile, atomicWrite } from './core/utils'
 import { getPaths } from './core/paths'
+import { withLock } from './core/lockfile'
 import { normalizeKiroExpiresAt } from './providers/kiro/normalize'
 import { importNodeSqlite } from './providers/kiro/sqlite'
 
@@ -224,44 +228,26 @@ export class GatewayConfigStore {
     const fileBase = safeFileName(data.email || data.label || data.id) || 'account'
     const targetPath = join(dir, `${fileBase}.json`)
 
-    const existing = await readJsonFile<any>(targetPath).catch(() => null)
-    if (existing && existing.id && existing.id !== data.id) {
-      const altPath = join(dir, `${fileBase}-${sha256Short(data.id)}.json`)
-      await atomicWrite(altPath, `${JSON.stringify(stripPath(data), null, 2)}\n`)
-      return altPath
-    }
-
-    await atomicWrite(targetPath, `${JSON.stringify(stripPath(data), null, 2)}\n`)
-    return targetPath
+    return writeAccountFileWithConflict(targetPath, data, stripPath)
   }
 
   async deleteAccountFile(accountId: string): Promise<boolean> {
     const accounts = await this.readAccountFiles()
     const account = accounts.find((a) => a.id === accountId)
     if (!account?.path) return false
-    await unlink(account.path)
-    return true
+    return deleteJsonFileLocked(account.path)
   }
 
   async updateAccountFile(accountId: string, updates: Partial<KiroAccountConfig>): Promise<void> {
     const accounts = await this.readAccountFiles()
     const account = accounts.find((a) => a.id === accountId)
     if (!account?.path) throw new Error(`Account not found: ${accountId}`)
-    const data = await readJsonFile<any>(account.path)
-    Object.assign(data, updates)
-    await atomicWrite(account.path, `${JSON.stringify(data, null, 2)}\n`)
-
-    if (updates.email && updates.email !== account.email) {
-      const dir = dirname(account.path)
-      const newBase = safeFileName(updates.email)
-      if (newBase) {
-        const newPath = join(dir, `${newBase}.json`)
-        const conflict = await readJsonFile<any>(newPath).catch(() => null)
-        if (!conflict || conflict.id === accountId) {
-          await rename(account.path, newPath).catch(() => {})
-        }
-      }
-    }
+    await updateJsonFileLockedWithOptionalEmailRename(
+      account.path,
+      accountId,
+      account.email,
+      updates
+    )
   }
 
   async scanExternalAccounts(): Promise<Array<KiroAccountConfig & { sourceType: string }>> {
@@ -382,22 +368,14 @@ export class GatewayConfigStore {
     await mkdir(dir, { recursive: true })
     const fileBase = safeFileName(data.email || data.label || data.id) || 'account'
     const targetPath = join(dir, `${fileBase}.json`)
-    const existing = await readJsonFile<any>(targetPath).catch(() => null)
-    if (existing && existing.id && existing.id !== data.id) {
-      const altPath = join(dir, `${fileBase}-${sha256Short(data.id)}.json`)
-      await atomicWrite(altPath, `${JSON.stringify(stripCodexPath(data), null, 2)}\n`)
-      return altPath
-    }
-    await atomicWrite(targetPath, `${JSON.stringify(stripCodexPath(data), null, 2)}\n`)
-    return targetPath
+    return writeAccountFileWithConflict(targetPath, data, stripCodexPath)
   }
 
   async deleteCodexAccountFile(accountId: string): Promise<boolean> {
     const accounts = await this.readCodexAccountFiles()
     const account = accounts.find((a) => a.id === accountId)
     if (!account?.path) return false
-    await unlink(account.path)
-    return true
+    return deleteJsonFileLocked(account.path)
   }
 
   async updateCodexAccountFile(
@@ -407,20 +385,12 @@ export class GatewayConfigStore {
     const accounts = await this.readCodexAccountFiles()
     const account = accounts.find((a) => a.id === accountId)
     if (!account?.path) throw new Error(`Codex account not found: ${accountId}`)
-    const data = await readJsonFile<any>(account.path)
-    Object.assign(data, updates)
-    await atomicWrite(account.path, `${JSON.stringify(data, null, 2)}\n`)
-    if (updates.email && updates.email !== account.email) {
-      const dir = dirname(account.path)
-      const newBase = safeFileName(updates.email)
-      if (newBase) {
-        const newPath = join(dir, `${newBase}.json`)
-        const conflict = await readJsonFile<any>(newPath).catch(() => null)
-        if (!conflict || conflict.id === accountId) {
-          await rename(account.path, newPath).catch(() => {})
-        }
-      }
-    }
+    await updateJsonFileLockedWithOptionalEmailRename(
+      account.path,
+      accountId,
+      account.email,
+      updates
+    )
   }
 
   /**
@@ -493,22 +463,14 @@ export class GatewayConfigStore {
     await mkdir(dir, { recursive: true })
     const fileBase = safeFileName(data.email || data.label || data.id) || 'account'
     const targetPath = join(dir, `${fileBase}.json`)
-    const existing = await readJsonFile<any>(targetPath).catch(() => null)
-    if (existing && existing.id && existing.id !== data.id) {
-      const altPath = join(dir, `${fileBase}-${sha256Short(data.id)}.json`)
-      await atomicWrite(altPath, `${JSON.stringify(stripWindsurfPath(data), null, 2)}\n`)
-      return altPath
-    }
-    await atomicWrite(targetPath, `${JSON.stringify(stripWindsurfPath(data), null, 2)}\n`)
-    return targetPath
+    return writeAccountFileWithConflict(targetPath, data, stripWindsurfPath)
   }
 
   async deleteWindsurfAccountFile(accountId: string): Promise<boolean> {
     const accounts = await this.readWindsurfAccountFiles()
     const account = accounts.find((a) => a.id === accountId)
     if (!account?.path) return false
-    await unlink(account.path)
-    return true
+    return deleteJsonFileLocked(account.path)
   }
 
   async updateWindsurfAccountFile(
@@ -518,9 +480,7 @@ export class GatewayConfigStore {
     const accounts = await this.readWindsurfAccountFiles()
     const account = accounts.find((a) => a.id === accountId)
     if (!account?.path) throw new Error(`Windsurf account not found: ${accountId}`)
-    const data = await readJsonFile<any>(account.path)
-    Object.assign(data, updates)
-    await atomicWrite(account.path, `${JSON.stringify(data, null, 2)}\n`)
+    await updateJsonFileLocked(account.path, updates)
   }
 
   async scanWindsurfAccounts(): Promise<{
@@ -579,22 +539,14 @@ export class GatewayConfigStore {
     await mkdir(dir, { recursive: true })
     const fileBase = safeFileName(data.email || data.label || data.id) || 'account'
     const targetPath = join(dir, `${fileBase}.json`)
-    const existing = await readJsonFile<any>(targetPath).catch(() => null)
-    if (existing && existing.id && existing.id !== data.id) {
-      const altPath = join(dir, `${fileBase}-${sha256Short(data.id)}.json`)
-      await atomicWrite(altPath, `${JSON.stringify(stripTraePath(data), null, 2)}\n`)
-      return altPath
-    }
-    await atomicWrite(targetPath, `${JSON.stringify(stripTraePath(data), null, 2)}\n`)
-    return targetPath
+    return writeAccountFileWithConflict(targetPath, data, stripTraePath)
   }
 
   async deleteTraeAccountFile(accountId: string): Promise<boolean> {
     const accounts = await this.readTraeAccountFiles()
     const account = accounts.find((a) => a.id === accountId)
     if (!account?.path) return false
-    await unlink(account.path)
-    return true
+    return deleteJsonFileLocked(account.path)
   }
 
   async updateTraeAccountFile(
@@ -604,20 +556,12 @@ export class GatewayConfigStore {
     const accounts = await this.readTraeAccountFiles()
     const account = accounts.find((a) => a.id === accountId)
     if (!account?.path) throw new Error(`Trae account not found: ${accountId}`)
-    const data = await readJsonFile<any>(account.path)
-    Object.assign(data, updates)
-    await atomicWrite(account.path, `${JSON.stringify(data, null, 2)}\n`)
-    if (updates.email && updates.email !== account.email) {
-      const dir = dirname(account.path)
-      const newBase = safeFileName(updates.email)
-      if (newBase) {
-        const newPath = join(dir, `${newBase}.json`)
-        const conflict = await readJsonFile<any>(newPath).catch(() => null)
-        if (!conflict || conflict.id === accountId) {
-          await rename(account.path, newPath).catch(() => {})
-        }
-      }
-    }
+    await updateJsonFileLockedWithOptionalEmailRename(
+      account.path,
+      accountId,
+      account.email,
+      updates
+    )
   }
 
   async scanTraeAccounts(): Promise<{
@@ -677,22 +621,14 @@ export class GatewayConfigStore {
     await mkdir(dir, { recursive: true })
     const fileBase = safeFileName(data.label || data.id) || 'account'
     const targetPath = join(dir, `${fileBase}.json`)
-    const existing = await readJsonFile<any>(targetPath).catch(() => null)
-    if (existing && existing.id && existing.id !== data.id) {
-      const altPath = join(dir, `${fileBase}-${sha256Short(data.id)}.json`)
-      await atomicWrite(altPath, `${JSON.stringify(stripOpenRouterPath(data), null, 2)}\n`)
-      return altPath
-    }
-    await atomicWrite(targetPath, `${JSON.stringify(stripOpenRouterPath(data), null, 2)}\n`)
-    return targetPath
+    return writeAccountFileWithConflict(targetPath, data, stripOpenRouterPath)
   }
 
   async deleteOpenRouterAccountFile(accountId: string): Promise<boolean> {
     const accounts = await this.readOpenRouterAccountFiles()
     const account = accounts.find((a) => a.id === accountId)
     if (!account?.path) return false
-    await unlink(account.path)
-    return true
+    return deleteJsonFileLocked(account.path)
   }
 
   async updateOpenRouterAccountFile(
@@ -702,9 +638,7 @@ export class GatewayConfigStore {
     const accounts = await this.readOpenRouterAccountFiles()
     const account = accounts.find((a) => a.id === accountId)
     if (!account?.path) throw new Error(`OpenRouter account not found: ${accountId}`)
-    const data = await readJsonFile<any>(account.path)
-    Object.assign(data, updates)
-    await atomicWrite(account.path, `${JSON.stringify(data, null, 2)}\n`)
+    await updateJsonFileLocked(account.path, updates)
   }
 
   // ============== NVIDIA account file management ==============
@@ -740,22 +674,14 @@ export class GatewayConfigStore {
     await mkdir(dir, { recursive: true })
     const fileBase = safeFileName(data.label || data.id) || 'account'
     const targetPath = join(dir, `${fileBase}.json`)
-    const existing = await readJsonFile<any>(targetPath).catch(() => null)
-    if (existing && existing.id && existing.id !== data.id) {
-      const altPath = join(dir, `${fileBase}-${sha256Short(data.id)}.json`)
-      await atomicWrite(altPath, `${JSON.stringify(stripNvidiaPath(data), null, 2)}\n`)
-      return altPath
-    }
-    await atomicWrite(targetPath, `${JSON.stringify(stripNvidiaPath(data), null, 2)}\n`)
-    return targetPath
+    return writeAccountFileWithConflict(targetPath, data, stripNvidiaPath)
   }
 
   async deleteNvidiaAccountFile(accountId: string): Promise<boolean> {
     const accounts = await this.readNvidiaAccountFiles()
     const account = accounts.find((a) => a.id === accountId)
     if (!account?.path) return false
-    await unlink(account.path)
-    return true
+    return deleteJsonFileLocked(account.path)
   }
 
   async updateNvidiaAccountFile(
@@ -765,9 +691,7 @@ export class GatewayConfigStore {
     const accounts = await this.readNvidiaAccountFiles()
     const account = accounts.find((a) => a.id === accountId)
     if (!account?.path) throw new Error(`NVIDIA account not found: ${accountId}`)
-    const data = await readJsonFile<any>(account.path)
-    Object.assign(data, updates)
-    await atomicWrite(account.path, `${JSON.stringify(data, null, 2)}\n`)
+    await updateJsonFileLocked(account.path, updates)
   }
 
   // ============== GptWeb account file management ==============
@@ -803,22 +727,14 @@ export class GatewayConfigStore {
     await mkdir(dir, { recursive: true })
     const fileBase = safeFileName(data.label || data.email || data.id) || 'account'
     const targetPath = join(dir, `${fileBase}.json`)
-    const existing = await readJsonFile<any>(targetPath).catch(() => null)
-    if (existing && existing.id && existing.id !== data.id) {
-      const altPath = join(dir, `${fileBase}-${sha256Short(data.id)}.json`)
-      await atomicWrite(altPath, `${JSON.stringify(stripGptWebPath(data), null, 2)}\n`)
-      return altPath
-    }
-    await atomicWrite(targetPath, `${JSON.stringify(stripGptWebPath(data), null, 2)}\n`)
-    return targetPath
+    return writeAccountFileWithConflict(targetPath, data, stripGptWebPath)
   }
 
   async deleteGptWebAccountFile(accountId: string): Promise<boolean> {
     const accounts = await this.readGptWebAccountFiles()
     const account = accounts.find((a) => a.id === accountId)
     if (!account?.path) return false
-    await unlink(account.path)
-    return true
+    return deleteJsonFileLocked(account.path)
   }
 
   async updateGptWebAccountFile(
@@ -828,9 +744,7 @@ export class GatewayConfigStore {
     const accounts = await this.readGptWebAccountFiles()
     const account = accounts.find((a) => a.id === accountId)
     if (!account?.path) throw new Error(`GptWeb account not found: ${accountId}`)
-    const data = await readJsonFile<any>(account.path)
-    Object.assign(data, updates)
-    await atomicWrite(account.path, `${JSON.stringify(data, null, 2)}\n`)
+    await updateJsonFileLocked(account.path, updates)
   }
 
   // ============== Grok Web account file management ==============
@@ -866,22 +780,14 @@ export class GatewayConfigStore {
     await mkdir(dir, { recursive: true })
     const fileBase = safeFileName(data.label || data.email || data.id) || 'account'
     const targetPath = join(dir, `${fileBase}.json`)
-    const existing = await readJsonFile<any>(targetPath).catch(() => null)
-    if (existing && existing.id && existing.id !== data.id) {
-      const altPath = join(dir, `${fileBase}-${sha256Short(data.id)}.json`)
-      await atomicWrite(altPath, `${JSON.stringify(stripGrokWebPath(data), null, 2)}\n`)
-      return altPath
-    }
-    await atomicWrite(targetPath, `${JSON.stringify(stripGrokWebPath(data), null, 2)}\n`)
-    return targetPath
+    return writeAccountFileWithConflict(targetPath, data, stripGrokWebPath)
   }
 
   async deleteGrokWebAccountFile(accountId: string): Promise<boolean> {
     const accounts = await this.readGrokWebAccountFiles()
     const account = accounts.find((a) => a.id === accountId)
     if (!account?.path) return false
-    await unlink(account.path)
-    return true
+    return deleteJsonFileLocked(account.path)
   }
 
   async updateGrokWebAccountFile(
@@ -891,9 +797,7 @@ export class GatewayConfigStore {
     const accounts = await this.readGrokWebAccountFiles()
     const account = accounts.find((a) => a.id === accountId)
     if (!account?.path) throw new Error(`Grok Web account not found: ${accountId}`)
-    const data = await readJsonFile<any>(account.path)
-    Object.assign(data, updates)
-    await atomicWrite(account.path, `${JSON.stringify(data, null, 2)}\n`)
+    await updateJsonFileLocked(account.path, updates)
   }
 
   defaultConfig(): GatewayHubConfig {
@@ -1110,10 +1014,10 @@ export class GatewayConfigStore {
           ...defaults.providers.kiro,
           ...(input?.providers?.kiro ?? {}),
           routeName: input?.providers?.kiro?.routeName || defaults.providers.kiro.routeName,
-          settings: {
+          settings: normalizeKiroSettings({
             ...defaults.providers.kiro.settings,
             ...(input?.providers?.kiro?.settings ?? {})
-          }
+          })
         },
         codex: {
           ...defaults.providers.codex,
@@ -1160,10 +1064,10 @@ export class GatewayConfigStore {
             typeof input?.providers?.openrouter?.enabled === 'boolean'
               ? input.providers.openrouter.enabled
               : defaults.providers.openrouter.enabled,
-          settings: {
+          settings: normalizeRequestRaceSettings({
             ...defaults.providers.openrouter.settings,
             ...(input?.providers?.openrouter?.settings ?? {})
-          }
+          })
         },
         nvidia: {
           ...defaults.providers.nvidia,
@@ -1173,10 +1077,10 @@ export class GatewayConfigStore {
             typeof input?.providers?.nvidia?.enabled === 'boolean'
               ? input.providers.nvidia.enabled
               : defaults.providers.nvidia.enabled,
-          settings: {
+          settings: normalizeRequestRaceSettings({
             ...defaults.providers.nvidia.settings,
             ...(input?.providers?.nvidia?.settings ?? {})
-          }
+          })
         },
         gptWeb: {
           ...defaults.providers.gptWeb,
@@ -1297,6 +1201,79 @@ export class GatewayConfigStore {
       }
     }
   }
+}
+
+async function writeJsonFileUnlocked(filePath: string, value: unknown): Promise<void> {
+  await mkdir(dirname(filePath), { recursive: true })
+  const tmpFile = `${filePath}.${randomBytes(4).toString('hex')}.tmp`
+  await writeFile(tmpFile, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+  await rename(tmpFile, filePath)
+}
+
+async function writeJsonFileLocked(filePath: string, value: unknown): Promise<void> {
+  await withLock(filePath, async () => writeJsonFileUnlocked(filePath, value))
+}
+
+async function writeAccountFileWithConflict<T extends { id?: string }>(
+  targetPath: string,
+  data: T,
+  stripData: (data: T) => unknown
+): Promise<string> {
+  return withLock(targetPath, async () => {
+    const existing = await readJsonFile<any>(targetPath).catch(() => null)
+    if (existing && existing.id && data.id && existing.id !== data.id) {
+      const suffix = targetPath.endsWith('.json')
+        ? targetPath.slice(0, -'.json'.length)
+        : targetPath
+      const altPath = `${suffix}-${sha256Short(data.id)}.json`
+      await writeJsonFileLocked(altPath, stripData(data))
+      return altPath
+    }
+
+    await writeJsonFileUnlocked(targetPath, stripData(data))
+    return targetPath
+  })
+}
+
+async function deleteJsonFileLocked(filePath: string): Promise<boolean> {
+  return withLock(filePath, async () => {
+    await unlink(filePath)
+    return true
+  })
+}
+
+async function updateJsonFileLocked(filePath: string, updates: object): Promise<void> {
+  await withLock(filePath, async () => {
+    const data = await readJsonFile<any>(filePath)
+    Object.assign(data, updates)
+    await writeJsonFileUnlocked(filePath, data)
+  })
+}
+
+async function updateJsonFileLockedWithOptionalEmailRename(
+  filePath: string,
+  accountId: string,
+  previousEmail: string | undefined,
+  updates: { email?: unknown } & object
+): Promise<void> {
+  await withLock(filePath, async () => {
+    const data = await readJsonFile<any>(filePath)
+    Object.assign(data, updates)
+    await writeJsonFileUnlocked(filePath, data)
+
+    if (typeof updates.email !== 'string' || updates.email === previousEmail) return
+
+    const newBase = safeFileName(updates.email)
+    if (!newBase) return
+
+    const newPath = join(dirname(filePath), `${newBase}.json`)
+    await withLock(newPath, async () => {
+      const conflict = await readJsonFile<any>(newPath).catch(() => null)
+      if (!conflict || conflict.id === accountId) {
+        await rename(filePath, newPath).catch(() => {})
+      }
+    })
+  })
 }
 
 export function makeStableId(account: Partial<KiroAccountConfig>): string {

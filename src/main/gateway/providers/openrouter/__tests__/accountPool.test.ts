@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { OpenRouterProviderConfig, OpenRouterProviderState } from '../../../types'
 import { OpenRouterAccountPool, filterModelsForKey } from '../accountPool'
 import { DEFAULT_OPENROUTER_SETTINGS, OPENROUTER_FREE_ROUTER_MODEL } from '../constants'
+import { scoreAccountForRace } from '../../requestRace'
 
 function makePool(
   state: OpenRouterProviderState = { accounts: {}, currentAccountIndex: 0, logs: [] },
@@ -128,4 +129,115 @@ describe('openrouter/accountPool', () => {
       config: { id: 'free' }
     })
   })
+
+  it('selects one round-robin race slot and fills remaining slots by score', async () => {
+    const now = Date.now()
+    const state: OpenRouterProviderState = {
+      currentAccountIndex: 2,
+      logs: [],
+      accounts: {
+        a: runtimeState(now, ['model-a'], { successes: 1, attempts: 1, successRateEwma: 0.8 }),
+        b: runtimeState(now, ['model-a'], {
+          successes: 10,
+          attempts: 10,
+          successRateEwma: 1,
+          ewmaLatencyMs: 100
+        }),
+        c: runtimeState(now, ['model-a'], {
+          failures: 4,
+          attempts: 4,
+          successRateEwma: 0.1,
+          ewmaLatencyMs: 20_000
+        })
+      }
+    }
+    const pool = makePool(state)
+    await pool.reload([
+      { id: 'a', enabled: true, apiKey: 'sk-or-v1-a' },
+      { id: 'b', enabled: true, apiKey: 'sk-or-v1-b' },
+      { id: 'c', enabled: true, apiKey: 'sk-or-v1-c' }
+    ])
+
+    const selected = await pool.getRaceAccountsForModel('model-a', 2)
+
+    expect(selected.map((account) => account.config.id)).toEqual(['c', 'b'])
+    expect(state.currentAccountIndex).toBe(0)
+  })
+
+  it('skips disabled, hard-offline, and model-incompatible keys for request racing', async () => {
+    const now = Date.now()
+    const state: OpenRouterProviderState = {
+      currentAccountIndex: 0,
+      logs: [],
+      accounts: {
+        disabled: runtimeState(now, ['model-a']),
+        auth: { ...runtimeState(now, ['model-a']), status: 'auth_failed' },
+        quota: { ...runtimeState(now, ['model-a']), status: 'quota_exceeded' },
+        other: runtimeState(now, ['other-model']),
+        ok: runtimeState(now, ['model-a'])
+      }
+    }
+    const pool = makePool(state)
+    await pool.reload([
+      { id: 'disabled', enabled: false, apiKey: 'sk-or-v1-disabled' },
+      { id: 'auth', enabled: true, apiKey: 'sk-or-v1-auth' },
+      { id: 'quota', enabled: true, apiKey: 'sk-or-v1-quota' },
+      { id: 'other', enabled: true, apiKey: 'sk-or-v1-other' },
+      { id: 'ok', enabled: true, apiKey: 'sk-or-v1-ok' }
+    ])
+
+    const selected = await pool.getRaceAccountsForModel('model-a', 6)
+
+    expect(selected.map((account) => account.config.id)).toEqual(['ok'])
+  })
+
+  it('updates race score on success and failure while leaving aborted losers untouched', async () => {
+    const now = Date.now()
+    const state: OpenRouterProviderState = {
+      currentAccountIndex: 0,
+      logs: [],
+      accounts: { key: runtimeState(now, ['model-a']) }
+    }
+    const pool = makePool(state)
+    await pool.reload([{ id: 'key', enabled: true, apiKey: 'sk-or-v1-key' }])
+    const account = (await pool.getAccountForModel('model-a'))!
+
+    await pool.reportSuccess(account, 120)
+    const scoreAfterSuccess = scoreAccountForRace(account.state)
+    expect(account.state.raceStats).toMatchObject({ attempts: 1, successes: 1, failures: 0 })
+
+    const statsBeforeAbort = { ...account.state.raceStats }
+    // Aborted race losers are intentionally not reported to the pool.
+    expect(account.state.raceStats).toEqual(statsBeforeAbort)
+
+    await pool.reportFailure(account, new Error('timeout'), { kind: 'timeout', cooldownMs: 0 })
+    expect(account.state.raceStats).toMatchObject({ attempts: 2, successes: 1, failures: 1 })
+    expect(scoreAccountForRace(account.state)).toBeLessThan(scoreAfterSuccess)
+  })
 })
+
+function runtimeState(
+  now: number,
+  modelIds: string[],
+  raceStats?: Partial<NonNullable<OpenRouterProviderState['accounts'][string]['raceStats']>>
+): OpenRouterProviderState['accounts'][string] {
+  return {
+    failures: 0,
+    lastFailureAt: 0,
+    lastSuccessAt: 0,
+    modelsCachedAt: now,
+    modelIds,
+    status: 'available',
+    statusUpdatedAt: now,
+    stats: { totalRequests: 0, successfulRequests: 0, failedRequests: 0 },
+    raceStats: raceStats
+      ? {
+          attempts: raceStats.attempts ?? 0,
+          successes: raceStats.successes ?? 0,
+          failures: raceStats.failures ?? 0,
+          ewmaLatencyMs: raceStats.ewmaLatencyMs,
+          successRateEwma: raceStats.successRateEwma
+        }
+      : undefined
+  }
+}

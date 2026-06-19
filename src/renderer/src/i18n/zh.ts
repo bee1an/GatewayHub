@@ -245,7 +245,11 @@ const zh = {
     save: '保存',
     saved: '设置已保存',
     about: '关于',
-    version: '版本'
+    version: '版本',
+    sidebarGateways: '侧边栏网关',
+    sidebarGatewaysDesc: '选择在侧边栏显示哪些网关',
+    showAll: '全部显示',
+    noEnabledGateways: '没有已启用的网关'
   },
   apiKeys: {
     title: 'API Keys',

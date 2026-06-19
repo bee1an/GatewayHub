@@ -1,10 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { usePolling } from '../hooks/usePolling'
 import { Button } from '../components/ui/Button'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { useToast } from '../components/ui/ToastContext'
+import { ProviderLogo } from '../components/ProviderLogo'
+import { getProviderLogoLabel } from '../components/providerLogoData'
+import { useTheme } from '../components/useTheme'
+import { useSidebarVisibility } from '../components/useSidebarVisibility'
 
 type ApiKeyEntry = {
   id: string
@@ -22,6 +26,8 @@ type GatewayStatus = {
   statePath: string
   providers: Array<{
     name: string
+    providerType: string
+    displayName?: string
     enabled: boolean
     configured: boolean
     status: string
@@ -78,6 +84,8 @@ print(res.json())`
 export default function Settings(): React.JSX.Element {
   const { t } = useTranslation()
   const { toast } = useToast()
+  const { theme } = useTheme()
+  const { hidden, isVisible, toggle, showAll } = useSidebarVisibility()
   const { data: status, refresh } = usePolling<GatewayStatus>(
     () => window.api.gateway.status(),
     5000
@@ -144,6 +152,13 @@ export default function Settings(): React.JSX.Element {
   }
 
   const snippet = status ? buildSnippet(status, snippetFormat) : ''
+
+  // Only enabled providers can show in the sidebar, so the visibility card
+  // lists those and lets the user hide individual ones.
+  const sidebarGateways = useMemo(
+    () => (status?.providers ?? []).filter((p) => p.enabled),
+    [status?.providers]
+  )
 
   return (
     <div className="space-y-4">
@@ -359,6 +374,63 @@ export default function Settings(): React.JSX.Element {
           <pre className="p-3 pl-4 rounded-[var(--radius-md)] bg-pitch border border-charcoal/60 border-l-[3px] border-l-charcoal/40 text-[12px] font-mono text-storm overflow-x-auto whitespace-pre-wrap leading-[1.65] shadow-[inset_0_1px_3px_rgba(0,0,0,0.2)]">
             {snippet}
           </pre>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="flex items-center justify-between px-3.5 py-2 border-b border-charcoal/60">
+          <div className="min-w-0">
+            <h2 className="text-[13px] font-medium text-porcelain">
+              {t('settings.sidebarGateways')}
+            </h2>
+            <p className="text-[12px] text-fog mt-0.5">{t('settings.sidebarGatewaysDesc')}</p>
+          </div>
+          {hidden.size > 0 && (
+            <Button variant="ghost" size="sm" className="!px-2 !py-0.5 shrink-0" onClick={showAll}>
+              {t('settings.showAll')}
+            </Button>
+          )}
+        </div>
+        <div className="px-3.5 py-2.5">
+          {sidebarGateways.length === 0 ? (
+            <p className="text-[12px] text-fog py-1">{t('settings.noEnabledGateways')}</p>
+          ) : (
+            <div className="flex flex-col gap-0.5">
+              {sidebarGateways.map((p) => {
+                const visible = isVisible(p.name)
+                const label = getProviderLogoLabel(p.providerType, p.displayName)
+                return (
+                  <button
+                    key={p.name}
+                    type="button"
+                    role="switch"
+                    aria-checked={visible}
+                    className="flex items-center justify-between gap-2 w-full px-1.5 py-1 rounded-[var(--radius-sm)] outline-none focus-visible:ring-1 focus-visible:ring-accent/40 hover:bg-charcoal/40 transition-colors"
+                    onClick={() => toggle(p.name)}
+                  >
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <ProviderLogo
+                        providerType={p.providerType}
+                        label={label}
+                        theme={theme}
+                        size="sm"
+                      />
+                      <span className="text-[12px] text-porcelain capitalize truncate">
+                        {label}
+                      </span>
+                    </span>
+                    <span
+                      className={`relative w-7 h-4 rounded-full transition-colors duration-200 shrink-0 ${visible ? 'bg-emerald' : 'bg-charcoal border border-ash/60'}`}
+                    >
+                      <span
+                        className={`absolute top-0.5 w-3 h-3 rounded-full transition-[left,background-color] duration-200 shadow-sm ${visible ? 'left-3.5 bg-white' : 'left-0.5 bg-fog'}`}
+                      />
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
       </div>
 

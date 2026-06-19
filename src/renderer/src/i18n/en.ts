@@ -249,7 +249,11 @@ const en = {
     save: 'Save',
     saved: 'Settings saved',
     about: 'About',
-    version: 'Version'
+    version: 'Version',
+    sidebarGateways: 'Sidebar Gateways',
+    sidebarGatewaysDesc: 'Choose which gateways appear in the sidebar',
+    showAll: 'Show all',
+    noEnabledGateways: 'No enabled gateways'
   },
   apiKeys: {
     title: 'API Keys',

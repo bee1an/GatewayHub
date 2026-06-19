@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from './useTheme'
+import { useSidebarVisibility } from './useSidebarVisibility'
 import { changeLanguage } from '../i18n'
 import { Button } from './ui/Button'
 import { TooltipWrapper } from './ui/Tooltip'
@@ -28,6 +29,7 @@ type ServerInfo = {
 export default function Sidebar(): React.JSX.Element {
   const { t, i18n } = useTranslation()
   const { theme, toggle } = useTheme()
+  const { isVisible } = useSidebarVisibility()
   const { toast } = useToast()
   const [gateways, setGateways] = useState<ProviderStatus[]>([])
   const [server, setServer] = useState<ServerInfo>({ running: false })
@@ -130,7 +132,7 @@ export default function Sidebar(): React.JSX.Element {
     return () => unsubs.forEach((fn) => fn())
   }, [])
 
-  const configuredGateways = gateways.filter((p) => p.enabled)
+  const configuredGateways = gateways.filter((p) => p.enabled && isVisible(p.name))
 
   function toggleLang(): void {
     changeLanguage(i18n.language === 'zh' ? 'en' : 'zh')

@@ -53,6 +53,12 @@ const api = {
     updateProviderDisplayName: (providerType: string, displayName: string) =>
       ipcRenderer.invoke('gateway:updateProviderDisplayName', providerType, displayName),
     setPort: (port: number) => ipcRenderer.invoke('gateway:setPort', port),
+    setHost: (host: string) => ipcRenderer.invoke('gateway:setHost', host),
+    getHost: () => ipcRenderer.invoke('gateway:getHost'),
+    getProxyUrl: () => ipcRenderer.invoke('gateway:getProxyUrl'),
+    setProxyUrl: (url: string) => ipcRenderer.invoke('gateway:setProxyUrl', url),
+    setProviderUseProxy: (providerType: string, enabled: boolean) =>
+      ipcRenderer.invoke('gateway:setProviderUseProxy', providerType, enabled),
     getAutoStart: () => ipcRenderer.invoke('gateway:getAutoStart'),
     setAutoStart: (enabled: boolean) => ipcRenderer.invoke('gateway:setAutoStart', enabled),
     clearLogs: () => ipcRenderer.invoke('gateway:clearLogs'),
@@ -234,7 +240,35 @@ const api = {
       ipcRenderer.invoke('gateway:setGrokWebAccountStatus', accountId, status, reason),
     getGrokWebSettings: () => ipcRenderer.invoke('gateway:getGrokWebSettings'),
     updateGrokWebSettings: (settings: Record<string, any>) =>
-      ipcRenderer.invoke('gateway:updateGrokWebSettings', settings)
+      ipcRenderer.invoke('gateway:updateGrokWebSettings', settings),
+    // ========== Qoder ==========
+    addQoderPersonalAccessToken: (text: string) =>
+      ipcRenderer.invoke('gateway:addQoderPersonalAccessToken', text),
+    addQoderCliLogin: (options?: { label?: string; qoderCliPath?: string }) =>
+      ipcRenderer.invoke('gateway:addQoderCliLogin', options),
+    detectQoderCli: (customPath?: string) =>
+      ipcRenderer.invoke('gateway:detectQoderCli', customPath),
+    loginWithQoderCli: (options?: { cliPath?: string; label?: string }) =>
+      ipcRenderer.invoke('gateway:loginWithQoderCli', options),
+    cancelQoderCliLogin: () => ipcRenderer.invoke('gateway:cancelQoderCliLogin'),
+    importQoderJson: (text: string) => ipcRenderer.invoke('gateway:importQoderJson', text),
+    testQoderAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:testQoderAccount', accountId),
+    toggleQoderAccount: (accountId: string, enabled: boolean) =>
+      ipcRenderer.invoke('gateway:toggleQoderAccount', accountId, enabled),
+    removeQoderAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:removeQoderAccount', accountId),
+    getQoderAccountInfo: (accountId: string) =>
+      ipcRenderer.invoke('gateway:getQoderAccountInfo', accountId),
+    refreshQoderAccountModels: (accountId: string) =>
+      ipcRenderer.invoke('gateway:refreshQoderAccountModels', accountId),
+    resetQoderAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:resetQoderAccount', accountId),
+    setQoderAccountStatus: (accountId: string, status: string, reason?: string) =>
+      ipcRenderer.invoke('gateway:setQoderAccountStatus', accountId, status, reason),
+    getQoderSettings: () => ipcRenderer.invoke('gateway:getQoderSettings'),
+    updateQoderSettings: (settings: Record<string, any>) =>
+      ipcRenderer.invoke('gateway:updateQoderSettings', settings)
   },
   updater: {
     check: () => ipcRenderer.invoke('updater:check'),

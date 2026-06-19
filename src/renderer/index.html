@@ -4,9 +4,62 @@
     <meta charset="UTF-8" />
     <title>Electron</title>
     <!-- CSP 由主进程动态注入（src/main/index.ts），区分 dev / prod -->
+    <style>
+      html,
+      body {
+        overflow: hidden;
+      }
+      #splash {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #08090a;
+        -webkit-app-region: drag;
+      }
+      @media (prefers-color-scheme: light) {
+        #splash {
+          background: #ffffff;
+        }
+      }
+      #splash svg {
+        width: 22px;
+        height: 22px;
+        animation: gh-spin 0.8s linear infinite;
+      }
+      #splash circle {
+        stroke: #323334;
+        opacity: 0.25;
+      }
+      #splash path {
+        stroke: #e4f222;
+      }
+      @media (prefers-color-scheme: light) {
+        #splash circle {
+          stroke: #d0d3d8;
+          opacity: 0.3;
+        }
+        #splash path {
+          stroke: #4d7c0f;
+        }
+      }
+      @keyframes gh-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
   </head>
 
   <body>
+    <div id="splash">
+      <svg viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="10" stroke-width="2.5" />
+        <path d="M12 2a10 10 0 0 1 10 10" stroke-width="2.5" stroke-linecap="round" />
+      </svg>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

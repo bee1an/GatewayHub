@@ -19,12 +19,12 @@ export interface TraeBuiltInModel {
 }
 
 /**
- * Public Trae international models exposed by GatewayHub.
- *
- * The IDE's get_detail_param/model_list endpoints expose many config names, but
- * the current free international Agent chat path only completed successfully
- * through the Gemini 2.5 Flash config. Keep non-public/paid/region-gated names
- * out of /v1/models unless a later runtime smoke test proves they work.
+ * Trae international models that GatewayHub recognizes for display-name
+ * resolution and US-availability gating. This list is a superset used for UI
+ * metadata only; the published /v1/models list comes from whatever the upstream
+ * get_detail_param/model_list endpoints return for each account (all
+ * chat_completion configs are passed through). The single entry below serves as
+ * the fallback when an account has not yet fetched its model list.
  */
 export const TRAE_BUILT_IN_MODELS: TraeBuiltInModel[] = [
   {

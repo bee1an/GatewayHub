@@ -78,7 +78,13 @@ function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 960,
     height: 700,
-    show: false,
+    // Show immediately: the splash screen lives inside index.html and must be
+    // visible during the (slow in dev) Vite module-graph compilation. Waiting
+    // for ready-to-show would skip the splash entirely because ready-to-show
+    // fires only after the first non-empty paint, which in dev happens after
+    // the module graph is ready and React has rendered. The background color
+    // matches the splash so there is no white flash before the HTML parses.
+    backgroundColor: '#08090a',
     autoHideMenuBar: true,
     frame: false,
     titleBarStyle: 'hidden',
@@ -97,7 +103,6 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
     if (!is.dev) setupUpdater(mainWindow)
   })
 

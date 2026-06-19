@@ -2,48 +2,101 @@ import type {
   AccountRuntimeState,
   AccountStatus,
   AccountTestResult,
-  ResponseKind,
   WindsurfAccountConfig,
   WindsurfProviderConfig,
   WindsurfProviderState
 } from '../../types'
+import type { ResponseKind } from '../../types'
 import { GatewayLogger } from '../../core/logger'
 import { toErrorMessage } from '../../core/utils'
+import {
+  BaseAccountPool,
+  type AccountWithState,
+  type ClassifiedError
+} from '../../core/accountPool'
 import { normalizeWindsurfModel } from './constants'
 import { WindsurfLanguageServerClient, windsurfRuntimeDir } from './connect'
 import { getWindsurfUserModels } from './cascade'
 
-export interface WindsurfAccountRuntime {
-  config: WindsurfAccountConfig
-  state: AccountRuntimeState
+/**
+ * Windsurf runtime carries an optional language-server client that is lazily
+ * constructed on first use. The shared {@link AccountWithState} shape is widened
+ * by this one extra field; listAccounts() clears it (clients aren't serializable).
+ */
+export interface WindsurfAccountRuntime extends AccountWithState<WindsurfAccountConfig> {
   client?: WindsurfLanguageServerClient
 }
 
-export interface WindsurfClassifiedError {
-  kind: ResponseKind
-  cooldownMs: number
-}
+export interface WindsurfClassifiedError extends ClassifiedError {}
 
 const MODELS_CACHE_TTL_MS = 30 * 60_000
 
-export class WindsurfAccountPool {
-  private accounts: WindsurfAccountRuntime[] = []
-  private currentAccountIndex = 0
+export class WindsurfAccountPool extends BaseAccountPool<WindsurfAccountConfig> {
+  protected providerName = 'windsurf'
+
+  /**
+   * Shadowed with the windsurf-specific runtime (carries the lazy `client`).
+   * The base class declares this as `AccountWithState<C>[]`; narrowing here lets
+   * windsurf-only methods reach `account.client` without casts.
+   */
+  declare protected accounts: WindsurfAccountRuntime[]
+
   private modelRefreshInFlight = new Map<string, Promise<void>>()
 
   constructor(
     private readonly config: WindsurfProviderConfig,
     private readonly state: WindsurfProviderState,
-    private readonly logger: GatewayLogger,
-    private readonly onStateChanged: () => void
+    logger: GatewayLogger,
+    onStateChanged: () => void
   ) {
+    super(logger, onStateChanged)
     this.currentAccountIndex = state.currentAccountIndex || 0
   }
+
+  // --- state-store wiring ---
+
+  protected lookupState(accountId: string): AccountRuntimeState | undefined {
+    return this.state.accounts[accountId]
+  }
+  protected storeState(accountId: string, state: AccountRuntimeState): void {
+    this.state.accounts[accountId] = state
+  }
+  protected deleteState(accountId: string): void {
+    delete this.state.accounts[accountId]
+  }
+  protected stateIds(): string[] {
+    return Object.keys(this.state.accounts)
+  }
+  protected setCurrentIndex(index: number): void {
+    this.state.currentAccountIndex = index
+  }
+
+  // --- model hooks ---
+
+  protected seedModels(): string[] {
+    return []
+  }
+  protected normalizeModel(model: string): string {
+    return normalizeWindsurfModel(model)
+  }
+  protected accountHasModel(account: WindsurfAccountRuntime, model: string): boolean {
+    const list = account.state.modelIds || []
+    if (!list.length) return true
+    return list.some((available) => normalizeWindsurfModel(available) === model)
+  }
+  protected redactSecrets(config: WindsurfAccountConfig): WindsurfAccountConfig {
+    return { ...config, apiKey: config.apiKey ? '***' : undefined }
+  }
+  protected accountLabel(account: WindsurfAccountRuntime): string {
+    return account.config.email || account.config.label || account.config.id
+  }
+
+  // --- reload: dispose old clients, then invalidate persisted model cache ---
 
   async reload(accountFiles: WindsurfAccountConfig[]): Promise<void> {
     await this.dispose()
     this.accounts = accountFiles.map((account) => {
-      const state = this.state.accounts[account.id] ?? defaultAccountState()
+      const state = this.lookupState(account.id) ?? this.defaultAccountState()
       // Windsurf's GetUserStatus can include disabled/internal/BYOK-only model
       // configs. Older GatewayHub builds cached those raw ids, so do not trust
       // persisted Windsurf model lists across runtime reloads. The next
@@ -53,12 +106,12 @@ export class WindsurfAccountPool {
       state.modelIds = []
       state.status ??= 'available'
       state.statusUpdatedAt ??= 0
-      this.state.accounts[account.id] = state
+      this.storeState(account.id, state)
       return { config: account, state }
     })
     const active = new Set(accountFiles.map((a) => a.id))
-    for (const id of Object.keys(this.state.accounts)) {
-      if (!active.has(id)) delete this.state.accounts[id]
+    for (const id of this.stateIds()) {
+      if (!active.has(id)) this.deleteState(id)
     }
     this.onStateChanged()
   }
@@ -69,10 +122,11 @@ export class WindsurfAccountPool {
     this.modelRefreshInFlight.clear()
   }
 
+  /** Clear the non-serializable `client` on the redacted runtime copy. */
   listAccounts(): WindsurfAccountRuntime[] {
     return this.accounts.map((runtime) => ({
       ...runtime,
-      config: redactAccount(runtime.config),
+      config: this.redactSecrets(runtime.config),
       client: undefined
     }))
   }
@@ -95,39 +149,22 @@ export class WindsurfAccountPool {
     return this.listModels()
   }
 
+  // --- account selection: model → availability → client (windsurf ordering) ---
+
   async getAccountForModel(
     model: string,
     exclude = new Set<string>()
   ): Promise<WindsurfAccountRuntime | undefined> {
-    if (!this.accounts.length) return undefined
-    const now = Date.now()
-    const normalized = normalizeWindsurfModel(model)
-    const start = this.currentAccountIndex % this.accounts.length
-    for (let i = 0; i < this.accounts.length; i++) {
-      const idx = (start + i) % this.accounts.length
-      const account = this.accounts[idx]
-      if (account.config.enabled === false || exclude.has(account.config.id)) continue
-      if (!this.accountHasModel(account, normalized)) continue
-      if (!this.isAvailable(account, now)) continue
-      if (!(await this.tryEnsureClient(account))) continue
-      this.currentAccountIndex = idx
-      this.state.currentAccountIndex = idx
-      this.onStateChanged()
-      return account
-    }
-    for (let i = 0; i < this.accounts.length; i++) {
-      const idx = (start + i) % this.accounts.length
-      const account = this.accounts[idx]
-      if (account.config.enabled === false || exclude.has(account.config.id)) continue
-      if (isHardOffline(account.state.status)) continue
-      if (!this.accountHasModel(account, normalized)) continue
-      if (!(await this.tryEnsureClient(account))) continue
-      this.currentAccountIndex = idx
-      this.state.currentAccountIndex = idx
-      this.onStateChanged()
-      return account
-    }
-    return undefined
+    const normalizedModel = this.normalizeModel(model)
+    return this.pickAccountTwoPassGeneric(exclude, async (account, relax) => {
+      if (!this.accountHasModel(account, normalizedModel)) return false
+      if (relax) {
+        if (this.isHardOffline(account.state.status)) return false
+      } else if (!this.isAvailable(account, Date.now())) {
+        return false
+      }
+      return this.tryEnsureClient(account)
+    })
   }
 
   async testAccount(accountId: string): Promise<AccountTestResult> {
@@ -178,70 +215,8 @@ export class WindsurfAccountPool {
     return { models: account.state.modelIds }
   }
 
-  async reportSuccess(account: WindsurfAccountRuntime): Promise<void> {
-    account.state.failures = 0
-    account.state.lastError = undefined
-    account.state.lastSuccessAt = Date.now()
-    account.state.stats.totalRequests += 1
-    account.state.stats.successfulRequests += 1
-    account.state.lastResponseKind = 'success'
-    this.transitionStatus(account, 'available', undefined)
-    this.onStateChanged()
-  }
-
-  async reportFailure(
-    account: WindsurfAccountRuntime,
-    error: unknown,
-    classified: WindsurfClassifiedError
-  ): Promise<void> {
-    account.state.failures += 1
-    account.state.lastFailureAt = Date.now()
-    account.state.lastError = toErrorMessage(error)
-    account.state.stats.totalRequests += 1
-    account.state.stats.failedRequests += 1
-    account.state.lastResponseKind = classified.kind
-    const now = Date.now()
-    const reason = account.state.lastError.slice(0, 200)
-    if (classified.kind === 'auth') {
-      this.transitionStatus(account, 'auth_failed', reason)
-    } else if (classified.kind === 'quota') {
-      this.transitionStatus(account, 'quota_exceeded', reason, now + classified.cooldownMs)
-    } else if (classified.kind === 'rate_limit') {
-      this.transitionStatus(account, 'rate_limited', reason, now + classified.cooldownMs)
-    } else {
-      const multiplier = Math.min(64, Math.pow(2, Math.max(0, account.state.failures - 1)))
-      this.transitionStatus(account, 'cooling', reason, now + classified.cooldownMs * multiplier)
-    }
-    this.logger.warn(account.state.lastError, {
-      provider: 'windsurf',
-      accountId: accountLabel(account),
-      category: 'account'
-    })
-    this.onStateChanged()
-  }
-
-  async resetAccount(accountId: string): Promise<void> {
-    const account = this.accounts.find((item) => item.config.id === accountId)
-    if (!account) return
-    account.state.failures = 0
-    account.state.lastError = undefined
-    account.state.lastFailureAt = 0
-    account.state.lastResponseKind = undefined
-    this.transitionStatus(account, 'available', undefined)
-    this.onStateChanged()
-  }
-
-  async setAccountStatus(accountId: string, status: AccountStatus, reason?: string): Promise<void> {
-    const account = this.accounts.find((item) => item.config.id === accountId)
-    if (!account) throw new Error(`Account not found: ${accountId}`)
-    if (status === 'available') {
-      account.state.failures = 0
-      account.state.lastError = undefined
-      account.state.cooldownUntil = undefined
-    }
-    this.transitionStatus(account, status, reason)
-    this.onStateChanged()
-  }
+  // --- failure reporting: windsurf uses the BaseAccountPool default
+  // (auth/quota/rate_limit/cooling + cap-64 exponential backoff). ---
 
   private async maybeRefreshAccountModels(account: WindsurfAccountRuntime): Promise<void> {
     const now = Date.now()
@@ -299,33 +274,6 @@ export class WindsurfAccountPool {
     }
     await account.client.ensureStarted()
   }
-
-  private accountHasModel(account: WindsurfAccountRuntime, model: string): boolean {
-    const list = account.state.modelIds || []
-    if (!list.length) return true
-    const normalized = normalizeWindsurfModel(model)
-    return list.some((available) => normalizeWindsurfModel(available) === normalized)
-  }
-
-  private isAvailable(account: WindsurfAccountRuntime, now: number): boolean {
-    const status = account.state.status
-    if (status === 'available') return true
-    if (isHardOffline(status)) return false
-    if (account.state.cooldownUntil && now > account.state.cooldownUntil) return true
-    return Math.random() < 0.1
-  }
-
-  private transitionStatus(
-    account: WindsurfAccountRuntime,
-    status: AccountStatus,
-    reason?: string,
-    cooldownUntil?: number
-  ): void {
-    account.state.status = status
-    account.state.statusReason = reason
-    account.state.statusUpdatedAt = Date.now()
-    account.state.cooldownUntil = cooldownUntil
-  }
 }
 
 export function classifyWindsurfError(error: unknown): WindsurfClassifiedError {
@@ -350,31 +298,5 @@ export function classifyWindsurfError(error: unknown): WindsurfClassifiedError {
   return { kind: 'server_error', cooldownMs: 30_000 }
 }
 
-function defaultAccountState(): AccountRuntimeState {
-  return {
-    failures: 0,
-    lastFailureAt: 0,
-    lastSuccessAt: 0,
-    modelsCachedAt: 0,
-    modelIds: [],
-    status: 'available',
-    statusUpdatedAt: 0,
-    stats: {
-      totalRequests: 0,
-      successfulRequests: 0,
-      failedRequests: 0
-    }
-  }
-}
-
-function isHardOffline(status: AccountStatus): boolean {
-  return status === 'auth_failed' || status === 'manual_disabled' || status === 'quota_exceeded'
-}
-
-function redactAccount(account: WindsurfAccountConfig): WindsurfAccountConfig {
-  return { ...account, apiKey: account.apiKey ? '***' : undefined }
-}
-
-function accountLabel(account: WindsurfAccountRuntime): string {
-  return account.config.email || account.config.label || account.config.id
-}
+// re-exported type aliases used by consumers
+export type { AccountStatus, ResponseKind }

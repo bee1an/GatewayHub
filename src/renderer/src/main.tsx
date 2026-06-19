@@ -20,6 +20,18 @@ import ErrorBoundary from './components/ErrorBoundary'
 const root = createRoot(document.getElementById('root')!)
 const view = new URLSearchParams(window.location.search).get('view')
 
+// Safety net: the splash is normally removed by <Sidebar> once the first
+// gateway status lands. If that never happens (e.g. the renderer crashes
+// before mount), force-remove it so the window never stays stuck on the
+// spinner. Skip removal when Sidebar has already started its cross-fade
+// (marked via `data-splash-dismissing`) so the two paths never race around
+// the 8s boundary and the fade always gets to finish.
+setTimeout(() => {
+  const el = document.getElementById('splash')
+  if (!el || el.dataset.splashDismissing === '1') return
+  el.remove()
+}, 8000)
+
 if (view === 'progress') {
   root.render(
     <StrictMode>

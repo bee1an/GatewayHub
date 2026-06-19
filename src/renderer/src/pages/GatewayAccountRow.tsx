@@ -57,15 +57,15 @@ export function AccountRow({
   const rate = total > 0 ? Math.round((success / total) * 100) : null
   const accountInfo = info?.data
   const models = normalizeAccountModels(accountInfo?.models)
+  const usage = accountInfo?.usage
+  const usagePercent = usage ? Math.round(normalizeUsagePercent(usage)) : null
+  const usageText = usage ? formatUsage(usage) : undefined
 
   const expiresAt = acc.expiresAt ? new Date(acc.expiresAt) : null
   const expiresIn = expiresAt ? expiresAt.getTime() - now : null
   const expiryUrgent = expiresIn !== null && expiresIn < 24 * 3600_000
 
-  const usagePercent = accountInfo?.usage
-    ? Math.round((accountInfo.usage.used / Math.max(1, accountInfo.usage.limit)) * 100)
-    : null
-  const hasOverage = (accountInfo?.usage?.overages ?? 0) > 0
+  const hasOverage = Boolean(usage?.isQuotaExceeded) || (usage?.overages ?? 0) > 0
 
   const rateLimits = accountInfo?.rateLimits
   const rateLimitPeakPercent = rateLimits
@@ -139,7 +139,7 @@ export function AccountRow({
           <TooltipWrapper
             content={
               accountInfo?.usage
-                ? `${t('gateway.usage')}: ${accountInfo.usage.used}/${accountInfo.usage.limit}`
+                ? `${t('gateway.usage')}: ${usageText}`
                 : `${t('gateway.usage')}: ${peakPercent}%`
             }
           >
@@ -287,29 +287,13 @@ export function AccountRow({
             </div>
           )}
 
-          {accountInfo?.usage && (
-            <div className="flex items-center gap-2 text-[11px]">
-              <div
-                role="progressbar"
-                aria-valuenow={accountInfo.usage.used}
-                aria-valuemin={0}
-                aria-valuemax={accountInfo.usage.limit}
-                aria-label={t('gateway.usage')}
-                className="flex-1 h-1.5 rounded-full bg-charcoal/50 overflow-hidden"
-              >
-                <div
-                  className={`h-full rounded-full transition-all duration-300 ${
-                    hasOverage ? 'bg-red' : usagePercent! > 80 ? 'bg-warning' : 'bg-emerald'
-                  }`}
-                  style={{ width: `${Math.min(usagePercent!, 100)}%` }}
-                />
-              </div>
-              <span
-                className={`font-mono tabular-nums font-medium shrink-0 ${hasOverage ? 'text-red' : 'text-storm'}`}
-              >
-                {accountInfo.usage.used}/{accountInfo.usage.limit}
-              </span>
-            </div>
+          {usage && (
+            <QuotaUsagePanel
+              usage={usage}
+              percent={usagePercent ?? 0}
+              hasOverage={hasOverage}
+              t={t}
+            />
           )}
 
           <div className="text-[11px] flex flex-wrap gap-x-5 gap-y-1">
@@ -323,14 +307,6 @@ export function AccountRow({
                 </span>
               </div>
             )}
-            {accountInfo?.usage?.resetDate && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-fog">{t('gateway.resetDate')}</span>
-                <span className="font-mono tabular-nums text-storm">
-                  {formatResetDate(accountInfo.usage.resetDate)}
-                </span>
-              </div>
-            )}
             {expiresAt && (
               <div className="flex items-center gap-1.5">
                 <span className="text-fog">{t('gateway.expires')}</span>
@@ -341,11 +317,11 @@ export function AccountRow({
                 </span>
               </div>
             )}
-            {hasOverage && accountInfo?.usage && (
+            {(usage?.overages ?? 0) > 0 && (
               <div className="flex items-center gap-1.5">
                 <span className="text-fog">{t('gateway.overages')}</span>
                 <span className="font-mono tabular-nums text-red">
-                  +{accountInfo.usage.overages} (${accountInfo.usage.overageCharges.toFixed(2)})
+                  +{formatUsageNumber(usage!.overages)} (${usage!.overageCharges.toFixed(2)})
                 </span>
               </div>
             )}
@@ -418,6 +394,135 @@ export function AccountRow({
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+function QuotaUsagePanel({
+  usage,
+  percent,
+  hasOverage,
+  t
+}: {
+  usage: NonNullable<AccountInfo['usage']>
+  percent: number
+  hasOverage: boolean
+  t: ReturnType<typeof useTranslation>['t']
+}): React.JSX.Element {
+  const clampedPercent = Math.max(0, Math.min(100, percent))
+  const barColor = hasOverage ? 'bg-red' : clampedPercent > 80 ? 'bg-warning' : 'bg-emerald'
+  const valueColor = hasOverage ? 'text-red' : clampedPercent > 80 ? 'text-warning' : 'text-emerald'
+  const remaining = usage.remaining ?? Math.max(0, usage.limit - usage.used)
+  const dateValue = usage.expiresAt ?? usage.resetDate
+  const unit = usage.unit || usage.usageType
+
+  return (
+    <div className="rounded-[10px] border border-ash/15 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--c-charcoal)_74%,transparent),color-mix(in_srgb,var(--c-slate)_38%,transparent))] p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-[0.16em] text-fog">
+              {t('gateway.usage')}
+            </span>
+            {usage.isPlanQuotaProrated && (
+              <span className="tag text-[9px] !px-1.5 !py-0 border-warning/30 bg-warning/10 text-warning">
+                {t('gateway.quotaProrated')}
+              </span>
+            )}
+          </div>
+          <div className="mt-1 flex items-baseline gap-1.5">
+            <span className={`font-mono text-[18px] leading-none tabular-nums ${valueColor}`}>
+              {formatPercent(clampedPercent)}
+            </span>
+            <span className="text-[11px] text-fog">{formatUsage(usage)}</span>
+          </div>
+        </div>
+        <div className="text-right shrink-0">
+          <div className="text-[10px] text-fog">{t('gateway.quotaRemaining')}</div>
+          <div
+            className={`font-mono text-[13px] tabular-nums ${hasOverage ? 'text-red' : 'text-storm'}`}
+          >
+            {formatUsageValue(remaining, unit)}
+          </div>
+        </div>
+      </div>
+
+      <div
+        role="progressbar"
+        aria-valuenow={usage.used}
+        aria-valuemin={0}
+        aria-valuemax={usage.limit}
+        aria-label={t('gateway.usage')}
+        className="mt-2 h-1.5 rounded-full bg-charcoal/60 overflow-hidden"
+      >
+        <div
+          className={`h-full rounded-full transition-all duration-300 ${barColor}`}
+          style={{ width: `${clampedPercent}%` }}
+        />
+      </div>
+
+      <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+        <UsageStat label={t('gateway.quotaUsed')} value={formatUsageValue(usage.used, unit)} />
+        <UsageStat label={t('gateway.quotaLimit')} value={formatUsageValue(usage.limit, unit)} />
+        <UsageStat label={t('gateway.quotaPercent')} value={formatPercent(clampedPercent)} />
+        <UsageStat
+          label={t('gateway.quotaStatus')}
+          value={usage.isQuotaExceeded ? t('gateway.quotaExceeded') : t('gateway.quotaNormal')}
+          danger={usage.isQuotaExceeded}
+        />
+        {usage.usageType && <UsageStat label={t('gateway.usageType')} value={usage.usageType} />}
+        {dateValue && (
+          <UsageStat label={t('gateway.quotaValidUntil')} value={formatResetDate(dateValue)} />
+        )}
+        {usage.overageCap > 0 && (
+          <UsageStat
+            label={t('gateway.overages')}
+            value={`${formatUsageNumber(usage.overages)} / ${formatUsageNumber(usage.overageCap)}`}
+            danger={usage.overages > 0}
+          />
+        )}
+        {usage.overageCharges > 0 && (
+          <UsageStat
+            label={t('gateway.overageCharges')}
+            value={`$${usage.overageCharges.toFixed(2)}`}
+            danger
+          />
+        )}
+      </div>
+
+      {usage.upgradeUrl && (
+        <a
+          href={usage.upgradeUrl}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(event) => event.stopPropagation()}
+          className="mt-2 inline-flex items-center gap-1 text-[11px] text-fog hover:text-storm transition-colors"
+        >
+          <span className="i-ph-arrow-square-out text-[11px]" aria-hidden="true" />
+          {t('gateway.upgradePlan')}
+        </a>
+      )}
+    </div>
+  )
+}
+
+function UsageStat({
+  label,
+  value,
+  danger = false
+}: {
+  label: string
+  value: string
+  danger?: boolean
+}): React.JSX.Element {
+  return (
+    <div className="rounded-[7px] border border-ash/10 bg-charcoal/25 px-2 py-1.5">
+      <div className="text-[9px] uppercase tracking-[0.12em] text-fog/80">{label}</div>
+      <div
+        className={`mt-0.5 truncate font-mono text-[11px] tabular-nums ${danger ? 'text-red' : 'text-storm'}`}
+      >
+        {value}
+      </div>
     </div>
   )
 }
@@ -532,4 +637,38 @@ function formatResetDate(value: string | number): string {
     typeof value === 'number' ? (value < 1e12 ? value * 1000 : value) : new Date(value).getTime()
   if (isNaN(ts) || ts < 1e12) return String(value)
   return new Date(ts).toLocaleDateString()
+}
+
+function formatUsage(usage: NonNullable<AccountInfo['usage']>): string {
+  const value = `${formatUsageNumber(usage.used)}/${formatUsageNumber(usage.limit)}`
+  return usage.unit ? `${value} ${usage.unit}` : value
+}
+
+function formatUsageValue(value: number, unit?: string): string {
+  const formatted = formatUsageNumber(value)
+  return unit ? `${formatted} ${unit}` : formatted
+}
+
+function normalizeUsagePercent(usage: NonNullable<AccountInfo['usage']>): number {
+  const raw = usage.percentUsed ?? usage.totalUsagePercentage ?? usage.percentage
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return Math.max(0, Math.min(100, Math.abs(raw) <= 1 ? raw * 100 : raw))
+  }
+  return Math.max(0, Math.min(100, (usage.used / Math.max(1, usage.limit)) * 100))
+}
+
+function formatPercent(value: number): string {
+  if (!Number.isFinite(value)) return '0%'
+  const normalized = Math.max(0, Math.min(100, value))
+  const formatted = Number.isInteger(normalized)
+    ? normalized.toLocaleString()
+    : normalized.toLocaleString(undefined, { maximumFractionDigits: 1 })
+  return `${formatted}%`
+}
+
+function formatUsageNumber(value: number): string {
+  if (!Number.isFinite(value)) return '0'
+  return Number.isInteger(value)
+    ? value.toLocaleString()
+    : value.toLocaleString(undefined, { maximumFractionDigits: 2 })
 }

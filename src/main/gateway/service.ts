@@ -14,6 +14,7 @@ import type {
   NvidiaAccountConfig,
   OpenRouterAccountConfig,
   ProviderStatus,
+  QoderAccountConfig,
   TraeAccountConfig,
   WindsurfAccountConfig
 } from './types'
@@ -58,6 +59,16 @@ import {
 } from './providers/openrouter/normalize'
 import { buildNvidiaAccountFromInput, parseNvidiaAuthInput } from './providers/nvidia/normalize'
 import { normalizeGrokWebImportedAccount } from './providers/grokWeb/normalize'
+import { buildQoderAccountFromInput, parseQoderAuthInput } from './providers/qoder/normalize'
+import {
+  cancelQoderCliLogin,
+  detectQoderCli,
+  importCurrentQoderCliAuth,
+  loginWithQoderCli,
+  setOnQoderAccountImported,
+  type QoderCliDetectResult
+} from './providers/qoder/cliLogin'
+import { normalizeQoderMaxOutputTokens } from './providers/qoder/constants'
 import { normalizeRequestRaceSettings } from './providers/requestRace'
 
 export class GatewayHubService {
@@ -162,6 +173,12 @@ export class GatewayHubService {
       } else {
         await this.store.writeCodexAccountFile(account)
       }
+      await this.rebuildRuntime(this.server?.running ?? false)
+    })
+
+    setOnQoderAccountImported(async (account) => {
+      await this.ensureReady()
+      await this.upsertQoderAccount(account)
       await this.rebuildRuntime(this.server?.running ?? false)
     })
 
@@ -418,6 +435,58 @@ export class GatewayHubService {
     await this.rebuildRuntime(this.server?.running ?? false)
   }
 
+  async setHost(host: string): Promise<void> {
+    await this.ensureReady()
+    const trimmed = host.trim()
+    if (!trimmed) throw new Error('Host must not be empty')
+    this.config!.server.host = trimmed
+    await this.store.saveConfig(this.config!)
+    await this.rebuildRuntime(this.server?.running ?? false)
+  }
+
+  async getHost(): Promise<string> {
+    await this.ensureReady()
+    return this.config!.server.host
+  }
+
+  async getProxyUrl(): Promise<string> {
+    await this.ensureReady()
+    return this.config!.server.proxyUrl ?? ''
+  }
+
+  async setProxyUrl(url: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const trimmed = (url ?? '').trim()
+    this.config!.server.proxyUrl = trimmed
+    await this.store.saveConfig(this.config!)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async setProviderUseProxy(
+    providerType: string,
+    enabled: boolean
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const proxyCapable = new Set([
+      'kiro',
+      'codex',
+      'windsurf',
+      'trae',
+      'gptWeb',
+      'grokWeb',
+      'qoder'
+    ])
+    if (!proxyCapable.has(providerType)) {
+      throw new Error(`Provider "${providerType}" does not support proxy routing`)
+    }
+    const providers = this.config!.providers as Record<string, { useProxy?: boolean }>
+    providers[providerType].useProxy = !!enabled
+    await this.store.saveConfig(this.config!)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
   async setAutoStart(enabled: boolean): Promise<void> {
     await this.ensureReady()
     this.config!.server.autoStart = enabled
@@ -432,15 +501,8 @@ export class GatewayHubService {
   async clearLogs(): Promise<void> {
     this.logger.replace([])
     if (this.state) {
-      this.ensureNvidiaState()
-      this.state.providers.kiro.logs = []
-      this.state.providers.codex.logs = []
-      this.state.providers.windsurf.logs = []
-      this.state.providers.trae.logs = []
-      this.state.providers.openrouter.logs = []
-      this.state.providers.nvidia.logs = []
-      this.state.providers.gptWeb.logs = []
-      this.state.providers.grokWeb.logs = []
+      this.ensureLazyProviderState()
+      this.clearLogsForAllProviders()
       await this.store.saveState(this.state)
     }
   }
@@ -624,7 +686,7 @@ export class GatewayHubService {
     await this.ensureReady()
     const normalized = normalizeImportedAccount({ refreshToken: text.trim() })
     if (!normalized) throw new Error('Invalid refresh token')
-    const vpn = this.config!.providers.kiro.settings.vpnProxyUrl
+    const vpn = this.config!.providers.kiro.useProxy ? this.config!.server.proxyUrl : ''
     const resolved = await resolveRefreshTokenAccount(normalized, vpn)
     const accountConfig = buildKiroAccountConfig(resolved)
     await this.store.writeAccountFile(accountConfig)
@@ -664,7 +726,7 @@ export class GatewayHubService {
       updated = 0,
       skipped = 0
     const errors: string[] = []
-    const vpn = this.config!.providers.kiro.settings.vpnProxyUrl
+    const vpn = this.config!.providers.kiro.useProxy ? this.config!.server.proxyUrl : ''
     const existingAccounts = await this.store.readAccountFiles()
     const existingIds = new Set(existingAccounts.map((a) => a.id))
 
@@ -1734,12 +1796,220 @@ export class GatewayHubService {
     return this.getStatus()
   }
 
+  // ============== Qoder provider ==============
+
+  private async upsertQoderAccount(account: QoderAccountConfig): Promise<boolean> {
+    const existing = await this.store.readQoderAccountFiles()
+    const match = existing.find((item) => item.id === account.id)
+    if (match) {
+      await this.store.updateQoderAccountFile(account.id, {
+        authType: account.authType,
+        personalAccessToken: account.personalAccessToken,
+        label: account.label,
+        email: account.email,
+        enabled: account.enabled,
+        qoderCliHome: account.qoderCliHome,
+        qoderCliPath: account.qoderCliPath
+      })
+      return false
+    }
+    await this.store.writeQoderAccountFile(account)
+    return true
+  }
+
+  async addQoderPersonalAccessToken(text: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const account = buildQoderAccountFromInput({ personalAccessToken: text.trim() })
+    if (!account) throw new Error('Invalid Qoder personal access token')
+    await this.store.writeQoderAccountFile(account)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    try {
+      await this.prepareImportedAccount('qoder', account.id)
+    } catch (error) {
+      await this.store.deleteQoderAccountFile(account.id).catch(() => false)
+      await this.rebuildRuntime(this.server?.running ?? false)
+      throw error
+    }
+    return this.getStatus()
+  }
+
+  async addQoderCliLogin(
+    options: { label?: string; qoderCliPath?: string } = {}
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const account = await importCurrentQoderCliAuth({
+      authStoreDir: this.store.qoderAuthDir(),
+      label: options.label,
+      qoderCliPath: options.qoderCliPath
+    })
+    const added = await this.upsertQoderAccount(account)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    try {
+      await this.prepareImportedAccount('qoder', account.id)
+    } catch (error) {
+      if (added) {
+        await this.store.deleteQoderAccountFile(account.id).catch(() => false)
+        await this.store.deleteQoderAuthHome(account.qoderCliHome).catch(() => false)
+      }
+      await this.rebuildRuntime(this.server?.running ?? false)
+      throw error
+    }
+    return this.getStatus()
+  }
+
+  async detectQoderCli(customPath?: string): Promise<QoderCliDetectResult> {
+    return detectQoderCli(customPath)
+  }
+
+  async loginWithQoderCli(options?: { cliPath?: string; label?: string }): Promise<void> {
+    await this.ensureReady()
+    loginWithQoderCli({
+      cliPath: options?.cliPath,
+      label: options?.label,
+      authStoreDir: this.store.qoderAuthDir()
+    })
+  }
+
+  async cancelQoderCliLogin(): Promise<boolean> {
+    return cancelQoderCliLogin()
+  }
+
+  async importQoderAuthJson(
+    text: string
+  ): Promise<{ added: number; skipped: number; errors: string[]; status: GatewayStatusSnapshot }> {
+    await this.ensureReady()
+    const trimmed = text.trim()
+    if (!trimmed) throw new Error('Empty Qoder credential input')
+    let payloads: QoderAccountConfig[]
+    try {
+      payloads = parseQoderAuthInput(trimmed)
+    } catch (error) {
+      throw new Error(`Invalid input: ${toErrorMessage(error)}`)
+    }
+    if (!payloads.length) {
+      throw new Error(
+        'No Qoder credentials found. Expected personalAccessToken/pat/token/apiKey/key for direct Qoder API access.'
+      )
+    }
+    let added = 0,
+      updated = 0
+    const errors: string[] = []
+    const existing = await this.store.readQoderAccountFiles()
+    const existingIds = new Set(existing.map((a) => a.id))
+    for (const account of payloads) {
+      try {
+        if (existingIds.has(account.id)) {
+          await this.store.updateQoderAccountFile(account.id, {
+            authType: account.authType,
+            personalAccessToken: account.personalAccessToken,
+            label: account.label,
+            email: account.email,
+            enabled: account.enabled,
+            qoderCliHome: account.qoderCliHome,
+            qoderCliPath: account.qoderCliPath
+          })
+          updated++
+        } else {
+          await this.store.writeQoderAccountFile(account)
+          existingIds.add(account.id)
+          added++
+        }
+      } catch (error) {
+        errors.push(toErrorMessage(error))
+      }
+    }
+    if (added > 0 || updated > 0) {
+      await this.rebuildRuntime(this.server?.running ?? false)
+      for (const account of payloads) {
+        try {
+          await this.prepareImportedAccount('qoder', account.id)
+        } catch (error) {
+          errors.push(`${account.label || account.id}: ${toErrorMessage(error)}`)
+        }
+      }
+    }
+    return { added, skipped: updated, errors, status: await this.getStatus() }
+  }
+
+  async testQoderAccount(accountId: string): Promise<AccountTestResult> {
+    await this.ensureReady()
+    const result = await this.registry!.testAccount('qoder', accountId)
+    await this.persistStateSoon()
+    return result
+  }
+
+  async toggleQoderAccount(accountId: string, enabled: boolean): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.store.updateQoderAccountFile(accountId, { enabled })
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async removeQoderAccount(accountId: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const accounts = await this.store.readQoderAccountFiles()
+    const account = accounts.find((a) => a.id === accountId)
+    const deleted = await this.store.deleteQoderAccountFile(accountId)
+    if (!deleted) throw new Error(`Qoder account not found: ${accountId}`)
+    await this.store.deleteQoderAuthHome(account?.qoderCliHome).catch(() => false)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async getQoderAccountInfo(accountId: string) {
+    await this.ensureReady()
+    return this.registry!.getAccountInfo('qoder', accountId)
+  }
+
+  async refreshQoderAccountModels(accountId: string) {
+    await this.ensureReady()
+    const models = await this.registry!.refreshAccountModels('qoder', accountId)
+    await this.persistStateSoon()
+    return models
+  }
+
+  async resetQoderAccount(accountId: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.registry!.resetAccount('qoder', accountId)
+    await this.persistStateSoon()
+    return this.getStatus()
+  }
+
+  async setQoderAccountStatus(
+    accountId: string,
+    status: AccountStatus,
+    reason?: string
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.registry!.setAccountStatus('qoder', accountId, status, reason)
+    await this.persistStateSoon()
+    return this.getStatus()
+  }
+
+  async getQoderSettings() {
+    await this.ensureReady()
+    return this.config!.providers.qoder.settings
+  }
+
+  async updateQoderSettings(
+    settings: Partial<Record<string, any>>
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    Object.assign(this.config!.providers.qoder.settings, settings)
+    this.config!.providers.qoder.settings.maxOutputTokens = normalizeQoderMaxOutputTokens(
+      this.config!.providers.qoder.settings.maxOutputTokens
+    )
+    await this.store.saveConfig(this.config!)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
   private ensureReady(): Promise<void> {
     return this.initialize()
   }
 
   private async prepareImportedAccount(
-    providerName: 'openrouter' | 'nvidia',
+    providerName: 'openrouter' | 'nvidia' | 'qoder',
     accountId: string
   ): Promise<AccountTestResult> {
     const result = await this.registry!.testAccount(providerName, accountId)
@@ -1759,6 +2029,7 @@ export class GatewayHubService {
     const nvidiaFiles = await this.store.readNvidiaAccountFiles()
     const gptWebFiles = await this.store.readGptWebAccountFiles()
     const grokWebFiles = await this.store.readGrokWebAccountFiles()
+    const qoderFiles = await this.store.readQoderAccountFiles()
     this.registry = new ProviderRegistry(
       this.config!,
       this.state!,
@@ -1809,7 +2080,8 @@ export class GatewayHubService {
       openrouterFiles,
       nvidiaFiles,
       gptWebFiles,
-      grokWebFiles
+      grokWebFiles,
+      qoderFiles
     )
     this.server = new GatewayServer(
       this.config!,
@@ -1824,15 +2096,8 @@ export class GatewayHubService {
 
   private async persistStateSoon(): Promise<void> {
     if (!this.state) return
-    this.ensureNvidiaState()
-    this.state.providers.kiro.logs = this.logger.getEntries()
-    this.state.providers.codex.logs = this.logger.getEntries()
-    this.state.providers.windsurf.logs = this.logger.getEntries()
-    this.state.providers.trae.logs = this.logger.getEntries()
-    this.state.providers.openrouter.logs = this.logger.getEntries()
-    this.state.providers.nvidia.logs = this.logger.getEntries()
-    this.state.providers.gptWeb.logs = this.logger.getEntries()
-    this.state.providers.grokWeb.logs = this.logger.getEntries()
+    this.ensureLazyProviderState()
+    this.assignLogsToAllProviders()
     if (this.saveTimer) clearTimeout(this.saveTimer)
     this.saveTimer = setTimeout(() => {
       this.saveTimer = undefined
@@ -1842,25 +2107,48 @@ export class GatewayHubService {
 
   private async saveStateNow(): Promise<void> {
     if (!this.state) return
-    this.ensureNvidiaState()
-    this.state.providers.kiro.logs = this.logger.getEntries()
-    this.state.providers.codex.logs = this.logger.getEntries()
-    this.state.providers.windsurf.logs = this.logger.getEntries()
-    this.state.providers.trae.logs = this.logger.getEntries()
-    this.state.providers.openrouter.logs = this.logger.getEntries()
-    this.state.providers.nvidia.logs = this.logger.getEntries()
-    this.state.providers.gptWeb.logs = this.logger.getEntries()
-    this.state.providers.grokWeb.logs = this.logger.getEntries()
+    this.ensureLazyProviderState()
+    this.assignLogsToAllProviders()
     await this.store.saveState(this.state)
   }
 
-  private ensureNvidiaState(): void {
+  /** Ensures provider state slots that were added in later versions exist on legacy state. */
+  private ensureLazyProviderState(): void {
     if (!this.state) return
     this.state.providers.nvidia ??= { accounts: {}, currentAccountIndex: 0, logs: [] }
     this.state.providers.gptWeb ??= { accounts: {}, currentAccountIndex: 0, logs: [] }
     this.state.providers.grokWeb ??= { accounts: {}, currentAccountIndex: 0, logs: [] }
+    this.state.providers.qoder ??= { accounts: {}, currentAccountIndex: 0, logs: [] }
+  }
+
+  /** Mirrors the unified logger entries into every provider's logs slot. */
+  private assignLogsToAllProviders(): void {
+    if (!this.state) return
+    const entries = this.logger.getEntries()
+    for (const name of LOG_MIRROR_PROVIDERS) {
+      this.state.providers[name].logs = entries
+    }
+  }
+
+  private clearLogsForAllProviders(): void {
+    if (!this.state) return
+    for (const name of LOG_MIRROR_PROVIDERS) {
+      this.state.providers[name].logs = []
+    }
   }
 }
+
+const LOG_MIRROR_PROVIDERS = [
+  'kiro',
+  'codex',
+  'windsurf',
+  'trae',
+  'openrouter',
+  'nvidia',
+  'gptWeb',
+  'grokWeb',
+  'qoder'
+] as const
 
 function kiroAccountImportUpdates(account: KiroAccountConfig): Partial<KiroAccountConfig> {
   const updates: Partial<KiroAccountConfig> = {

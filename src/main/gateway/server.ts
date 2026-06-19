@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { once } from 'events'
 import type { ApiKeyEntry, GatewayHubConfig, GatewayResponse, UsageStats, UsageMeta } from './types'
 import { GatewayLogger } from './core/logger'
-import { parseRequestBody, requestId, sseData, toErrorMessage } from './core/utils'
+import { parseRequestBody, requestId, sha256Short, sseData, toErrorMessage } from './core/utils'
 import {
   HEAD_TIMEOUT_MS,
   HEADERS_TIMEOUT_MS,
@@ -15,6 +15,7 @@ import {
   safeEqualString
 } from './core/http'
 import { wrapStreamForTracing, type RequestTrace } from './core/requestTracer'
+import { deriveGatewaySession } from './core/session'
 import { ProviderRegistry } from './providerRegistry'
 import { PricingTable } from './core/pricing'
 import { UsageStore } from './core/usageStore'
@@ -225,10 +226,16 @@ export class GatewayServer {
       if (req.method === 'POST' && url.pathname === '/v1/chat/completions') {
         const body = await parseRequestBody(req, MAX_BODY_BYTES)
         if (!this.checkScope(apiKeyEntry, body?.model, res, rid)) return
+        const session = deriveGatewaySession(req.headers, body, apiKeyEntry, rid, 'openai')
         this.logger.info(`POST /v1/chat/completions model=${body?.model || 'default'}`, {
           requestId: rid,
           category: 'request',
-          extra: { apiFormat: 'openai', stream: body?.stream !== false }
+          extra: {
+            apiFormat: 'openai',
+            stream: body?.stream !== false,
+            sessionSource: session.source,
+            sessionKey: sha256Short(session.id, 12)
+          }
         })
         const trace: RequestTrace = {
           requestId: rid,
@@ -243,6 +250,8 @@ export class GatewayServer {
         try {
           const response = await this.registry.chatCompletions(body, {
             requestId: rid,
+            sessionId: session.id,
+            sessionSource: session.source,
             apiFormat: 'openai',
             onUsage: this.makeUsageSink(trace),
             abortSignal: upstreamAbort.signal
@@ -256,10 +265,16 @@ export class GatewayServer {
       if (req.method === 'POST' && url.pathname === '/v1/messages') {
         const body = await parseRequestBody(req, MAX_BODY_BYTES)
         if (!this.checkScope(apiKeyEntry, body?.model, res, rid)) return
+        const session = deriveGatewaySession(req.headers, body, apiKeyEntry, rid, 'anthropic')
         this.logger.info(`POST /v1/messages model=${body?.model || 'default'}`, {
           requestId: rid,
           category: 'request',
-          extra: { apiFormat: 'anthropic', stream: body?.stream === true }
+          extra: {
+            apiFormat: 'anthropic',
+            stream: body?.stream === true,
+            sessionSource: session.source,
+            sessionKey: sha256Short(session.id, 12)
+          }
         })
         const trace: RequestTrace = {
           requestId: rid,
@@ -274,6 +289,8 @@ export class GatewayServer {
         try {
           const response = await this.registry.messages(body, {
             requestId: rid,
+            sessionId: session.id,
+            sessionSource: session.source,
             apiFormat: 'anthropic',
             onUsage: this.makeUsageSink(trace),
             abortSignal: upstreamAbort.signal
@@ -391,7 +408,7 @@ export class GatewayServer {
       res.setHeader('Vary', 'Origin')
       res.setHeader(
         'Access-Control-Allow-Headers',
-        'authorization,x-api-key,anthropic-version,content-type'
+        'authorization,x-api-key,anthropic-version,content-type,x-claude-session-id,x-session-id,x-conversation-id,x-thread-id,x-codex-session-id'
       )
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
     }

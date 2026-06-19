@@ -7,6 +7,7 @@ import traeIcon from '../assets/provider-logos/trae-icon.png'
 import geminiIcon from '../assets/provider-logos/gemini-icon.svg'
 import nvidiaIcon from '../assets/provider-logos/nvidia-icon.png'
 import grokIcon from '../assets/provider-logos/grok-icon.png'
+import qoderIcon from '../assets/provider-logos/qoder-icon.png'
 
 export type ProviderLogoTheme = 'light' | 'dark'
 
@@ -24,6 +25,7 @@ export const LOCAL_PROVIDER_LOGOS: Record<string, ProviderLogoSet> = {
   trae: { light: traeIcon, dark: traeIcon },
   openrouter: { light: openRouterIcon, dark: openRouterIcon },
   nvidia: { light: nvidiaIcon, dark: nvidiaIcon },
+  qoder: { light: qoderIcon, dark: qoderIcon },
   gemini: { light: geminiIcon, dark: geminiIcon }
 }
 
@@ -36,6 +38,7 @@ export const LOGO_DEV_DOMAINS: Record<string, string> = {
   trae: 'trae.ai',
   openrouter: 'openrouter.ai',
   nvidia: 'nvidia.com',
+  qoder: 'qoder.com',
   gemini: 'gemini.google.com'
 }
 
@@ -48,6 +51,7 @@ export const FALLBACK_CLASSES: Record<string, string> = {
   trae: 'bg-[#101828] text-[#2EF58D]',
   openrouter: 'bg-porcelain text-pitch',
   nvidia: 'bg-[#76B900] text-pitch',
+  qoder: 'bg-[#111827] text-[#7DF9D4]',
   gemini: 'bg-gradient-to-br from-cyan via-aether to-violet text-white'
 }
 
@@ -60,6 +64,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   trae: 'Trae',
   openrouter: 'OpenRouter',
   nvidia: 'NVIDIA',
+  qoder: 'Qoder',
   gemini: 'Gemini'
 }
 

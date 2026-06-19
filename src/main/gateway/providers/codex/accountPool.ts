@@ -9,6 +9,11 @@ import type {
 } from '../../types'
 import { GatewayLogger } from '../../core/logger'
 import { toErrorMessage } from '../../core/utils'
+import {
+  BaseAccountPool,
+  type AccountWithState,
+  type ClassifiedError
+} from '../../core/accountPool'
 import { CodexAuthManager, type CodexAccountSnapshot } from './auth'
 import { FALLBACK_CODEX_MODELS, normalizeCodexModel } from './constants'
 import { fetchCodexModels } from './models'
@@ -16,26 +21,33 @@ import { summarizeAccount } from './normalize'
 import { fetchCodexRateLimits } from './rateLimits'
 import type { CodexAccountInfo } from './types'
 
-export interface CodexAccountRuntime {
-  config: CodexAccountConfig
-  state: AccountRuntimeState
+/**
+ * Codex runtime carries an optional auth manager that is lazily constructed
+ * on first use. The shared {@link AccountWithState} shape is widened by this
+ * one extra field; listAccounts() preserves it (redacted) so the provider can
+ * surface authType/expiresAt without a second lookup.
+ */
+export interface CodexAccountRuntime extends AccountWithState<CodexAccountConfig> {
   auth?: CodexAuthManager
 }
 
-export interface CodexClassifiedError {
-  kind: ResponseKind
-  cooldownMs: number
-  resetAtIso?: string
-}
+export interface CodexClassifiedError extends ClassifiedError {}
 
 /** 模型列表缓存有效期：30 分钟 */
 const MODELS_CACHE_TTL_MS = 30 * 60_000
 /** 模型列表刷新失败后的退避时间：5 分钟（避免无限重试刷屏） */
 const MODELS_REFRESH_BACKOFF_MS = 5 * 60_000
 
-export class CodexAccountPool {
-  private accounts: CodexAccountRuntime[] = []
-  private currentAccountIndex = 0
+export class CodexAccountPool extends BaseAccountPool<CodexAccountConfig> {
+  protected providerName = 'codex'
+
+  /**
+   * Shadowed with the codex-specific runtime (carries the lazy `auth` manager).
+   * The base class declares this as `AccountWithState<C>[]`; narrowing here lets
+   * codex-only methods reach `account.auth` without casts.
+   */
+  declare protected accounts: CodexAccountRuntime[]
+
   /** 防止同一账号并发刷新模型列表 */
   private modelRefreshInFlight = new Map<string, Promise<void>>()
   /** 模型刷新失败的时间戳：accountId → ms；用于退避避免高频重试 */
@@ -44,41 +56,72 @@ export class CodexAccountPool {
   constructor(
     private readonly config: CodexProviderConfig,
     private readonly state: CodexProviderState,
-    private readonly logger: GatewayLogger,
-    private readonly onStateChanged: () => void,
+    logger: GatewayLogger,
+    onStateChanged: () => void,
     private readonly persistAccount?: (
       accountId: string,
       updates: Partial<CodexAccountConfig>
     ) => Promise<void>
   ) {
+    super(logger, onStateChanged)
     this.currentAccountIndex = state.currentAccountIndex || 0
   }
 
-  private accountLabel(account: CodexAccountRuntime): string {
+  // --- state-store wiring ---
+
+  protected lookupState(accountId: string): AccountRuntimeState | undefined {
+    return this.state.accounts[accountId]
+  }
+  protected storeState(accountId: string, state: AccountRuntimeState): void {
+    this.state.accounts[accountId] = state
+  }
+  protected deleteState(accountId: string): void {
+    delete this.state.accounts[accountId]
+  }
+  protected stateIds(): string[] {
+    return Object.keys(this.state.accounts)
+  }
+  protected setCurrentIndex(index: number): void {
+    this.state.currentAccountIndex = index
+  }
+
+  // --- model hooks ---
+
+  protected seedModels(): string[] {
+    return [...FALLBACK_CODEX_MODELS]
+  }
+  protected normalizeModel(model: string): string {
+    return normalizeCodexModel(model)
+  }
+  protected accountHasModel(account: CodexAccountRuntime, model: string): boolean {
+    const list = account.state.modelIds?.length ? account.state.modelIds : FALLBACK_CODEX_MODELS
+    return list.some((available) => normalizeCodexModel(available) === model)
+  }
+  protected redactSecrets(config: CodexAccountConfig): CodexAccountConfig {
+    return {
+      ...config,
+      refreshToken: config.refreshToken ? '***' : undefined,
+      accessToken: config.accessToken ? '***' : undefined,
+      idToken: config.idToken ? '***' : undefined
+    }
+  }
+  protected accountLabel(account: CodexAccountRuntime): string {
     return account.config.email || account.config.label || account.config.id
   }
 
+  // --- reload: seed fallback models + clear stale refresh-backoff markers ---
+
   async reload(accountFiles: CodexAccountConfig[]): Promise<void> {
-    this.accounts = accountFiles.map((account) => {
-      const state = this.state.accounts[account.id] ?? defaultAccountState()
-      // 没有缓存模型时先用 fallback 占位，等首次 refresh 拿到真实列表后覆盖
-      if (!state.modelIds?.length) state.modelIds = [...FALLBACK_CODEX_MODELS]
-      state.status ??= 'available'
-      state.statusUpdatedAt ??= 0
-      this.state.accounts[account.id] = state
-      return { config: account, state }
-    })
-    const activeIds = new Set(accountFiles.map((a) => a.id))
-    for (const id of Object.keys(this.state.accounts)) {
-      if (!activeIds.has(id)) delete this.state.accounts[id]
-    }
-    this.onStateChanged()
+    await super.reload(accountFiles)
+    this.modelRefreshInFlight.clear()
+    this.modelRefreshFailedAt.clear()
   }
 
+  /** Preserve the lazy `auth` manager on the redacted runtime copy. */
   listAccounts(): CodexAccountRuntime[] {
     return this.accounts.map((runtime) => ({
       ...runtime,
-      config: redactAccount(runtime.config)
+      config: this.redactSecrets(runtime.config)
     }))
   }
 
@@ -147,40 +190,22 @@ export class CodexAccountPool {
     return job
   }
 
+  // --- account selection: model → availability → auth (codex ordering) ---
+
   async getAccountForModel(
     model: string,
     exclude = new Set<string>()
   ): Promise<CodexAccountRuntime | undefined> {
-    if (!this.accounts.length) return undefined
-    const now = Date.now()
-    const start = this.currentAccountIndex % this.accounts.length
-
-    for (let i = 0; i < this.accounts.length; i++) {
-      const index = (start + i) % this.accounts.length
-      const account = this.accounts[index]
-      if (account.config.enabled === false || exclude.has(account.config.id)) continue
-      if (!this.accountHasModel(account, model)) continue
-      if (!this.isAvailable(account, now)) continue
-      if (!(await this.tryEnsureInitialized(account))) continue
-      this.currentAccountIndex = index
-      this.state.currentAccountIndex = index
-      this.onStateChanged()
-      return account
-    }
-    // 第二轮：忽略 cooldown，但跳过 hard offline
-    for (let i = 0; i < this.accounts.length; i++) {
-      const index = (start + i) % this.accounts.length
-      const account = this.accounts[index]
-      if (account.config.enabled === false || exclude.has(account.config.id)) continue
-      if (isHardOffline(account.state.status)) continue
-      if (!this.accountHasModel(account, model)) continue
-      if (!(await this.tryEnsureInitialized(account))) continue
-      this.currentAccountIndex = index
-      this.state.currentAccountIndex = index
-      this.onStateChanged()
-      return account
-    }
-    return undefined
+    const normalizedModel = this.normalizeModel(model)
+    return this.pickAccountTwoPassGeneric(exclude, async (account, relax) => {
+      if (!this.accountHasModel(account, normalizedModel)) return false
+      if (relax) {
+        if (this.isHardOffline(account.state.status)) return false
+      } else if (!this.isAvailable(account, Date.now())) {
+        return false
+      }
+      return this.tryEnsureInitialized(account)
+    })
   }
 
   async testAccount(accountId: string): Promise<AccountTestResult> {
@@ -230,73 +255,34 @@ export class CodexAccountPool {
     }
   }
 
-  async reportSuccess(account: CodexAccountRuntime): Promise<void> {
-    account.state.failures = 0
-    account.state.lastError = undefined
-    account.state.lastSuccessAt = Date.now()
-    account.state.stats.totalRequests += 1
-    account.state.stats.successfulRequests += 1
-    account.state.lastResponseKind = 'success'
-    this.transitionStatus(account, 'available', undefined)
-    this.onStateChanged()
-  }
+  // --- failure reporting: codex diverges from the default cooldown mapping in
+  // two ways — quota honors an upstream resetAtIso deadline, and cooling uses
+  // max(1000, cooldownMs || 30_000) as the backoff base. Override only
+  // resolveCooldown; the counter/log preamble comes from BaseAccountPool. ---
 
-  async reportFailure(
+  protected resolveCooldown(
     account: CodexAccountRuntime,
-    error: unknown,
-    classified: CodexClassifiedError
-  ): Promise<void> {
-    account.state.failures += 1
-    account.state.lastFailureAt = Date.now()
-    account.state.lastError = toErrorMessage(error)
-    account.state.stats.totalRequests += 1
-    account.state.stats.failedRequests += 1
-    account.state.lastResponseKind = classified.kind
-
-    const reason = account.state.lastError?.slice(0, 200)
-    const now = Date.now()
-    let nextStatus: AccountStatus
-    let cooldownUntil: number | undefined
+    classified: CodexClassifiedError,
+    now: number
+  ): { status: AccountStatus; cooldownUntil?: number } {
     switch (classified.kind) {
       case 'auth':
-        nextStatus = 'auth_failed'
-        cooldownUntil = undefined
-        break
+        return { status: 'auth_failed' }
       case 'quota':
-        nextStatus = 'quota_exceeded'
-        cooldownUntil = classified.resetAtIso
-          ? new Date(classified.resetAtIso).getTime()
-          : now + classified.cooldownMs
-        break
+        return {
+          status: 'quota_exceeded',
+          cooldownUntil: classified.resetAtIso
+            ? new Date(classified.resetAtIso).getTime()
+            : now + classified.cooldownMs
+        }
       case 'rate_limit':
-        nextStatus = 'rate_limited'
-        cooldownUntil = now + classified.cooldownMs
-        break
+        return { status: 'rate_limited', cooldownUntil: now + classified.cooldownMs }
       default: {
-        nextStatus = 'cooling'
         const base = Math.max(1000, classified.cooldownMs || 30_000)
         const multiplier = Math.min(64, Math.pow(2, Math.max(0, account.state.failures - 1)))
-        cooldownUntil = now + base * multiplier
+        return { status: 'cooling', cooldownUntil: now + base * multiplier }
       }
     }
-    this.transitionStatus(account, nextStatus, reason, cooldownUntil)
-    this.logger.warn(account.state.lastError ?? 'Codex request failed', {
-      provider: 'codex',
-      accountId: this.accountLabel(account),
-      category: 'account'
-    })
-    this.onStateChanged()
-  }
-
-  async resetAccount(accountId: string): Promise<void> {
-    const account = this.accounts.find((item) => item.config.id === accountId)
-    if (!account) return
-    account.state.failures = 0
-    account.state.lastError = undefined
-    account.state.lastFailureAt = 0
-    account.state.lastResponseKind = undefined
-    this.transitionStatus(account, 'available', undefined)
-    this.onStateChanged()
   }
 
   async setAccountStatus(accountId: string, status: AccountStatus, reason?: string): Promise<void> {
@@ -400,60 +386,7 @@ export class CodexAccountPool {
     })
     this.onStateChanged()
   }
-
-  private transitionStatus(
-    account: CodexAccountRuntime,
-    status: AccountStatus,
-    reason?: string,
-    cooldownUntil?: number
-  ): void {
-    account.state.status = status
-    account.state.statusReason = reason
-    account.state.statusUpdatedAt = Date.now()
-    account.state.cooldownUntil = cooldownUntil
-  }
-
-  private isAvailable(account: CodexAccountRuntime, now: number): boolean {
-    const status = account.state.status
-    if (status === 'available') return true
-    if (isHardOffline(status)) return false
-    if (account.state.cooldownUntil && now > account.state.cooldownUntil) return true
-    return Math.random() < 0.1
-  }
-
-  private accountHasModel(account: CodexAccountRuntime, model: string): boolean {
-    const normalized = normalizeCodexModel(model)
-    const list = account.state.modelIds?.length ? account.state.modelIds : FALLBACK_CODEX_MODELS
-    return list.some((available) => normalizeCodexModel(available) === normalized)
-  }
 }
 
-function defaultAccountState(): AccountRuntimeState {
-  return {
-    failures: 0,
-    lastFailureAt: 0,
-    lastSuccessAt: 0,
-    modelsCachedAt: 0,
-    modelIds: [...FALLBACK_CODEX_MODELS],
-    status: 'available',
-    statusUpdatedAt: 0,
-    stats: {
-      totalRequests: 0,
-      successfulRequests: 0,
-      failedRequests: 0
-    }
-  }
-}
-
-function isHardOffline(status: AccountStatus): boolean {
-  return status === 'auth_failed' || status === 'manual_disabled' || status === 'quota_exceeded'
-}
-
-function redactAccount(account: CodexAccountConfig): CodexAccountConfig {
-  return {
-    ...account,
-    refreshToken: account.refreshToken ? '***' : undefined,
-    accessToken: account.accessToken ? '***' : undefined,
-    idToken: account.idToken ? '***' : undefined
-  }
-}
+// re-exported type aliases used by consumers
+export type { AccountStatus, ResponseKind }

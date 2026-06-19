@@ -18,6 +18,7 @@ import { registerOpenRouterCommands } from './commands/openrouter'
 import { registerNvidiaCommands } from './commands/nvidia'
 import { registerGptWebCommands } from './commands/gptWeb'
 import { registerGrokWebCommands } from './commands/grokWeb'
+import { registerQoderCommands } from './commands/qoder'
 import { runGptWebWorkerCli } from './commands/gptWebWorker'
 
 async function main(): Promise<void> {
@@ -41,6 +42,7 @@ async function main(): Promise<void> {
   registerNvidiaCommands(cli)
   registerGptWebCommands(cli)
   registerGrokWebCommands(cli)
+  registerQoderCommands(cli)
   registerConfigCommands(cli)
   registerLogsCommands(cli)
   registerShellCommands(cli)

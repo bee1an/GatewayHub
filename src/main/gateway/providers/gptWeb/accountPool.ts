@@ -9,37 +9,100 @@ import type {
 } from '../../types'
 import { GatewayLogger } from '../../core/logger'
 import { toErrorMessage } from '../../core/utils'
+import {
+  BaseAccountPool,
+  type AccountWithState,
+  type ClassifiedError
+} from '../../core/accountPool'
 import { GPT_WEB_KNOWN_MODELS } from './constants'
 import { fetchModels, type GptWebRequestContext } from './http'
 
-export interface GptWebAccountRuntime {
-  config: GptWebAccountConfig
-  state: AccountRuntimeState
-}
+export type GptWebAccountRuntime = AccountWithState<GptWebAccountConfig>
 
-export interface GptWebClassifiedError {
-  kind: ResponseKind
-  cooldownMs: number
-}
+export interface GptWebClassifiedError extends ClassifiedError {}
 
 const MODELS_CACHE_TTL_MS = 30 * 60_000
 
-export class GptWebAccountPool {
-  private accounts: GptWebAccountRuntime[] = []
-  private currentAccountIndex = 0
+export class GptWebAccountPool extends BaseAccountPool<GptWebAccountConfig> {
+  protected providerName = 'gptWeb'
 
   constructor(
     private readonly config: GptWebProviderConfig,
     private readonly state: GptWebProviderState,
-    _logger: GatewayLogger,
-    private readonly onStateChanged: () => void
+    logger: GatewayLogger,
+    onStateChanged: () => void
   ) {
+    super(logger, onStateChanged)
     this.currentAccountIndex = state.currentAccountIndex || 0
   }
 
+  // --- state-store wiring ---
+
+  protected lookupState(accountId: string): AccountRuntimeState | undefined {
+    return this.state.accounts[accountId]
+  }
+  protected storeState(accountId: string, state: AccountRuntimeState): void {
+    this.state.accounts[accountId] = state
+  }
+  protected deleteState(accountId: string): void {
+    delete this.state.accounts[accountId]
+  }
+  protected stateIds(): string[] {
+    return Object.keys(this.state.accounts)
+  }
+  protected setCurrentIndex(index: number): void {
+    this.state.currentAccountIndex = index
+  }
+
+  /**
+   * GptWeb's availability check is cooldown-aware but has NO probabilistic
+   * early-retry probe: a cooling account is only usable again once its cooldown
+   * elapses. (auth_failed/quota_exceeded/manual_disabled stay hard-offline.)
+   */
+  protected isAvailable(account: GptWebAccountRuntime, now: number): boolean {
+    if (this.isHardOffline(account.state.status)) return false
+    if (
+      account.state.status === 'cooling' &&
+      account.state.cooldownUntil &&
+      account.state.cooldownUntil > now
+    ) {
+      return false
+    }
+    return true
+  }
+
+  /** GptWeb advances past the selected account (idx + 1) for the next rotation. */
+  protected commitIndex(idx: number): void {
+    const next = idx + 1
+    this.currentAccountIndex = next
+    this.setCurrentIndex(next)
+  }
+
+  // --- model hooks ---
+
+  protected seedModels(): string[] {
+    return []
+  }
+  protected normalizeModel(model: string): string {
+    return model
+  }
+  /** GptWeb selects accounts without model filtering (it has no per-account model list). */
+  protected accountHasModel(_account: GptWebAccountRuntime, _model: string): boolean {
+    return true
+  }
+  protected redactSecrets(config: GptWebAccountConfig): GptWebAccountConfig {
+    return {
+      ...config,
+      accessToken: config.accessToken ? '***' : undefined,
+      sessionToken: config.sessionToken ? '***' : undefined
+    }
+  }
+
+  // --- reload: preserve cached models; seed known models for free accounts ---
+
   async reload(accountFiles: GptWebAccountConfig[]): Promise<void> {
     this.accounts = accountFiles.map((account) => {
-      const state = this.state.accounts[account.id] ?? defaultAccountState()
+      const state = this.lookupState(account.id) ?? this.defaultAccountState()
       state.modelIds = Array.isArray(state.modelIds) ? state.modelIds : []
       state.modelsCachedAt = Number(state.modelsCachedAt || 0)
       if (isFreeAccount(account) && !state.modelIds.length) {
@@ -48,24 +111,20 @@ export class GptWebAccountPool {
       }
       state.status ??= 'available'
       state.statusUpdatedAt ??= 0
-      this.state.accounts[account.id] = state
+      this.storeState(account.id, state)
       return { config: account, state }
     })
     const active = new Set(accountFiles.map((a) => a.id))
-    for (const id of Object.keys(this.state.accounts)) {
-      if (!active.has(id)) delete this.state.accounts[id]
+    for (const id of this.stateIds()) {
+      if (!active.has(id)) this.deleteState(id)
     }
     this.onStateChanged()
-  }
-
-  dispose(): void {
-    this.accounts = []
   }
 
   listAccounts(): GptWebAccountRuntime[] {
     return this.accounts.map((runtime) => ({
       ...runtime,
-      config: redactAccount(runtime.config),
+      config: this.redactSecrets(runtime.config),
       state: {
         ...runtime.state,
         stats: { ...runtime.state.stats },
@@ -91,34 +150,17 @@ export class GptWebAccountPool {
     return this.listModels()
   }
 
+  // --- account selection: no model filter, idx+1 rotation ---
+
   getAccount(exclude = new Set<string>()): GptWebAccountRuntime | undefined {
-    if (!this.accounts.length) return undefined
-    const now = Date.now()
-    const start = this.currentAccountIndex % this.accounts.length
-
-    for (let i = 0; i < this.accounts.length; i++) {
-      const idx = (start + i) % this.accounts.length
-      const account = this.accounts[idx]
-      if (account.config.enabled === false || exclude.has(account.config.id)) continue
-      if (!this.isAvailable(account, now)) continue
-      this.currentAccountIndex = idx + 1
-      this.state.currentAccountIndex = this.currentAccountIndex
-      this.onStateChanged()
-      return account
-    }
-
-    for (let i = 0; i < this.accounts.length; i++) {
-      const idx = (start + i) % this.accounts.length
-      const account = this.accounts[idx]
-      if (account.config.enabled === false || exclude.has(account.config.id)) continue
-      if (isHardOffline(account.state.status)) continue
-      this.currentAccountIndex = idx + 1
-      this.state.currentAccountIndex = this.currentAccountIndex
-      this.onStateChanged()
-      return account
-    }
-
-    return undefined
+    return this.pickAccountTwoPassSync(exclude, (account, relax) => {
+      if (relax) {
+        if (this.isHardOffline(account.state.status)) return false
+      } else if (!this.isAvailable(account, Date.now())) {
+        return false
+      }
+      return true
+    })
   }
 
   async testAccount(accountId: string): Promise<AccountTestResult> {
@@ -202,41 +244,27 @@ export class GptWebAccountPool {
     }
   }
 
-  reportSuccess(account: GptWebAccountRuntime): void {
-    account.state.failures = 0
-    account.state.lastError = undefined
-    account.state.lastSuccessAt = Date.now()
-    account.state.stats.totalRequests += 1
-    account.state.stats.successfulRequests += 1
-    account.state.lastResponseKind = 'success'
-    this.transitionStatus(account, 'available', undefined)
-    this.onStateChanged()
-  }
+  // --- failure reporting: gptWeb uses a flat cooldownUntil = now + cooldownMs
+  // (no exponential backoff). Override only resolveCooldown; the counter/log
+  // preamble comes from BaseAccountPool. ---
 
-  reportFailure(
-    account: GptWebAccountRuntime,
-    error: unknown,
-    classified: GptWebClassifiedError
-  ): void {
-    account.state.failures += 1
-    account.state.lastFailureAt = Date.now()
-    account.state.lastError = toErrorMessage(error)
-    account.state.stats.totalRequests += 1
-    account.state.stats.failedRequests += 1
-    account.state.lastResponseKind = classified.kind
-
+  protected resolveCooldown(
+    _account: GptWebAccountRuntime,
+    classified: GptWebClassifiedError,
+    now: number
+  ): { status: AccountStatus; cooldownUntil?: number } {
     const statusMap: Record<string, AccountStatus> = {
       auth: 'auth_failed',
       rate_limit: 'rate_limited',
       quota: 'quota_exceeded'
     }
-    const newStatus = statusMap[classified.kind] || 'cooling'
-    account.state.cooldownUntil = Date.now() + classified.cooldownMs
-    this.transitionStatus(account, newStatus, account.state.lastError?.slice(0, 200))
-    this.onStateChanged()
+    return {
+      status: statusMap[classified.kind] || 'cooling',
+      cooldownUntil: now + classified.cooldownMs
+    }
   }
 
-  resetAccount(accountId: string): void {
+  async resetAccount(accountId: string): Promise<void> {
     const account = this.accounts.find((a) => a.config.id === accountId)
     if (!account) throw new Error('Account not found')
     account.state.failures = 0
@@ -246,7 +274,7 @@ export class GptWebAccountPool {
     this.onStateChanged()
   }
 
-  setAccountStatus(accountId: string, status: AccountStatus, reason?: string): void {
+  async setAccountStatus(accountId: string, status: AccountStatus, reason?: string): Promise<void> {
     const account = this.accounts.find((a) => a.config.id === accountId)
     if (!account) throw new Error('Account not found')
     this.transitionStatus(account, status, reason)
@@ -257,27 +285,9 @@ export class GptWebAccountPool {
     return { account: account.config, settings: this.config.settings }
   }
 
-  private isAvailable(account: GptWebAccountRuntime, now: number): boolean {
-    if (isHardOffline(account.state.status)) return false
-    if (
-      account.state.status === 'cooling' &&
-      account.state.cooldownUntil &&
-      account.state.cooldownUntil > now
-    ) {
-      return false
-    }
-    return true
-  }
-
-  private transitionStatus(
-    account: GptWebAccountRuntime,
-    status: AccountStatus,
-    reason?: string
-  ): void {
-    account.state.status = status
-    account.state.statusReason = reason
-    account.state.statusUpdatedAt = Date.now()
-  }
+  // --- sync two-pass loop: gptWeb's getAccount is synchronous, so it uses the
+  // shared BaseAccountPool.pickAccountTwoPassSync helper instead of the async
+  // generic. ---
 
   private async maybeRefreshModels(account: GptWebAccountRuntime): Promise<void> {
     const now = Date.now()
@@ -339,10 +349,6 @@ export function classifyGptWebError(error: unknown): GptWebClassifiedError {
   return { kind: 'server_error', cooldownMs: 15_000 }
 }
 
-function isHardOffline(status?: AccountStatus): boolean {
-  return status === 'auth_failed' || status === 'quota_exceeded' || status === 'manual_disabled'
-}
-
 function shouldFallbackToKnownModels(error: unknown): boolean {
   const msg = toErrorMessage(error).toLowerCase()
   if (msg.includes('401') || msg.includes('unauthorized') || msg.includes('invalid_token')) {
@@ -370,23 +376,5 @@ function isKnownFallback(models?: string[]): boolean {
   return models.every((model) => known.has(model))
 }
 
-function defaultAccountState(): AccountRuntimeState {
-  return {
-    failures: 0,
-    lastFailureAt: 0,
-    lastSuccessAt: 0,
-    modelsCachedAt: 0,
-    modelIds: [],
-    status: 'available',
-    statusUpdatedAt: 0,
-    stats: { totalRequests: 0, successfulRequests: 0, failedRequests: 0 }
-  }
-}
-
-function redactAccount(config: GptWebAccountConfig): GptWebAccountConfig {
-  return {
-    ...config,
-    accessToken: config.accessToken ? '***' : undefined,
-    sessionToken: config.sessionToken ? '***' : undefined
-  }
-}
+// re-exported type aliases used by consumers
+export type { AccountStatus, ResponseKind }

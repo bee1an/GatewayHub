@@ -1,14 +1,17 @@
 import type {
   AccountRuntimeState,
-  AccountStatus,
   AccountTestResult,
   NvidiaAccountConfig,
   NvidiaProviderConfig,
-  NvidiaProviderState,
-  ResponseKind
+  NvidiaProviderState
 } from '../../types'
 import { GatewayLogger } from '../../core/logger'
 import { toErrorMessage } from '../../core/utils'
+import {
+  BaseAccountPool,
+  type AccountWithState,
+  type ClassifiedError
+} from '../../core/accountPool'
 import { NVIDIA_BASE_URL, NVIDIA_DEFAULT_SMOKE_MODEL, NVIDIA_MODELS_PATH } from './constants'
 import {
   clampRequestRaceMaxConcurrent,
@@ -17,15 +20,9 @@ import {
   scoreAccountForRace
 } from '../requestRace'
 
-export interface NvidiaAccountRuntime {
-  config: NvidiaAccountConfig
-  state: AccountRuntimeState
-}
+export type NvidiaAccountRuntime = AccountWithState<NvidiaAccountConfig>
 
-export interface NvidiaClassifiedError {
-  kind: ResponseKind
-  cooldownMs: number
-}
+export interface NvidiaClassifiedError extends ClassifiedError {}
 
 export interface NvidiaKeyInfo {
   label?: string
@@ -40,100 +37,64 @@ interface NvidiaModelInfo {
 
 const MODELS_CACHE_TTL_MS = 30 * 60_000
 
-export class NvidiaAccountPool {
-  private accounts: NvidiaAccountRuntime[] = []
-  private currentAccountIndex = 0
+export class NvidiaAccountPool extends BaseAccountPool<NvidiaAccountConfig> {
+  protected providerName = 'nvidia'
 
   constructor(
-    private readonly config: NvidiaProviderConfig,
-    private readonly state: NvidiaProviderState,
-    private readonly logger: GatewayLogger,
-    private readonly onStateChanged: () => void,
+    private readonly providerConfig: NvidiaProviderConfig,
+    private readonly providerState: NvidiaProviderState,
+    logger: GatewayLogger,
+    onStateChanged: () => void,
     private readonly persistAccount?: (
       accountId: string,
       updates: Partial<NvidiaAccountConfig>
     ) => Promise<void>
   ) {
-    this.currentAccountIndex = state.currentAccountIndex || 0
+    super(logger, onStateChanged)
+    this.currentAccountIndex = providerState.currentAccountIndex || 0
   }
 
-  async reload(accountFiles: NvidiaAccountConfig[]): Promise<void> {
-    this.accounts = accountFiles.map((account) => {
-      const state = this.state.accounts[account.id] ?? defaultAccountState()
-      state.status ??= 'available'
-      state.statusUpdatedAt ??= 0
-      this.state.accounts[account.id] = state
-      return { config: account, state }
-    })
-    const active = new Set(accountFiles.map((a) => a.id))
-    for (const id of Object.keys(this.state.accounts)) {
-      if (!active.has(id)) delete this.state.accounts[id]
-    }
-    this.onStateChanged()
+  // --- state-store wiring ---
+
+  protected lookupState(accountId: string): AccountRuntimeState | undefined {
+    return this.providerState.accounts[accountId]
+  }
+  protected storeState(accountId: string, state: AccountRuntimeState): void {
+    this.providerState.accounts[accountId] = state
+  }
+  protected deleteState(accountId: string): void {
+    delete this.providerState.accounts[accountId]
+  }
+  protected stateIds(): string[] {
+    return Object.keys(this.providerState.accounts)
+  }
+  protected setCurrentIndex(index: number): void {
+    this.providerState.currentAccountIndex = index
   }
 
-  async dispose(): Promise<void> {
-    this.accounts = []
+  // --- model hooks ---
+
+  protected normalizeModel(model: string): string {
+    return normalizeNvidiaModel(model)
+  }
+  protected accountHasModel(account: NvidiaAccountRuntime, model: string): boolean {
+    const list = account.state.modelIds || []
+    if (!list.length) return false
+    return list.some((available) => normalizeNvidiaModel(available) === model)
+  }
+  protected redactSecrets(config: NvidiaAccountConfig): NvidiaAccountConfig {
+    return { ...config, apiKey: config.apiKey ? '***' : undefined }
   }
 
-  listAccounts(): NvidiaAccountRuntime[] {
-    return this.accounts.map((runtime) => ({
-      ...runtime,
-      config: redactAccount(runtime.config)
-    }))
-  }
-
-  listModels(): string[] {
-    const set = new Set<string>()
-    for (const account of this.accounts) {
-      if (account.config.enabled === false) continue
-      for (const model of account.state.modelIds || []) set.add(model)
-    }
-    return [...set].sort()
-  }
-
-  async listModelsFresh(): Promise<string[]> {
-    await Promise.allSettled(
-      this.accounts
-        .filter((a) => a.config.enabled !== false)
-        .map((a) => this.maybeRefreshAccountModels(a))
-    )
-    return this.listModels()
-  }
+  // --- account selection ---
 
   async getAccountForModel(
     model: string,
     exclude = new Set<string>()
   ): Promise<NvidiaAccountRuntime | undefined> {
-    if (!this.accounts.length) return undefined
-    const now = Date.now()
-    const normalizedModel = normalizeNvidiaModel(model)
-    const start = this.currentAccountIndex % this.accounts.length
-    for (let i = 0; i < this.accounts.length; i++) {
-      const idx = (start + i) % this.accounts.length
-      const account = this.accounts[idx]
-      if (account.config.enabled === false || exclude.has(account.config.id)) continue
-      if (!this.isAvailable(account, now)) continue
-      await this.maybeRefreshAccountModels(account)
-      if (!this.accountHasModel(account, normalizedModel)) continue
-      this.currentAccountIndex = idx
-      this.state.currentAccountIndex = idx
-      this.onStateChanged()
-      return account
-    }
-    for (let i = 0; i < this.accounts.length; i++) {
-      const idx = (start + i) % this.accounts.length
-      const account = this.accounts[idx]
-      if (account.config.enabled === false || exclude.has(account.config.id)) continue
-      if (isHardOffline(account.state.status)) continue
-      await this.maybeRefreshAccountModels(account)
-      if (!this.accountHasModel(account, normalizedModel)) continue
-      this.currentAccountIndex = idx
-      this.state.currentAccountIndex = idx
-      this.onStateChanged()
-      return account
-    }
-    return undefined
+    return this.pickAccountTwoPass(model, exclude, (account) =>
+      this.maybeRefreshAccountModels(account)
+    )
   }
 
   async getRaceAccountsForModel(
@@ -149,7 +110,7 @@ export class NvidiaAccountPool {
     for (let index = 0; index < this.accounts.length; index++) {
       const account = this.accounts[index]
       if (account.config.enabled === false) continue
-      if (isHardOffline(account.state.status)) continue
+      if (this.isHardOffline(account.state.status)) continue
       if (!this.isAvailable(account, now)) continue
       await this.maybeRefreshAccountModels(account)
       if (!this.accountHasModel(account, normalizedModel)) continue
@@ -163,12 +124,12 @@ export class NvidiaAccountPool {
     if (!roundRobin) roundRobin = eligible[0]
 
     this.currentAccountIndex = (roundRobin.index + 1) % this.accounts.length
-    this.state.currentAccountIndex = this.currentAccountIndex
+    this.providerState.currentAccountIndex = this.currentAccountIndex
 
     const selected = [
       roundRobin,
       ...eligible
-        .filter((candidate) => candidate.account.config.id !== roundRobin.account.config.id)
+        .filter((candidate) => candidate.account.config.id !== roundRobin!.account.config.id)
         .sort((a, b) => scoreAccountForRace(b.account.state) - scoreAccountForRace(a.account.state))
     ]
       .slice(0, max)
@@ -176,6 +137,33 @@ export class NvidiaAccountPool {
 
     this.onStateChanged()
     return selected
+  }
+
+  // --- race-aware reporting overrides ---
+
+  async reportSuccess(account: NvidiaAccountRuntime, latencyMs?: number): Promise<void> {
+    await super.reportSuccess(account, latencyMs)
+    recordAccountRaceSuccess(account.state, latencyMs)
+  }
+
+  async reportFailure(
+    account: NvidiaAccountRuntime,
+    error: unknown,
+    classified: NvidiaClassifiedError
+  ): Promise<void> {
+    recordAccountRaceFailure(account.state, classified.kind)
+    await super.reportFailure(account, error, classified)
+  }
+
+  // --- HTTP-specific surface ---
+
+  async listModelsFresh(): Promise<string[]> {
+    await Promise.allSettled(
+      this.accounts
+        .filter((a) => a.config.enabled !== false)
+        .map((a) => this.maybeRefreshAccountModels(a))
+    )
+    return this.listModels()
   }
 
   async testAccount(accountId: string): Promise<AccountTestResult> {
@@ -212,7 +200,7 @@ export class NvidiaAccountPool {
       subscription: { title: 'NVIDIA NIM', type: account.config.keyLabel || 'api-key' },
       email: undefined,
       keyInfo: {
-        baseUrl: this.config.settings.baseUrl || NVIDIA_BASE_URL,
+        baseUrl: this.providerConfig.settings.baseUrl || NVIDIA_BASE_URL,
         lastKeyInfoAt: account.config.lastKeyInfoAt
       },
       tier: 'api-key',
@@ -234,73 +222,6 @@ export class NvidiaAccountPool {
     return { models: account.state.modelIds }
   }
 
-  async reportSuccess(account: NvidiaAccountRuntime, latencyMs?: number): Promise<void> {
-    account.state.failures = 0
-    account.state.lastError = undefined
-    account.state.lastSuccessAt = Date.now()
-    account.state.stats.totalRequests += 1
-    account.state.stats.successfulRequests += 1
-    account.state.lastResponseKind = 'success'
-    recordAccountRaceSuccess(account.state, latencyMs)
-    this.transitionStatus(account, 'available', undefined)
-    this.onStateChanged()
-  }
-
-  async reportFailure(
-    account: NvidiaAccountRuntime,
-    error: unknown,
-    classified: NvidiaClassifiedError
-  ): Promise<void> {
-    account.state.failures += 1
-    account.state.lastFailureAt = Date.now()
-    account.state.lastError = toErrorMessage(error)
-    account.state.stats.totalRequests += 1
-    account.state.stats.failedRequests += 1
-    account.state.lastResponseKind = classified.kind
-    recordAccountRaceFailure(account.state, classified.kind)
-    const now = Date.now()
-    const reason = account.state.lastError.slice(0, 200)
-    if (classified.kind === 'auth') {
-      this.transitionStatus(account, 'auth_failed', reason)
-    } else if (classified.kind === 'quota') {
-      this.transitionStatus(account, 'quota_exceeded', reason, now + classified.cooldownMs)
-    } else if (classified.kind === 'rate_limit') {
-      this.transitionStatus(account, 'rate_limited', reason, now + classified.cooldownMs)
-    } else {
-      const multiplier = Math.min(64, Math.pow(2, Math.max(0, account.state.failures - 1)))
-      this.transitionStatus(account, 'cooling', reason, now + classified.cooldownMs * multiplier)
-    }
-    this.logger.warn(account.state.lastError, {
-      provider: 'nvidia',
-      accountId: accountLabel(account),
-      category: 'account'
-    })
-    this.onStateChanged()
-  }
-
-  async resetAccount(accountId: string): Promise<void> {
-    const account = this.accounts.find((a) => a.config.id === accountId)
-    if (!account) return
-    account.state.failures = 0
-    account.state.lastError = undefined
-    account.state.lastFailureAt = 0
-    account.state.lastResponseKind = undefined
-    this.transitionStatus(account, 'available', undefined)
-    this.onStateChanged()
-  }
-
-  async setAccountStatus(accountId: string, status: AccountStatus, reason?: string): Promise<void> {
-    const account = this.accounts.find((a) => a.config.id === accountId)
-    if (!account) throw new Error(`Account not found: ${accountId}`)
-    if (status === 'available') {
-      account.state.failures = 0
-      account.state.lastError = undefined
-      account.state.cooldownUntil = undefined
-    }
-    this.transitionStatus(account, status, reason)
-    this.onStateChanged()
-  }
-
   private async maybeRefreshAccountModels(account: NvidiaAccountRuntime): Promise<void> {
     const now = Date.now()
     if (
@@ -318,7 +239,7 @@ export class NvidiaAccountPool {
         this.transitionStatus(account, 'auth_failed', toErrorMessage(error).slice(0, 200))
       this.logger.warn(`NVIDIA model refresh failed: ${toErrorMessage(error)}`, {
         provider: 'nvidia',
-        accountId: accountLabel(account),
+        accountId: this.accountLabel(account),
         category: 'account'
       })
       this.onStateChanged()
@@ -346,7 +267,7 @@ export class NvidiaAccountPool {
   }
 
   private async fetchModels(account: NvidiaAccountRuntime): Promise<NvidiaModelInfo[]> {
-    const baseUrl = this.config.settings.baseUrl || NVIDIA_BASE_URL
+    const baseUrl = this.providerConfig.settings.baseUrl || NVIDIA_BASE_URL
     const res = await fetchWithTimeout(joinUrl(baseUrl, NVIDIA_MODELS_PATH), {
       headers: { Authorization: `Bearer ${account.config.apiKey}` },
       timeoutMs: 30_000
@@ -362,7 +283,7 @@ export class NvidiaAccountPool {
   }
 
   private async checkApiKey(account: NvidiaAccountRuntime): Promise<void> {
-    const baseUrl = this.config.settings.baseUrl || NVIDIA_BASE_URL
+    const baseUrl = this.providerConfig.settings.baseUrl || NVIDIA_BASE_URL
     const res = await fetchWithTimeout(joinUrl(baseUrl, '/chat/completions'), {
       method: 'POST',
       headers: {
@@ -375,7 +296,7 @@ export class NvidiaAccountPool {
         stream: false,
         messages: [{ role: 'user', content: 'Reply OK.' }]
       }),
-      timeoutMs: this.config.settings.firstTokenTimeoutSeconds * 1000
+      timeoutMs: this.providerConfig.settings.firstTokenTimeoutSeconds * 1000
     })
     const text = await res.text()
     const payload = parseJson(text)
@@ -384,32 +305,6 @@ export class NvidiaAccountPool {
         `NVIDIA key check failed: HTTP ${res.status} ${redactNvidiaKey(text).slice(0, 500)}`
       )
     }
-  }
-
-  private accountHasModel(account: NvidiaAccountRuntime, model: string): boolean {
-    const list = account.state.modelIds || []
-    if (!list.length) return false
-    return list.some((available) => normalizeNvidiaModel(available) === model)
-  }
-
-  private isAvailable(account: NvidiaAccountRuntime, now: number): boolean {
-    const status = account.state.status
-    if (status === 'available') return true
-    if (isHardOffline(status)) return false
-    if (account.state.cooldownUntil && now > account.state.cooldownUntil) return true
-    return Math.random() < 0.1
-  }
-
-  private transitionStatus(
-    account: NvidiaAccountRuntime,
-    status: AccountStatus,
-    reason?: string,
-    cooldownUntil?: number
-  ): void {
-    account.state.status = status
-    account.state.statusReason = reason
-    account.state.statusUpdatedAt = Date.now()
-    account.state.cooldownUntil = cooldownUntil
   }
 }
 
@@ -430,31 +325,6 @@ export function classifyNvidiaError(status: number, body: string): NvidiaClassif
   if (/timeout/.test(msg)) return { kind: 'timeout', cooldownMs: 30_000 }
   if (status >= 500) return { kind: 'server_error', cooldownMs: 30_000 }
   return { kind: 'server_error', cooldownMs: 15_000 }
-}
-
-function defaultAccountState(): AccountRuntimeState {
-  return {
-    failures: 0,
-    lastFailureAt: 0,
-    lastSuccessAt: 0,
-    modelsCachedAt: 0,
-    modelIds: [],
-    status: 'available',
-    statusUpdatedAt: 0,
-    stats: { totalRequests: 0, successfulRequests: 0, failedRequests: 0 }
-  }
-}
-
-function isHardOffline(status: AccountStatus): boolean {
-  return status === 'auth_failed' || status === 'manual_disabled' || status === 'quota_exceeded'
-}
-
-function redactAccount(account: NvidiaAccountConfig): NvidiaAccountConfig {
-  return { ...account, apiKey: account.apiKey ? '***' : undefined }
-}
-
-function accountLabel(account: NvidiaAccountRuntime): string {
-  return account.config.label || account.config.id
 }
 
 function applyKeyInfo(account: NvidiaAccountConfig, keyInfo: NvidiaKeyInfo): void {

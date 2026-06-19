@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { usePolling } from '../hooks/usePolling'
 import { Button } from '../components/ui/Button'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { useToast } from '../components/ui/ToastContext'
 
 type ApiKeyEntry = {
@@ -31,30 +32,10 @@ type GatewayStatus = {
 
 type SnippetFormat = 'curl' | 'fetch' | 'python'
 
-type WindsurfSettingsForm = {
-  apiServerUrl: string
-  inferenceApiServerUrl: string
-  languageServerBinaryPath: string
-  codeiumDir: string
-  vpnProxyUrl: string
-  firstTokenTimeoutSeconds: string
-  streamingReadTimeoutSeconds: string
-  launchTimeoutSeconds: string
-  maxRetries: string
-  detectProxy: boolean
-}
-
-const DEFAULT_WINDSURF_FORM: WindsurfSettingsForm = {
-  apiServerUrl: '',
-  inferenceApiServerUrl: '',
-  languageServerBinaryPath: '',
-  codeiumDir: '.codeium/windsurf',
-  vpnProxyUrl: '',
-  firstTokenTimeoutSeconds: '60',
-  streamingReadTimeoutSeconds: '120',
-  launchTimeoutSeconds: '20',
-  maxRetries: '2',
-  detectProxy: true
+/** 把配置里的 host 字符串归一到 UI 上的两档：回环 → loopback，其余 → lan。 */
+function hostToMode(host: string | undefined): 'loopback' | 'lan' {
+  const h = (host || '').toLowerCase()
+  return h === '127.0.0.1' || h === '::1' || h === 'localhost' ? 'loopback' : 'lan'
 }
 
 function buildSnippet(status: GatewayStatus, format: SnippetFormat): string {
@@ -109,11 +90,19 @@ export default function Settings(): React.JSX.Element {
   const [autoStart, setAutoStart] = useState(false)
   const [autoStartLoaded, setAutoStartLoaded] = useState(false)
   const [portValue, setPortValue] = useState('')
-  const [windsurfSettings, setWindsurfSettings] =
-    useState<WindsurfSettingsForm>(DEFAULT_WINDSURF_FORM)
-  const [windsurfLoaded, setWindsurfLoaded] = useState(false)
   const portInitRef = useRef(false)
   const portLoaded = portInitRef.current
+  // 监听地址：'loopback' (127.0.0.1) | 'lan' (0.0.0.0)
+  const [hostValue, setHostValue] = useState<'loopback' | 'lan'>('loopback')
+  const hostInitRef = useRef(false)
+  const hostLoaded = hostInitRef.current
+  const [hostConfirmOpen, setHostConfirmOpen] = useState(false)
+
+  // 当前配置是否为回环（非回环一律视为 LAN，覆盖 0.0.0.0 / :: / 具体 IP 等情况）
+  if (status && !hostInitRef.current) {
+    hostInitRef.current = true
+    setHostValue(hostToMode(status.server.host))
+  }
 
   if (status && !portInitRef.current) {
     portInitRef.current = true
@@ -121,24 +110,9 @@ export default function Settings(): React.JSX.Element {
   }
 
   useEffect(() => {
-    window.api.gateway.getKiroSettings().then((s: any) => {
-      setProxyUrl(s?.vpnProxyUrl || '')
+    window.api.gateway.getProxyUrl().then((url) => {
+      setProxyUrl(url || '')
       setProxyLoaded(true)
-    })
-    window.api.gateway.getWindsurfSettings().then((s: any) => {
-      setWindsurfSettings({
-        apiServerUrl: s?.apiServerUrl || '',
-        inferenceApiServerUrl: s?.inferenceApiServerUrl || '',
-        languageServerBinaryPath: s?.languageServerBinaryPath || '',
-        codeiumDir: s?.codeiumDir || '.codeium/windsurf',
-        vpnProxyUrl: s?.vpnProxyUrl || '',
-        firstTokenTimeoutSeconds: String(s?.firstTokenTimeoutSeconds ?? 60),
-        streamingReadTimeoutSeconds: String(s?.streamingReadTimeoutSeconds ?? 120),
-        launchTimeoutSeconds: String(s?.launchTimeoutSeconds ?? 20),
-        maxRetries: String(s?.maxRetries ?? 2),
-        detectProxy: s?.detectProxy !== false
-      })
-      setWindsurfLoaded(true)
     })
     window.api.gateway.getAutoStart().then((v) => {
       setAutoStart(v)
@@ -147,55 +121,7 @@ export default function Settings(): React.JSX.Element {
   }, [])
 
   async function saveProxy(): Promise<void> {
-    await run(
-      () =>
-        Promise.all([
-          window.api.gateway.updateKiroSettings({ vpnProxyUrl: proxyUrl }),
-          window.api.gateway.updateCodexSettings({ vpnProxyUrl: proxyUrl })
-        ]),
-      t('settings.saved')
-    )
-  }
-
-  async function saveWindsurfSettings(): Promise<void> {
-    const firstTokenTimeoutSeconds = parsePositiveInt(
-      windsurfSettings.firstTokenTimeoutSeconds,
-      'First token timeout'
-    )
-    const streamingReadTimeoutSeconds = parsePositiveInt(
-      windsurfSettings.streamingReadTimeoutSeconds,
-      'Streaming read timeout'
-    )
-    const launchTimeoutSeconds = parsePositiveInt(
-      windsurfSettings.launchTimeoutSeconds,
-      'Launch timeout'
-    )
-    const maxRetries = parseNonNegativeInt(windsurfSettings.maxRetries, 'Max retries')
-    if (
-      firstTokenTimeoutSeconds === undefined ||
-      streamingReadTimeoutSeconds === undefined ||
-      launchTimeoutSeconds === undefined ||
-      maxRetries === undefined
-    ) {
-      return
-    }
-
-    await run(
-      () =>
-        window.api.gateway.updateWindsurfSettings({
-          apiServerUrl: windsurfSettings.apiServerUrl.trim(),
-          inferenceApiServerUrl: windsurfSettings.inferenceApiServerUrl.trim(),
-          languageServerBinaryPath: windsurfSettings.languageServerBinaryPath.trim(),
-          codeiumDir: windsurfSettings.codeiumDir.trim() || '.codeium/windsurf',
-          vpnProxyUrl: windsurfSettings.vpnProxyUrl.trim(),
-          firstTokenTimeoutSeconds,
-          streamingReadTimeoutSeconds,
-          launchTimeoutSeconds,
-          maxRetries,
-          detectProxy: windsurfSettings.detectProxy
-        }),
-      t('settings.saved')
-    )
+    await run(() => window.api.gateway.setProxyUrl(proxyUrl.trim()), t('settings.saved'))
   }
 
   async function run(action: () => Promise<any>, success: string): Promise<void> {
@@ -215,31 +141,6 @@ export default function Settings(): React.JSX.Element {
     navigator.clipboard.writeText(text)
     setCopied(label)
     setTimeout(() => setCopied(''), 2000)
-  }
-
-  function updateWindsurfField<K extends keyof WindsurfSettingsForm>(
-    key: K,
-    value: WindsurfSettingsForm[K]
-  ): void {
-    setWindsurfSettings((prev) => ({ ...prev, [key]: value }))
-  }
-
-  function parsePositiveInt(value: string, label: string): number | undefined {
-    const parsed = Number(value)
-    if (!Number.isInteger(parsed) || parsed <= 0) {
-      toast(`${label} must be a positive integer`, 'error')
-      return undefined
-    }
-    return parsed
-  }
-
-  function parseNonNegativeInt(value: string, label: string): number | undefined {
-    const parsed = Number(value)
-    if (!Number.isInteger(parsed) || parsed < 0) {
-      toast(`${label} must be a non-negative integer`, 'error')
-      return undefined
-    }
-    return parsed
   }
 
   const snippet = status ? buildSnippet(status, snippetFormat) : ''
@@ -314,6 +215,71 @@ export default function Settings(): React.JSX.Element {
       </div>
 
       <div className="card">
+        <div className="flex items-center justify-between px-3.5 py-2.5">
+          <div className="min-w-0">
+            <h2
+              id="settings-listen-address-label"
+              className="text-[13px] font-medium text-porcelain"
+            >
+              {t('settings.listenAddress')}
+            </h2>
+            <p className="text-[12px] text-fog mt-0.5">{t('settings.listenAddressDesc')}</p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={hostValue === 'lan'}
+            aria-labelledby="settings-listen-address-label"
+            disabled={!hostLoaded || busy}
+            className="outline-none focus-visible:ring-1 focus-visible:ring-accent/40 disabled:opacity-40 shrink-0"
+            onClick={() => {
+              const next = hostValue === 'lan' ? 'loopback' : 'lan'
+              setHostValue(next)
+              if (next === 'lan') {
+                setHostConfirmOpen(true)
+              } else {
+                void run(() => window.api.gateway.setHost('127.0.0.1'), t('settings.saved'))
+              }
+            }}
+          >
+            <div
+              className={`relative w-8 h-[18px] rounded-full transition-colors duration-200 ${hostValue === 'lan' ? 'bg-warning' : 'bg-charcoal border border-ash/60'}`}
+            >
+              <div
+                className={`absolute top-[3px] w-3 h-3 rounded-full transition-[left,background-color] duration-200 shadow-sm ${hostValue === 'lan' ? 'left-[17px] bg-white' : 'left-[3px] bg-fog'}`}
+              />
+            </div>
+          </button>
+        </div>
+        {hostValue === 'lan' && (
+          <div className="px-3.5 pb-2.5 -mt-0.5">
+            <p className="text-[12px] text-warning">{t('settings.listenLanWarning')}</p>
+          </div>
+        )}
+      </div>
+
+      <ConfirmDialog
+        open={hostConfirmOpen}
+        onOpenChange={(open) => {
+          setHostConfirmOpen(open)
+          // Cancelling the LAN-confirmation must roll the switch back to whatever
+          // is currently applied, otherwise the toggle would read "on" while the
+          // server is still bound to loopback.
+          if (!open) setHostValue(hostToMode(status?.server.host))
+        }}
+        title={t('settings.listenLanConfirmTitle')}
+        description={t('settings.listenLanConfirmDesc')}
+        confirmLabel={t('settings.save')}
+        cancelLabel={t('common.cancel')}
+        variant="danger"
+        loading={busy}
+        onConfirm={async () => {
+          setHostConfirmOpen(false)
+          await run(() => window.api.gateway.setHost('0.0.0.0'), t('settings.saved'))
+        }}
+      />
+
+      <div className="card">
         <div className="px-3.5 py-2 border-b border-charcoal/60">
           <h2 className="text-[13px] font-medium text-porcelain">{t('settings.port')}</h2>
           <p className="text-[12px] text-fog mt-0.5">{t('settings.portDesc')}</p>
@@ -362,123 +328,6 @@ export default function Settings(): React.JSX.Element {
               disabled={!proxyLoaded}
             />
             <Button variant="primary" disabled={busy || !proxyLoaded} onClick={saveProxy}>
-              {t('settings.save')}
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="px-3.5 py-2 border-b border-charcoal/60">
-          <h2 className="text-[13px] font-medium text-porcelain">{t('settings.windsurfTitle')}</h2>
-          <p className="text-[12px] text-fog mt-0.5">{t('settings.windsurfDesc')}</p>
-        </div>
-        <div className="px-3.5 py-3 space-y-3">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <LabeledInput
-              label={t('settings.windsurfApiServerUrl')}
-              value={windsurfSettings.apiServerUrl}
-              onChange={(value) => updateWindsurfField('apiServerUrl', value)}
-              placeholder="https://server.self-serve.windsurf.com"
-              disabled={!windsurfLoaded}
-            />
-            <LabeledInput
-              label={t('settings.windsurfInferenceApiServerUrl')}
-              value={windsurfSettings.inferenceApiServerUrl}
-              onChange={(value) => updateWindsurfField('inferenceApiServerUrl', value)}
-              placeholder="https://inference.codeium.com"
-              disabled={!windsurfLoaded}
-            />
-            <LabeledInput
-              label={t('settings.windsurfLanguageServerPath')}
-              value={windsurfSettings.languageServerBinaryPath}
-              onChange={(value) => updateWindsurfField('languageServerBinaryPath', value)}
-              placeholder="/Applications/Windsurf.app/.../language_server_macos_arm"
-              disabled={!windsurfLoaded}
-            />
-            <LabeledInput
-              label={t('settings.windsurfCodeiumDir')}
-              value={windsurfSettings.codeiumDir}
-              onChange={(value) => updateWindsurfField('codeiumDir', value)}
-              placeholder=".codeium/windsurf"
-              disabled={!windsurfLoaded}
-            />
-            <LabeledInput
-              label={t('settings.windsurfProxy')}
-              value={windsurfSettings.vpnProxyUrl}
-              onChange={(value) => updateWindsurfField('vpnProxyUrl', value)}
-              placeholder="socks5://127.0.0.1:1080"
-              disabled={!windsurfLoaded}
-            />
-            <div className="flex items-end justify-between gap-3 rounded-[var(--radius-md)] border border-charcoal/60 bg-pitch/35 px-3 py-2">
-              <div>
-                <div className="text-[12px] font-medium text-fog">
-                  {t('settings.windsurfDetectProxy')}
-                </div>
-                <div className="text-[11px] text-storm mt-0.5">
-                  {t('settings.windsurfDetectProxyDesc')}
-                </div>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={windsurfSettings.detectProxy}
-                disabled={!windsurfLoaded}
-                className="outline-none focus-visible:ring-1 focus-visible:ring-accent/40 disabled:opacity-40"
-                onClick={() => updateWindsurfField('detectProxy', !windsurfSettings.detectProxy)}
-              >
-                <div
-                  className={`relative w-8 h-[18px] rounded-full transition-colors duration-200 ${windsurfSettings.detectProxy ? 'bg-emerald' : 'bg-charcoal border border-ash/60'}`}
-                >
-                  <div
-                    className={`absolute top-[3px] w-3 h-3 rounded-full transition-[left,background-color] duration-200 shadow-sm ${windsurfSettings.detectProxy ? 'left-[17px] bg-white' : 'left-[3px] bg-fog'}`}
-                  />
-                </div>
-              </button>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <LabeledInput
-              label={t('settings.windsurfFirstTokenTimeout')}
-              value={windsurfSettings.firstTokenTimeoutSeconds}
-              onChange={(value) =>
-                updateWindsurfField('firstTokenTimeoutSeconds', value.replace(/\D/g, ''))
-              }
-              placeholder="60"
-              disabled={!windsurfLoaded}
-            />
-            <LabeledInput
-              label={t('settings.windsurfStreamingTimeout')}
-              value={windsurfSettings.streamingReadTimeoutSeconds}
-              onChange={(value) =>
-                updateWindsurfField('streamingReadTimeoutSeconds', value.replace(/\D/g, ''))
-              }
-              placeholder="120"
-              disabled={!windsurfLoaded}
-            />
-            <LabeledInput
-              label={t('settings.windsurfLaunchTimeout')}
-              value={windsurfSettings.launchTimeoutSeconds}
-              onChange={(value) =>
-                updateWindsurfField('launchTimeoutSeconds', value.replace(/\D/g, ''))
-              }
-              placeholder="20"
-              disabled={!windsurfLoaded}
-            />
-            <LabeledInput
-              label={t('settings.windsurfMaxRetries')}
-              value={windsurfSettings.maxRetries}
-              onChange={(value) => updateWindsurfField('maxRetries', value.replace(/\D/g, ''))}
-              placeholder="2"
-              disabled={!windsurfLoaded}
-            />
-          </div>
-          <div className="flex justify-end">
-            <Button
-              variant="primary"
-              disabled={busy || !windsurfLoaded}
-              onClick={saveWindsurfSettings}
-            >
               {t('settings.save')}
             </Button>
           </div>
@@ -535,32 +384,5 @@ export default function Settings(): React.JSX.Element {
         </div>
       </div>
     </div>
-  )
-}
-
-function LabeledInput({
-  label,
-  value,
-  onChange,
-  placeholder,
-  disabled
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  placeholder?: string
-  disabled?: boolean
-}): React.JSX.Element {
-  return (
-    <label className="block">
-      <span className="block text-[12px] font-medium text-fog mb-1">{label}</span>
-      <input
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-        className="input-base w-full font-mono"
-        disabled={disabled}
-      />
-    </label>
   )
 }

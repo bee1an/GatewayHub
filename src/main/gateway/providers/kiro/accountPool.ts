@@ -10,57 +10,133 @@ import type {
 import type { AccountInfo, AvailableModelsResponse, UsageLimitsResponse } from './types'
 import { GatewayLogger } from '../../core/logger'
 import { toErrorMessage } from '../../core/utils'
+import {
+  BaseAccountPool,
+  type AccountWithState,
+  type ClassifiedError
+} from '../../core/accountPool'
 import { FALLBACK_MODELS, normalizeKiroModelId } from './constants'
 import { KiroAuthManager } from './auth'
 
-export interface KiroAccountRuntime {
-  config: KiroAccountConfig
-  state: AccountRuntimeState
+/**
+ * Kiro runtime carries an optional auth manager that is lazily constructed on
+ * first use. The shared {@link AccountWithState} shape is widened by this one
+ * extra field; listAccounts() preserves it (redacted) so the provider can
+ * surface authType/expiresAt without a second lookup.
+ */
+export interface KiroAccountRuntime extends AccountWithState<KiroAccountConfig> {
   auth?: KiroAuthManager
 }
 
-export class KiroAccountPool {
-  private accounts: KiroAccountRuntime[] = []
-  private currentAccountIndex = 0
+export interface KiroClassifiedError extends ClassifiedError {}
+
+type KiroListAccount = KiroAccountRuntime & { safeConfig: KiroAccountConfig }
+
+export class KiroAccountPool extends BaseAccountPool<KiroAccountConfig> {
+  protected providerName = 'kiro'
+
+  /**
+   * Shadowed with the kiro-specific runtime (carries the lazy `auth` manager).
+   * The base class declares this as `AccountWithState<C>[]`; narrowing here lets
+   * kiro-only methods reach `account.auth` without casts.
+   */
+  declare protected accounts: KiroAccountRuntime[]
 
   constructor(
     private readonly config: KiroProviderConfig,
     private readonly state: KiroProviderState,
-    private readonly logger: GatewayLogger,
-    private readonly onStateChanged: () => void
+    logger: GatewayLogger,
+    onStateChanged: () => void
   ) {
+    super(logger, onStateChanged)
     this.currentAccountIndex = state.currentAccountIndex || 0
   }
 
-  private accountLabel(account: KiroAccountRuntime): string {
+  // --- state-store wiring ---
+
+  protected lookupState(accountId: string): AccountRuntimeState | undefined {
+    return this.state.accounts[accountId]
+  }
+  protected storeState(accountId: string, state: AccountRuntimeState): void {
+    this.state.accounts[accountId] = state
+  }
+  protected deleteState(accountId: string): void {
+    delete this.state.accounts[accountId]
+  }
+  protected stateIds(): string[] {
+    return Object.keys(this.state.accounts)
+  }
+  protected setCurrentIndex(index: number): void {
+    this.state.currentAccountIndex = index
+  }
+
+  // --- model hooks ---
+
+  protected seedModels(): string[] {
+    return [...FALLBACK_MODELS]
+  }
+  protected normalizeModel(model: string): string {
+    return normalizeKiroModelId(model)
+  }
+  protected accountHasModel(account: KiroAccountRuntime, model: string): boolean {
+    return accountModels(account).some((available) => normalizeKiroModelId(available) === model)
+  }
+  protected redactSecrets(config: KiroAccountConfig): KiroAccountConfig {
+    return {
+      ...config,
+      refreshToken: config.refreshToken ? '***' : undefined,
+      accessToken: config.accessToken ? '***' : undefined
+    }
+  }
+  protected accountLabel(account: KiroAccountRuntime): string {
     return account.config.email || account.config.label || account.config.id
   }
 
+  /**
+   * Kiro uses a configurable probabilistic-retry chance (settings.probabilisticRetryChance)
+   * instead of the hardcoded 0.1 in the base class.
+   */
+  protected isAvailable(account: KiroAccountRuntime, now: number): boolean {
+    const status = account.state.status
+    if (status === 'available') return true
+    if (this.isHardOffline(status)) return false
+    // cooling / rate_limited：到期视为可用
+    if (account.state.cooldownUntil && now > account.state.cooldownUntil) return true
+    return Math.random() < this.config.settings.probabilisticRetryChance
+  }
+
+  // --- reload: normalize cached model ids, fall back to FALLBACK_MODELS ---
+
   async reload(accountFiles: KiroAccountConfig[]): Promise<void> {
     this.accounts = accountFiles.map((account) => {
-      const state = this.state.accounts[account.id] ?? defaultAccountState()
+      const state = this.lookupState(account.id) ?? this.defaultAccountState()
       state.modelIds = state.modelIds?.length
         ? normalizeModelIds(state.modelIds)
         : [...FALLBACK_MODELS]
       // 兼容旧状态文件：补默认值
       state.status ??= 'available'
       state.statusUpdatedAt ??= 0
-      this.state.accounts[account.id] = state
+      this.storeState(account.id, state)
       return { config: account, state }
     })
 
     const activeIds = new Set(accountFiles.map((a) => a.id))
-    for (const id of Object.keys(this.state.accounts)) {
-      if (!activeIds.has(id)) delete this.state.accounts[id]
+    for (const id of this.stateIds()) {
+      if (!activeIds.has(id)) this.deleteState(id)
     }
 
     this.onStateChanged()
   }
 
-  listAccounts(): Array<KiroAccountRuntime & { safeConfig: KiroAccountConfig }> {
+  /**
+   * Preserve the lazy `auth` manager on the redacted runtime copy and keep the
+   * legacy `safeConfig` field that the kiro provider historically reads.
+   */
+  listAccounts(): KiroListAccount[] {
     return this.accounts.map((runtime) => ({
       ...runtime,
-      safeConfig: redactAccount(runtime.config)
+      config: this.redactSecrets(runtime.config),
+      safeConfig: this.redactSecrets(runtime.config)
     }))
   }
 
@@ -74,42 +150,22 @@ export class KiroAccountPool {
     return [...set].sort()
   }
 
+  // --- account selection: model → availability → auth (kiro ordering) ---
+
   async getAccountForModel(
     model: string,
     exclude = new Set<string>()
   ): Promise<KiroAccountRuntime | undefined> {
-    if (!this.accounts.length) return undefined
-    const now = Date.now()
-    const start = this.currentAccountIndex % this.accounts.length
-
-    for (let i = 0; i < this.accounts.length; i++) {
-      const index = (start + i) % this.accounts.length
-      const account = this.accounts[index]
-      if (account.config.enabled === false || exclude.has(account.config.id)) continue
-      if (!this.accountHasModel(account, model)) continue
-      if (!this.isAvailable(account, now)) continue
-      if (!(await this.tryEnsureInitialized(account))) continue
-      this.currentAccountIndex = index
-      this.state.currentAccountIndex = index
-      this.onStateChanged()
-      return account
-    }
-
-    // 第二轮降级：忽略 cooldown 概率试探，但仍跳过硬下线状态
-    for (let i = 0; i < this.accounts.length; i++) {
-      const index = (start + i) % this.accounts.length
-      const account = this.accounts[index]
-      if (account.config.enabled === false || exclude.has(account.config.id)) continue
-      if (isHardOffline(account.state.status)) continue
-      if (!this.accountHasModel(account, model)) continue
-      if (!(await this.tryEnsureInitialized(account))) continue
-      this.currentAccountIndex = index
-      this.state.currentAccountIndex = index
-      this.onStateChanged()
-      return account
-    }
-
-    return undefined
+    const normalizedModel = this.normalizeModel(model)
+    return this.pickAccountTwoPassGeneric(exclude, async (account, relax) => {
+      if (!this.accountHasModel(account, normalizedModel)) return false
+      if (relax) {
+        if (this.isHardOffline(account.state.status)) return false
+      } else if (!this.isAvailable(account, Date.now())) {
+        return false
+      }
+      return this.tryEnsureInitialized(account)
+    })
   }
 
   async testAccount(accountId: string): Promise<AccountTestResult> {
@@ -137,80 +193,38 @@ export class KiroAccountPool {
     }
   }
 
-  async reportSuccess(account: KiroAccountRuntime): Promise<void> {
-    account.state.failures = 0
-    account.state.lastError = undefined
-    account.state.lastSuccessAt = Date.now()
-    account.state.stats.totalRequests += 1
-    account.state.stats.successfulRequests += 1
-    account.state.lastResponseKind = 'success'
-    this.transitionStatus(account, 'available', undefined)
-    this.onStateChanged()
-  }
+  // --- failure reporting: kiro diverges from the default cooldown mapping in
+  // two ways — quota honors an upstream resetAtIso deadline, and cooling uses
+  // max(1000, cooldownMs) as the backoff base with a configurable cap
+  // (accountMaxBackoffMultiplier). Override only resolveCooldown; the
+  // counter/log preamble comes from BaseAccountPool. ---
 
-  async reportFailure(
+  protected resolveCooldown(
     account: KiroAccountRuntime,
-    error: unknown,
-    classified: ClassifiedKiroError
-  ): Promise<void> {
-    account.state.failures += 1
-    account.state.lastFailureAt = Date.now()
-    account.state.lastError = toErrorMessage(error)
-    account.state.stats.totalRequests += 1
-    account.state.stats.failedRequests += 1
-    account.state.lastResponseKind = classified.kind
-
-    const reason = account.state.lastError?.slice(0, 200)
-    let nextStatus: AccountStatus
-    let cooldownUntil: number | undefined
-    const now = Date.now()
+    classified: ClassifiedKiroError,
+    now: number
+  ): { status: AccountStatus; cooldownUntil?: number } {
     switch (classified.kind) {
       case 'auth':
-        nextStatus = 'auth_failed'
-        cooldownUntil = undefined
-        break
+        return { status: 'auth_failed' }
       case 'quota':
-        nextStatus = 'quota_exceeded'
-        cooldownUntil = classified.resetAtIso
-          ? new Date(classified.resetAtIso).getTime()
-          : now + classified.cooldownMs
-        break
+        return {
+          status: 'quota_exceeded',
+          cooldownUntil: classified.resetAtIso
+            ? new Date(classified.resetAtIso).getTime()
+            : now + classified.cooldownMs
+        }
       case 'rate_limit':
-        nextStatus = 'rate_limited'
-        cooldownUntil = now + classified.cooldownMs
-        break
-      case 'server_error':
-      case 'timeout':
-      case 'network':
+        return { status: 'rate_limited', cooldownUntil: now + classified.cooldownMs }
       default: {
-        nextStatus = 'cooling'
         const base = Math.max(1000, classified.cooldownMs)
         const multiplier = Math.min(
           this.config.settings.accountMaxBackoffMultiplier,
           Math.pow(2, Math.max(0, account.state.failures - 1))
         )
-        cooldownUntil = now + base * multiplier
-        break
+        return { status: 'cooling', cooldownUntil: now + base * multiplier }
       }
     }
-    this.transitionStatus(account, nextStatus, reason, cooldownUntil)
-    this.logger.warn(account.state.lastError ?? 'Kiro request failed', {
-      provider: 'kiro',
-      accountId: this.accountLabel(account),
-      category: 'account'
-    })
-    this.onStateChanged()
-  }
-
-  async resetAccount(accountId: string): Promise<void> {
-    const account = this.accounts.find((item) => item.config.id === accountId)
-    if (!account) return
-    account.state.failures = 0
-    account.state.lastError = undefined
-    account.state.lastFailureAt = 0
-    account.state.lastResponseKind = undefined
-    this.transitionStatus(account, 'available', undefined)
-    this.onStateChanged()
   }
 
   async setAccountStatus(accountId: string, status: AccountStatus, reason?: string): Promise<void> {
@@ -229,6 +243,8 @@ export class KiroAccountPool {
     })
     this.onStateChanged()
   }
+
+  // --- kiro-specific API surface (unchanged) ---
 
   async getUsageLimits(accountId: string): Promise<UsageLimitsResponse> {
     const account = this.accounts.find((item) => item.config.id === accountId)
@@ -381,18 +397,6 @@ export class KiroAccountPool {
     this.onStateChanged()
   }
 
-  private transitionStatus(
-    account: KiroAccountRuntime,
-    status: AccountStatus,
-    reason?: string,
-    cooldownUntil?: number
-  ): void {
-    account.state.status = status
-    account.state.statusReason = reason
-    account.state.statusUpdatedAt = Date.now()
-    account.state.cooldownUntil = cooldownUntil
-  }
-
   private fallbackModelsResponse(): AvailableModelsResponse {
     return {
       models: FALLBACK_MODELS.map((id) => ({
@@ -405,22 +409,6 @@ export class KiroAccountPool {
         promptCaching: false
       }))
     }
-  }
-
-  private isAvailable(account: KiroAccountRuntime, now: number): boolean {
-    const status = account.state.status
-    if (status === 'available') return true
-    if (isHardOffline(status)) return false
-    // cooling / rate_limited：到期视为可用
-    if (account.state.cooldownUntil && now > account.state.cooldownUntil) return true
-    return Math.random() < this.config.settings.probabilisticRetryChance
-  }
-
-  private accountHasModel(account: KiroAccountRuntime, model: string): boolean {
-    const normalized = normalizeKiroModelId(model)
-    return accountModels(account).some(
-      (available) => normalizeKiroModelId(available) === normalized
-    )
   }
 }
 
@@ -440,33 +428,4 @@ function normalizeModelIds(models: string[]): string[] {
     result.push(normalized)
   }
   return result
-}
-
-function defaultAccountState(): AccountRuntimeState {
-  return {
-    failures: 0,
-    lastFailureAt: 0,
-    lastSuccessAt: 0,
-    modelsCachedAt: 0,
-    modelIds: [...FALLBACK_MODELS],
-    status: 'available',
-    statusUpdatedAt: 0,
-    stats: {
-      totalRequests: 0,
-      successfulRequests: 0,
-      failedRequests: 0
-    }
-  }
-}
-
-function isHardOffline(status: AccountStatus): boolean {
-  return status === 'auth_failed' || status === 'manual_disabled' || status === 'quota_exceeded'
-}
-
-function redactAccount(account: KiroAccountConfig): KiroAccountConfig {
-  return {
-    ...account,
-    refreshToken: account.refreshToken ? '***' : undefined,
-    accessToken: account.accessToken ? '***' : undefined
-  }
 }

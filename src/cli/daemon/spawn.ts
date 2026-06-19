@@ -1,4 +1,5 @@
 import { spawn } from 'child_process'
+import { existsSync } from 'fs'
 import { open, mkdir } from 'fs/promises'
 import { join, resolve } from 'path'
 import { getPaths } from '../../main/gateway/core/paths'
@@ -16,7 +17,7 @@ export async function spawnDaemon(opts: SpawnDaemonOptions): Promise<void> {
   const logPath = join(logsDir, 'daemon.log')
   const logFd = await open(logPath, 'a')
 
-  const cliEntry = resolve(__dirname, 'cli.js')
+  const cliEntry = resolveCliEntryPath()
   const child = spawn(
     process.execPath,
     [cliEntry, '__daemon-run', '--host', opts.host, '--port', String(opts.port)],
@@ -39,6 +40,16 @@ export async function spawnDaemon(opts: SpawnDaemonOptions): Promise<void> {
     }
     throw new Error(`Daemon failed to start within 5 seconds. Check ${logPath}`)
   }
+}
+
+function resolveCliEntryPath(): string {
+  const candidates = [
+    process.argv[1],
+    resolve(__dirname, '../cli.js'),
+    resolve(__dirname, 'cli.js'),
+    resolve(process.cwd(), 'out/main/cli.js')
+  ].filter((candidate): candidate is string => Boolean(candidate))
+  return candidates.find((candidate) => existsSync(candidate)) ?? resolve(__dirname, 'cli.js')
 }
 
 export async function isDaemonRunning(): Promise<boolean> {

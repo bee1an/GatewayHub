@@ -168,7 +168,7 @@ export class GptWebProvider implements ProviderAdapter {
       const startedAt = Date.now()
       try {
         const text = await this.doRequest(account, model, body)
-        this.pool.reportSuccess(account)
+        await this.pool.reportSuccess(account)
         this.logger.info('GptWeb upstream success', {
           ...UPSTREAM_META,
           requestId: rid,
@@ -186,7 +186,7 @@ export class GptWebProvider implements ProviderAdapter {
       } catch (error) {
         lastError = error
         const classified = classifyGptWebError(error)
-        this.pool.reportFailure(account, error, classified)
+        await this.pool.reportFailure(account, error, classified)
         excluded.add(account.config.id)
         this.logger.warn(`GptWeb upstream failed: ${toErrorMessage(error)}`, {
           ...UPSTREAM_META,
@@ -232,7 +232,7 @@ export class GptWebProvider implements ProviderAdapter {
         }
 
         yield 'data: [DONE]\n\n'
-        this.pool.reportSuccess(account)
+        await this.pool.reportSuccess(account)
         this.logger.info('GptWeb upstream success (stream)', {
           ...UPSTREAM_META,
           requestId: rid,
@@ -249,7 +249,7 @@ export class GptWebProvider implements ProviderAdapter {
       } catch (error) {
         lastError = error
         const classified = classifyGptWebError(error)
-        this.pool.reportFailure(account, error, classified)
+        await this.pool.reportFailure(account, error, classified)
         excluded.add(account.config.id)
         this.logger.warn(`GptWeb stream failed: ${toErrorMessage(error)}`, {
           ...UPSTREAM_META,

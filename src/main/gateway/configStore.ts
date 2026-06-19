@@ -1,7 +1,6 @@
-import { dirname, join } from 'path'
-import { mkdir, readdir, readFile, rename, stat, unlink, writeFile } from 'fs/promises'
+import { dirname, join, resolve, sep } from 'path'
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'fs/promises'
 import { homedir } from 'os'
-import { randomBytes } from 'crypto'
 import type {
   ApiKeyEntry,
   GptWebAccountConfig,
@@ -13,6 +12,7 @@ import type {
   ModelMapping,
   NvidiaAccountConfig,
   OpenRouterAccountConfig,
+  QoderAccountConfig,
   TraeAccountConfig,
   WindsurfAccountConfig
 } from './types'
@@ -34,12 +34,13 @@ import { DEFAULT_OPENROUTER_SETTINGS } from './providers/openrouter/constants'
 import { DEFAULT_NVIDIA_SETTINGS } from './providers/nvidia/constants'
 import { DEFAULT_GPT_WEB_SETTINGS } from './providers/gptWeb/constants'
 import { DEFAULT_GROK_WEB_SETTINGS } from './providers/grokWeb/constants'
+import { DEFAULT_QODER_SETTINGS, normalizeQoderMaxOutputTokens } from './providers/qoder/constants'
 import { normalizeRequestRaceSettings } from './providers/requestRace'
 import { generateApiKey, readJsonFile, sha256Short, writeJsonFile, atomicWrite } from './core/utils'
 import { getPaths } from './core/paths'
-import { withLock } from './core/lockfile'
 import { normalizeKiroExpiresAt } from './providers/kiro/normalize'
 import { importNodeSqlite } from './providers/kiro/sqlite'
+import { AccountFileStore } from './core/accountStore'
 
 export class GatewayConfigStore {
   readonly configPath: string
@@ -82,6 +83,14 @@ export class GatewayConfigStore {
 
   grokWebAccountsDir(): string {
     return join(dirname(this.configPath), 'grokWeb', 'accounts')
+  }
+
+  qoderAccountsDir(): string {
+    return join(dirname(this.configPath), 'qoder', 'accounts')
+  }
+
+  qoderAuthDir(): string {
+    return join(dirname(this.configPath), 'qoder', 'auth')
   }
 
   logsDir(): string {
@@ -162,6 +171,7 @@ export class GatewayConfigStore {
       !parsed.providers?.nvidia ||
       !parsed.providers?.gptWeb ||
       !parsed.providers?.grokWeb ||
+      !parsed.providers?.qoder ||
       parsed.providers?.trae?.settings?.modelListPath === LEGACY_TRAE_MODEL_LIST_PATH ||
       JSON.stringify(parsed.modelMappings ?? []) !== JSON.stringify(config.modelMappings)
 
@@ -175,6 +185,20 @@ export class GatewayConfigStore {
   async saveConfig(config: GatewayHubConfig): Promise<void> {
     const clone = JSON.parse(JSON.stringify(config))
     delete (clone.providers?.kiro as any)?.accounts
+    // Strip runtime-injected proxy URLs so disk only stores the global server.proxyUrl
+    // + each provider's useProxy flag. The registry re-derives settings.vpnProxyUrl on rebuild.
+    for (const providerKey of [
+      'kiro',
+      'codex',
+      'windsurf',
+      'trae',
+      'gptWeb',
+      'grokWeb',
+      'qoder'
+    ] as const) {
+      const settings = clone.providers?.[providerKey]?.settings
+      if (settings && typeof settings === 'object') delete settings.vpnProxyUrl
+    }
     await mkdir(dirname(this.configPath), { recursive: true })
     await atomicWrite(this.configPath, `${JSON.stringify(clone, null, 2)}\n`)
   }
@@ -195,59 +219,35 @@ export class GatewayConfigStore {
     await atomicWrite(this.statePath, `${JSON.stringify(state, null, 2)}\n`)
   }
 
-  async readAccountFiles(): Promise<KiroAccountConfig[]> {
-    const dir = this.accountsDir()
-    let files: string[]
-    try {
-      files = await readdir(dir)
-    } catch {
-      return []
-    }
+  private readonly kiroStore = new AccountFileStore<KiroAccountConfig>({
+    dir: () => this.accountsDir(),
+    providerLabel: 'account',
+    backfillId: (data) => {
+      if (!data.id) data.id = makeStableId(data)
+      return data
+    },
+    fileNameSource: (data) => data.email || data.label || data.id,
+    strip: (data) => {
+      const { path: _path, ...rest } = data
+      return rest
+    },
+    renameOnEmailChange: true
+  })
 
-    const accounts: KiroAccountConfig[] = []
-    for (const file of files) {
-      if (!file.endsWith('.json') || file.startsWith('.')) continue
-      const filePath = join(dir, file)
-      try {
-        const data = await readJsonFile<any>(filePath)
-        if (!data.id) data.id = makeStableId(data)
-        if (data.enabled === undefined) data.enabled = true
-        data.path = filePath
-        accounts.push(data as KiroAccountConfig)
-      } catch (err) {
-        console.warn(`[GatewayHub] Skipping corrupt account file: ${file}`, err)
-      }
-    }
-    return accounts
+  readAccountFiles(): Promise<KiroAccountConfig[]> {
+    return this.kiroStore.readAll()
   }
 
-  async writeAccountFile(data: KiroAccountConfig): Promise<string> {
-    const dir = this.accountsDir()
-    await mkdir(dir, { recursive: true })
-
-    const fileBase = safeFileName(data.email || data.label || data.id) || 'account'
-    const targetPath = join(dir, `${fileBase}.json`)
-
-    return writeAccountFileWithConflict(targetPath, data, stripPath)
+  writeAccountFile(data: KiroAccountConfig): Promise<string> {
+    return this.kiroStore.write(data)
   }
 
-  async deleteAccountFile(accountId: string): Promise<boolean> {
-    const accounts = await this.readAccountFiles()
-    const account = accounts.find((a) => a.id === accountId)
-    if (!account?.path) return false
-    return deleteJsonFileLocked(account.path)
+  deleteAccountFile(accountId: string): Promise<boolean> {
+    return this.kiroStore.delete(accountId)
   }
 
-  async updateAccountFile(accountId: string, updates: Partial<KiroAccountConfig>): Promise<void> {
-    const accounts = await this.readAccountFiles()
-    const account = accounts.find((a) => a.id === accountId)
-    if (!account?.path) throw new Error(`Account not found: ${accountId}`)
-    await updateJsonFileLockedWithOptionalEmailRename(
-      account.path,
-      accountId,
-      account.email,
-      updates
-    )
+  updateAccountFile(accountId: string, updates: Partial<KiroAccountConfig>): Promise<void> {
+    return this.kiroStore.update(accountId, updates)
   }
 
   async scanExternalAccounts(): Promise<Array<KiroAccountConfig & { sourceType: string }>> {
@@ -339,58 +339,32 @@ export class GatewayConfigStore {
 
   // ============== Codex account file management ==============
 
-  async readCodexAccountFiles(): Promise<CodexAccountConfig[]> {
-    const dir = this.codexAccountsDir()
-    let files: string[]
-    try {
-      files = await readdir(dir)
-    } catch {
-      return []
-    }
-    const accounts: CodexAccountConfig[] = []
-    for (const file of files) {
-      if (!file.endsWith('.json') || file.startsWith('.')) continue
-      const filePath = join(dir, file)
-      try {
-        const data = await readJsonFile<any>(filePath)
-        if (data.enabled === undefined) data.enabled = true
-        data.path = filePath
-        accounts.push(data as CodexAccountConfig)
-      } catch (err) {
-        console.warn(`[GatewayHub] Skipping corrupt codex account file: ${file}`, err)
-      }
-    }
-    return accounts
+  private readonly codexStore = new AccountFileStore<CodexAccountConfig>({
+    dir: () => this.codexAccountsDir(),
+    providerLabel: 'codex',
+    backfillId: (data) => data,
+    fileNameSource: (data) => data.email || data.label || data.id,
+    strip: (data) => {
+      const { path: _path, ...rest } = data
+      return rest
+    },
+    renameOnEmailChange: true
+  })
+
+  readCodexAccountFiles(): Promise<CodexAccountConfig[]> {
+    return this.codexStore.readAll()
   }
 
-  async writeCodexAccountFile(data: CodexAccountConfig): Promise<string> {
-    const dir = this.codexAccountsDir()
-    await mkdir(dir, { recursive: true })
-    const fileBase = safeFileName(data.email || data.label || data.id) || 'account'
-    const targetPath = join(dir, `${fileBase}.json`)
-    return writeAccountFileWithConflict(targetPath, data, stripCodexPath)
+  writeCodexAccountFile(data: CodexAccountConfig): Promise<string> {
+    return this.codexStore.write(data)
   }
 
-  async deleteCodexAccountFile(accountId: string): Promise<boolean> {
-    const accounts = await this.readCodexAccountFiles()
-    const account = accounts.find((a) => a.id === accountId)
-    if (!account?.path) return false
-    return deleteJsonFileLocked(account.path)
+  deleteCodexAccountFile(accountId: string): Promise<boolean> {
+    return this.codexStore.delete(accountId)
   }
 
-  async updateCodexAccountFile(
-    accountId: string,
-    updates: Partial<CodexAccountConfig>
-  ): Promise<void> {
-    const accounts = await this.readCodexAccountFiles()
-    const account = accounts.find((a) => a.id === accountId)
-    if (!account?.path) throw new Error(`Codex account not found: ${accountId}`)
-    await updateJsonFileLockedWithOptionalEmailRename(
-      account.path,
-      accountId,
-      account.email,
-      updates
-    )
+  updateCodexAccountFile(accountId: string, updates: Partial<CodexAccountConfig>): Promise<void> {
+    return this.codexStore.update(accountId, updates)
   }
 
   /**
@@ -434,53 +408,34 @@ export class GatewayConfigStore {
 
   // ============== Windsurf account file management ==============
 
-  async readWindsurfAccountFiles(): Promise<WindsurfAccountConfig[]> {
-    const dir = this.windsurfAccountsDir()
-    let files: string[]
-    try {
-      files = await readdir(dir)
-    } catch {
-      return []
+  private readonly windsurfStore = new AccountFileStore<WindsurfAccountConfig>({
+    dir: () => this.windsurfAccountsDir(),
+    providerLabel: 'windsurf',
+    backfillId: (data) => data,
+    fileNameSource: (data) => data.email || data.label || data.id,
+    strip: (data) => {
+      const { path: _path, ...rest } = data
+      return rest
     }
-    const accounts: WindsurfAccountConfig[] = []
-    for (const file of files) {
-      if (!file.endsWith('.json') || file.startsWith('.')) continue
-      const filePath = join(dir, file)
-      try {
-        const data = await readJsonFile<any>(filePath)
-        if (data.enabled === undefined) data.enabled = true
-        data.path = filePath
-        accounts.push(data as WindsurfAccountConfig)
-      } catch (err) {
-        console.warn(`[GatewayHub] Skipping corrupt windsurf account file: ${file}`, err)
-      }
-    }
-    return accounts
+  })
+
+  readWindsurfAccountFiles(): Promise<WindsurfAccountConfig[]> {
+    return this.windsurfStore.readAll()
   }
 
-  async writeWindsurfAccountFile(data: WindsurfAccountConfig): Promise<string> {
-    const dir = this.windsurfAccountsDir()
-    await mkdir(dir, { recursive: true })
-    const fileBase = safeFileName(data.email || data.label || data.id) || 'account'
-    const targetPath = join(dir, `${fileBase}.json`)
-    return writeAccountFileWithConflict(targetPath, data, stripWindsurfPath)
+  writeWindsurfAccountFile(data: WindsurfAccountConfig): Promise<string> {
+    return this.windsurfStore.write(data)
   }
 
-  async deleteWindsurfAccountFile(accountId: string): Promise<boolean> {
-    const accounts = await this.readWindsurfAccountFiles()
-    const account = accounts.find((a) => a.id === accountId)
-    if (!account?.path) return false
-    return deleteJsonFileLocked(account.path)
+  deleteWindsurfAccountFile(accountId: string): Promise<boolean> {
+    return this.windsurfStore.delete(accountId)
   }
 
-  async updateWindsurfAccountFile(
+  updateWindsurfAccountFile(
     accountId: string,
     updates: Partial<WindsurfAccountConfig>
   ): Promise<void> {
-    const accounts = await this.readWindsurfAccountFiles()
-    const account = accounts.find((a) => a.id === accountId)
-    if (!account?.path) throw new Error(`Windsurf account not found: ${accountId}`)
-    await updateJsonFileLocked(account.path, updates)
+    return this.windsurfStore.update(accountId, updates)
   }
 
   async scanWindsurfAccounts(): Promise<{
@@ -509,59 +464,41 @@ export class GatewayConfigStore {
 
   // ============== Trae account file management ==============
 
-  async readTraeAccountFiles(): Promise<TraeAccountConfig[]> {
-    const dir = this.traeAccountsDir()
-    let files: string[]
-    try {
-      files = await readdir(dir)
-    } catch {
-      return []
-    }
-    const accounts: TraeAccountConfig[] = []
-    for (const file of files) {
-      if (!file.endsWith('.json') || file.startsWith('.')) continue
-      const filePath = join(dir, file)
-      try {
-        const data = await readJsonFile<any>(filePath)
-        if (!data.id) data.id = makeTraeStableId(data)
-        if (data.enabled === undefined) data.enabled = true
-        data.path = filePath
-        accounts.push(data as TraeAccountConfig)
-      } catch (err) {
-        console.warn(`[GatewayHub] Skipping corrupt trae account file: ${file}`, err)
-      }
-    }
-    return accounts
+  private readonly traeStore = new AccountFileStore<TraeAccountConfig>({
+    dir: () => this.traeAccountsDir(),
+    providerLabel: 'trae',
+    backfillId: (data) => {
+      if (!data.id) data.id = makeTraeStableId(data)
+      return data
+    },
+    fileNameSource: (data) => data.email || data.label || data.id,
+    // Trae strip also drops scan-time-only fields (sourceType / existing).
+    strip: (data) => {
+      const {
+        path: _path,
+        sourceType: _sourceType,
+        existing: _existing,
+        ...rest
+      } = data as TraeAccountConfig & { sourceType?: string; existing?: boolean }
+      return rest
+    },
+    renameOnEmailChange: true
+  })
+
+  readTraeAccountFiles(): Promise<TraeAccountConfig[]> {
+    return this.traeStore.readAll()
   }
 
-  async writeTraeAccountFile(data: TraeAccountConfig): Promise<string> {
-    const dir = this.traeAccountsDir()
-    await mkdir(dir, { recursive: true })
-    const fileBase = safeFileName(data.email || data.label || data.id) || 'account'
-    const targetPath = join(dir, `${fileBase}.json`)
-    return writeAccountFileWithConflict(targetPath, data, stripTraePath)
+  writeTraeAccountFile(data: TraeAccountConfig): Promise<string> {
+    return this.traeStore.write(data)
   }
 
-  async deleteTraeAccountFile(accountId: string): Promise<boolean> {
-    const accounts = await this.readTraeAccountFiles()
-    const account = accounts.find((a) => a.id === accountId)
-    if (!account?.path) return false
-    return deleteJsonFileLocked(account.path)
+  deleteTraeAccountFile(accountId: string): Promise<boolean> {
+    return this.traeStore.delete(accountId)
   }
 
-  async updateTraeAccountFile(
-    accountId: string,
-    updates: Partial<TraeAccountConfig>
-  ): Promise<void> {
-    const accounts = await this.readTraeAccountFiles()
-    const account = accounts.find((a) => a.id === accountId)
-    if (!account?.path) throw new Error(`Trae account not found: ${accountId}`)
-    await updateJsonFileLockedWithOptionalEmailRename(
-      account.path,
-      accountId,
-      account.email,
-      updates
-    )
+  updateTraeAccountFile(accountId: string, updates: Partial<TraeAccountConfig>): Promise<void> {
+    return this.traeStore.update(accountId, updates)
   }
 
   async scanTraeAccounts(): Promise<{
@@ -590,214 +527,210 @@ export class GatewayConfigStore {
 
   // ============== OpenRouter account file management ==============
 
-  async readOpenRouterAccountFiles(): Promise<OpenRouterAccountConfig[]> {
-    const dir = this.openrouterAccountsDir()
-    let files: string[]
-    try {
-      files = await readdir(dir)
-    } catch {
-      return []
+  private readonly openrouterStore = new AccountFileStore<OpenRouterAccountConfig>({
+    dir: () => this.openrouterAccountsDir(),
+    providerLabel: 'openrouter',
+    backfillId: (data) => {
+      if (!data.id) data.id = `openrouter-${sha256Short(data.apiKey || Math.random().toString())}`
+      return data
+    },
+    validate: (data) => (data.apiKey ? data : null),
+    fileNameSource: (data) => data.label || data.id,
+    strip: (data) => {
+      const { path: _path, ...rest } = data
+      return rest
     }
-    const accounts: OpenRouterAccountConfig[] = []
-    for (const file of files) {
-      if (!file.endsWith('.json') || file.startsWith('.')) continue
-      const filePath = join(dir, file)
-      try {
-        const data = await readJsonFile<any>(filePath)
-        if (!data.apiKey) continue
-        if (!data.id) data.id = `openrouter-${sha256Short(data.apiKey || Math.random().toString())}`
-        if (data.enabled === undefined) data.enabled = true
-        data.path = filePath
-        accounts.push(data as OpenRouterAccountConfig)
-      } catch (err) {
-        console.warn(`[GatewayHub] Skipping corrupt openrouter account file: ${file}`, err)
-      }
-    }
-    return accounts
+  })
+
+  readOpenRouterAccountFiles(): Promise<OpenRouterAccountConfig[]> {
+    return this.openrouterStore.readAll()
   }
 
-  async writeOpenRouterAccountFile(data: OpenRouterAccountConfig): Promise<string> {
-    const dir = this.openrouterAccountsDir()
-    await mkdir(dir, { recursive: true })
-    const fileBase = safeFileName(data.label || data.id) || 'account'
-    const targetPath = join(dir, `${fileBase}.json`)
-    return writeAccountFileWithConflict(targetPath, data, stripOpenRouterPath)
+  writeOpenRouterAccountFile(data: OpenRouterAccountConfig): Promise<string> {
+    return this.openrouterStore.write(data)
   }
 
-  async deleteOpenRouterAccountFile(accountId: string): Promise<boolean> {
-    const accounts = await this.readOpenRouterAccountFiles()
-    const account = accounts.find((a) => a.id === accountId)
-    if (!account?.path) return false
-    return deleteJsonFileLocked(account.path)
+  deleteOpenRouterAccountFile(accountId: string): Promise<boolean> {
+    return this.openrouterStore.delete(accountId)
   }
 
-  async updateOpenRouterAccountFile(
+  updateOpenRouterAccountFile(
     accountId: string,
     updates: Partial<OpenRouterAccountConfig>
   ): Promise<void> {
-    const accounts = await this.readOpenRouterAccountFiles()
-    const account = accounts.find((a) => a.id === accountId)
-    if (!account?.path) throw new Error(`OpenRouter account not found: ${accountId}`)
-    await updateJsonFileLocked(account.path, updates)
+    return this.openrouterStore.update(accountId, updates)
   }
 
   // ============== NVIDIA account file management ==============
 
-  async readNvidiaAccountFiles(): Promise<NvidiaAccountConfig[]> {
-    const dir = this.nvidiaAccountsDir()
-    let files: string[]
-    try {
-      files = await readdir(dir)
-    } catch {
-      return []
+  private readonly nvidiaStore = new AccountFileStore<NvidiaAccountConfig>({
+    dir: () => this.nvidiaAccountsDir(),
+    providerLabel: 'nvidia',
+    backfillId: (data) => {
+      if (!data.id) data.id = `nvidia-${sha256Short(data.apiKey || Math.random().toString())}`
+      return data
+    },
+    validate: (data) => (data.apiKey ? data : null),
+    fileNameSource: (data) => data.label || data.id,
+    strip: (data) => {
+      const { path: _path, ...rest } = data
+      return rest
     }
-    const accounts: NvidiaAccountConfig[] = []
-    for (const file of files) {
-      if (!file.endsWith('.json') || file.startsWith('.')) continue
-      const filePath = join(dir, file)
-      try {
-        const data = await readJsonFile<any>(filePath)
-        if (!data.apiKey) continue
-        if (!data.id) data.id = `nvidia-${sha256Short(data.apiKey || Math.random().toString())}`
-        if (data.enabled === undefined) data.enabled = true
-        data.path = filePath
-        accounts.push(data as NvidiaAccountConfig)
-      } catch (err) {
-        console.warn(`[GatewayHub] Skipping corrupt nvidia account file: ${file}`, err)
-      }
-    }
-    return accounts
+  })
+
+  readNvidiaAccountFiles(): Promise<NvidiaAccountConfig[]> {
+    return this.nvidiaStore.readAll()
   }
 
-  async writeNvidiaAccountFile(data: NvidiaAccountConfig): Promise<string> {
-    const dir = this.nvidiaAccountsDir()
-    await mkdir(dir, { recursive: true })
-    const fileBase = safeFileName(data.label || data.id) || 'account'
-    const targetPath = join(dir, `${fileBase}.json`)
-    return writeAccountFileWithConflict(targetPath, data, stripNvidiaPath)
+  writeNvidiaAccountFile(data: NvidiaAccountConfig): Promise<string> {
+    return this.nvidiaStore.write(data)
   }
 
-  async deleteNvidiaAccountFile(accountId: string): Promise<boolean> {
-    const accounts = await this.readNvidiaAccountFiles()
-    const account = accounts.find((a) => a.id === accountId)
-    if (!account?.path) return false
-    return deleteJsonFileLocked(account.path)
+  deleteNvidiaAccountFile(accountId: string): Promise<boolean> {
+    return this.nvidiaStore.delete(accountId)
   }
 
-  async updateNvidiaAccountFile(
-    accountId: string,
-    updates: Partial<NvidiaAccountConfig>
-  ): Promise<void> {
-    const accounts = await this.readNvidiaAccountFiles()
-    const account = accounts.find((a) => a.id === accountId)
-    if (!account?.path) throw new Error(`NVIDIA account not found: ${accountId}`)
-    await updateJsonFileLocked(account.path, updates)
+  updateNvidiaAccountFile(accountId: string, updates: Partial<NvidiaAccountConfig>): Promise<void> {
+    return this.nvidiaStore.update(accountId, updates)
   }
 
   // ============== GptWeb account file management ==============
 
-  async readGptWebAccountFiles(): Promise<GptWebAccountConfig[]> {
-    const dir = this.gptWebAccountsDir()
-    let files: string[]
-    try {
-      files = await readdir(dir)
-    } catch {
-      return []
+  private readonly gptWebStore = new AccountFileStore<GptWebAccountConfig>({
+    dir: () => this.gptWebAccountsDir(),
+    providerLabel: 'gptWeb',
+    backfillId: (data) => {
+      if (!data.id && data.accessToken)
+        data.id = `gptWeb-${sha256Short(data.accessToken.slice(0, 32))}`
+      return data
+    },
+    validate: (data) => (data.accessToken ? data : null),
+    fileNameSource: (data) => data.label || data.email || data.id,
+    strip: (data) => {
+      const { path: _path, ...rest } = data
+      return rest
     }
-    const accounts: GptWebAccountConfig[] = []
-    for (const file of files) {
-      if (!file.endsWith('.json') || file.startsWith('.')) continue
-      const filePath = join(dir, file)
-      try {
-        const data = await readJsonFile<any>(filePath)
-        if (!data.accessToken) continue
-        if (!data.id) data.id = `gptWeb-${sha256Short(data.accessToken.slice(0, 32))}`
-        if (data.enabled === undefined) data.enabled = true
-        data.path = filePath
-        accounts.push(data as GptWebAccountConfig)
-      } catch (err) {
-        console.warn(`[GatewayHub] Skipping corrupt gptWeb account file: ${file}`, err)
-      }
-    }
-    return accounts
+  })
+
+  readGptWebAccountFiles(): Promise<GptWebAccountConfig[]> {
+    return this.gptWebStore.readAll()
   }
 
-  async writeGptWebAccountFile(data: GptWebAccountConfig): Promise<string> {
-    const dir = this.gptWebAccountsDir()
-    await mkdir(dir, { recursive: true })
-    const fileBase = safeFileName(data.label || data.email || data.id) || 'account'
-    const targetPath = join(dir, `${fileBase}.json`)
-    return writeAccountFileWithConflict(targetPath, data, stripGptWebPath)
+  writeGptWebAccountFile(data: GptWebAccountConfig): Promise<string> {
+    return this.gptWebStore.write(data)
   }
 
-  async deleteGptWebAccountFile(accountId: string): Promise<boolean> {
-    const accounts = await this.readGptWebAccountFiles()
-    const account = accounts.find((a) => a.id === accountId)
-    if (!account?.path) return false
-    return deleteJsonFileLocked(account.path)
+  deleteGptWebAccountFile(accountId: string): Promise<boolean> {
+    return this.gptWebStore.delete(accountId)
   }
 
-  async updateGptWebAccountFile(
-    accountId: string,
-    updates: Partial<GptWebAccountConfig>
-  ): Promise<void> {
-    const accounts = await this.readGptWebAccountFiles()
-    const account = accounts.find((a) => a.id === accountId)
-    if (!account?.path) throw new Error(`GptWeb account not found: ${accountId}`)
-    await updateJsonFileLocked(account.path, updates)
+  updateGptWebAccountFile(accountId: string, updates: Partial<GptWebAccountConfig>): Promise<void> {
+    return this.gptWebStore.update(accountId, updates)
   }
 
   // ============== Grok Web account file management ==============
 
-  async readGrokWebAccountFiles(): Promise<GrokWebAccountConfig[]> {
-    const dir = this.grokWebAccountsDir()
-    let files: string[]
-    try {
-      files = await readdir(dir)
-    } catch {
-      return []
+  private readonly grokWebStore = new AccountFileStore<GrokWebAccountConfig>({
+    dir: () => this.grokWebAccountsDir(),
+    providerLabel: 'grokWeb',
+    backfillId: (data) => {
+      if (!data.id && data.cookieHeader)
+        data.id = `grokWeb-${sha256Short(data.cookieHeader.slice(0, 64))}`
+      return data
+    },
+    validate: (data) => (data.cookieHeader ? data : null),
+    fileNameSource: (data) => data.label || data.email || data.id,
+    strip: (data) => {
+      const { path: _path, ...rest } = data
+      return rest
     }
-    const accounts: GrokWebAccountConfig[] = []
-    for (const file of files) {
-      if (!file.endsWith('.json') || file.startsWith('.')) continue
-      const filePath = join(dir, file)
-      try {
-        const data = await readJsonFile<any>(filePath)
-        if (!data.cookieHeader) continue
-        if (!data.id) data.id = `grokWeb-${sha256Short(data.cookieHeader.slice(0, 64))}`
-        if (data.enabled === undefined) data.enabled = true
-        data.path = filePath
-        accounts.push(data as GrokWebAccountConfig)
-      } catch (err) {
-        console.warn(`[GatewayHub] Skipping corrupt grokWeb account file: ${file}`, err)
-      }
-    }
-    return accounts
+  })
+
+  readGrokWebAccountFiles(): Promise<GrokWebAccountConfig[]> {
+    return this.grokWebStore.readAll()
   }
 
-  async writeGrokWebAccountFile(data: GrokWebAccountConfig): Promise<string> {
-    const dir = this.grokWebAccountsDir()
-    await mkdir(dir, { recursive: true })
-    const fileBase = safeFileName(data.label || data.email || data.id) || 'account'
-    const targetPath = join(dir, `${fileBase}.json`)
-    return writeAccountFileWithConflict(targetPath, data, stripGrokWebPath)
+  writeGrokWebAccountFile(data: GrokWebAccountConfig): Promise<string> {
+    return this.grokWebStore.write(data)
   }
 
-  async deleteGrokWebAccountFile(accountId: string): Promise<boolean> {
-    const accounts = await this.readGrokWebAccountFiles()
-    const account = accounts.find((a) => a.id === accountId)
-    if (!account?.path) return false
-    return deleteJsonFileLocked(account.path)
+  deleteGrokWebAccountFile(accountId: string): Promise<boolean> {
+    return this.grokWebStore.delete(accountId)
   }
 
-  async updateGrokWebAccountFile(
+  updateGrokWebAccountFile(
     accountId: string,
     updates: Partial<GrokWebAccountConfig>
   ): Promise<void> {
-    const accounts = await this.readGrokWebAccountFiles()
-    const account = accounts.find((a) => a.id === accountId)
-    if (!account?.path) throw new Error(`Grok Web account not found: ${accountId}`)
-    await updateJsonFileLocked(account.path, updates)
+    return this.grokWebStore.update(accountId, updates)
+  }
+
+  // ============== Qoder account file management ==============
+
+  private readonly qoderStore = new AccountFileStore<QoderAccountConfig>({
+    dir: () => this.qoderAccountsDir(),
+    providerLabel: 'qoder',
+    backfillId: (data) => {
+      if (!data.id) {
+        data.id =
+          data.authType === 'qoder-cli-auth'
+            ? `qoder-cli-${sha256Short(data.qoderCliHome || data.qoderCliPath || 'default')}`
+            : `qoder-${sha256Short(data.personalAccessToken || Math.random().toString())}`
+      }
+      return data
+    },
+    // Qoder authType normalization FSM (mirrors the original per-file logic).
+    validate: (data) => {
+      if (data.personalAccessToken && data.authType !== 'qoder-cli-auth')
+        data.authType = 'qoder-personal-access-token'
+      if (!data.authType && data.qoderCliHome) data.authType = 'qoder-cli-auth'
+      if (data.authType === 'qoder-cli-login' && data.qoderCliHome) {
+        data.authType = 'qoder-cli-auth'
+      }
+      if (data.authType === 'qoder-cli-auth' && !data.qoderCliHome) return null
+      if (data.authType !== 'qoder-cli-auth' && !data.personalAccessToken) return null
+      // Refuse any qoderCliHome that escapes the managed auth directory.
+      // The request path reads `<qoderCliHome>/.qoder/.auth/*` directly, so an
+      // out-of-tree value (e.g. a hostile pasted JSON pointing at another user's
+      // home) would let the gateway surface someone else's credentials. Only
+      // paths under qoderAuthDir() are trusted; everything else is dropped.
+      if (data.qoderCliHome && !isPathInside(data.qoderCliHome, this.qoderAuthDir())) {
+        return null
+      }
+      return data
+    },
+    fileNameSource: (data) => data.label || data.email || data.id,
+    strip: (data) => {
+      const { path: _path, ...rest } = data
+      return rest
+    },
+    renameOnEmailChange: true
+  })
+
+  readQoderAccountFiles(): Promise<QoderAccountConfig[]> {
+    return this.qoderStore.readAll()
+  }
+
+  writeQoderAccountFile(data: QoderAccountConfig): Promise<string> {
+    return this.qoderStore.write(data)
+  }
+
+  deleteQoderAccountFile(accountId: string): Promise<boolean> {
+    return this.qoderStore.delete(accountId)
+  }
+
+  async deleteQoderAuthHome(qoderCliHome?: string): Promise<boolean> {
+    if (!qoderCliHome) return false
+    const root = resolve(this.qoderAuthDir())
+    const target = resolve(qoderCliHome)
+    // Allow deleting the auth root itself (cleanup) OR any path strictly under it.
+    if (target !== root && !isPathInside(target, root)) return false
+    await rm(target, { recursive: true, force: true })
+    return true
+  }
+
+  updateQoderAccountFile(accountId: string, updates: Partial<QoderAccountConfig>): Promise<void> {
+    return this.qoderStore.update(accountId, updates)
   }
 
   defaultConfig(): GatewayHubConfig {
@@ -807,27 +740,32 @@ export class GatewayConfigStore {
         host: '127.0.0.1',
         port: 9741,
         apiKeys: [generateApiKey()],
-        autoStart: false
+        autoStart: false,
+        proxyUrl: ''
       },
       defaultProvider: 'kiro',
       providers: {
         kiro: {
           enabled: true,
+          useProxy: false,
           routeName: 'kiro',
           settings: { ...DEFAULT_KIRO_SETTINGS }
         },
         codex: {
           enabled: true,
+          useProxy: false,
           routeName: 'codex',
           settings: { ...DEFAULT_CODEX_SETTINGS }
         },
         windsurf: {
           enabled: true,
+          useProxy: false,
           routeName: 'windsurf',
           settings: { ...DEFAULT_WINDSURF_SETTINGS }
         },
         trae: {
           enabled: true,
+          useProxy: false,
           routeName: 'trae',
           settings: { ...DEFAULT_TRAE_SETTINGS }
         },
@@ -843,13 +781,21 @@ export class GatewayConfigStore {
         },
         gptWeb: {
           enabled: true,
+          useProxy: false,
           routeName: 'gptWeb',
           settings: { ...DEFAULT_GPT_WEB_SETTINGS }
         },
         grokWeb: {
           enabled: true,
+          useProxy: false,
           routeName: 'grokWeb',
           settings: { ...DEFAULT_GROK_WEB_SETTINGS }
+        },
+        qoder: {
+          enabled: true,
+          useProxy: false,
+          routeName: 'qoder',
+          settings: { ...DEFAULT_QODER_SETTINGS }
         },
         gemini: {
           enabled: false,
@@ -901,6 +847,11 @@ export class GatewayConfigStore {
           logs: []
         },
         grokWeb: {
+          accounts: {},
+          currentAccountIndex: 0,
+          logs: []
+        },
+        qoder: {
           accounts: {},
           currentAccountIndex: 0,
           logs: []
@@ -1002,11 +953,37 @@ export class GatewayConfigStore {
     if (traeSettings.modelListPath === LEGACY_TRAE_MODEL_LIST_PATH) {
       traeSettings.modelListPath = defaults.providers.trae.settings.modelListPath
     }
+    const qoderSettings = {
+      ...defaults.providers.qoder.settings,
+      ...(input?.providers?.qoder?.settings ?? {})
+    }
+    qoderSettings.maxOutputTokens = normalizeQoderMaxOutputTokens(qoderSettings.maxOutputTokens)
+
+    // 迁移：旧版每个 provider 的 settings.vpnProxyUrl 曾是代理 URL 来源。新模型里代理 URL
+    // 统一存到 server.proxyUrl（来源取 kiro），provider 改用 useProxy 开关。任何旧的非空
+    // vpnProxyUrl 都迁移成 useProxy=true；kiro 的非空值同时晋升为全局 server.proxyUrl。
+    const legacyKiroProxy =
+      typeof input?.providers?.kiro?.settings?.vpnProxyUrl === 'string'
+        ? input.providers.kiro.settings.vpnProxyUrl.trim()
+        : ''
+    const migratedServerProxy =
+      typeof input?.server?.proxyUrl === 'string'
+        ? input.server.proxyUrl
+        : legacyKiroProxy || defaults.server.proxyUrl
+    const resolveUseProxy = (providerKey: string): boolean => {
+      const explicit = input?.providers?.[providerKey]?.useProxy
+      if (typeof explicit === 'boolean') return explicit
+      const legacy =
+        typeof input?.providers?.[providerKey]?.settings?.vpnProxyUrl === 'string'
+          ? input.providers[providerKey].settings.vpnProxyUrl.trim()
+          : ''
+      return legacy !== ''
+    }
 
     const config: GatewayHubConfig = {
       ...defaults,
       ...input,
-      server: { ...defaults.server, ...(input?.server ?? {}) },
+      server: { ...defaults.server, ...(input?.server ?? {}), proxyUrl: migratedServerProxy },
       providers: {
         ...defaults.providers,
         ...(input?.providers ?? {}),
@@ -1014,6 +991,7 @@ export class GatewayConfigStore {
           ...defaults.providers.kiro,
           ...(input?.providers?.kiro ?? {}),
           routeName: input?.providers?.kiro?.routeName || defaults.providers.kiro.routeName,
+          useProxy: resolveUseProxy('kiro'),
           settings: normalizeKiroSettings({
             ...defaults.providers.kiro.settings,
             ...(input?.providers?.kiro?.settings ?? {})
@@ -1027,6 +1005,7 @@ export class GatewayConfigStore {
             typeof input?.providers?.codex?.enabled === 'boolean'
               ? input.providers.codex.enabled
               : defaults.providers.codex.enabled,
+          useProxy: resolveUseProxy('codex'),
           settings: {
             ...defaults.providers.codex.settings,
             ...(input?.providers?.codex?.settings ?? {})
@@ -1040,6 +1019,7 @@ export class GatewayConfigStore {
             typeof input?.providers?.windsurf?.enabled === 'boolean'
               ? input.providers.windsurf.enabled
               : defaults.providers.windsurf.enabled,
+          useProxy: resolveUseProxy('windsurf'),
           settings: {
             ...defaults.providers.windsurf.settings,
             ...(input?.providers?.windsurf?.settings ?? {})
@@ -1053,6 +1033,7 @@ export class GatewayConfigStore {
             typeof input?.providers?.trae?.enabled === 'boolean'
               ? input.providers.trae.enabled
               : defaults.providers.trae.enabled,
+          useProxy: resolveUseProxy('trae'),
           settings: traeSettings
         },
         openrouter: {
@@ -1090,6 +1071,7 @@ export class GatewayConfigStore {
             typeof input?.providers?.gptWeb?.enabled === 'boolean'
               ? input.providers.gptWeb.enabled
               : defaults.providers.gptWeb.enabled,
+          useProxy: resolveUseProxy('gptWeb'),
           settings: {
             ...defaults.providers.gptWeb.settings,
             ...(input?.providers?.gptWeb?.settings ?? {})
@@ -1103,9 +1085,23 @@ export class GatewayConfigStore {
             typeof input?.providers?.grokWeb?.enabled === 'boolean'
               ? input.providers.grokWeb.enabled
               : defaults.providers.grokWeb.enabled,
+          useProxy: resolveUseProxy('grokWeb'),
           settings: {
             ...defaults.providers.grokWeb.settings,
             ...(input?.providers?.grokWeb?.settings ?? {})
+          }
+        },
+        qoder: {
+          ...defaults.providers.qoder,
+          ...(input?.providers?.qoder ?? {}),
+          routeName: input?.providers?.qoder?.routeName || defaults.providers.qoder.routeName,
+          enabled:
+            typeof input?.providers?.qoder?.enabled === 'boolean'
+              ? input.providers.qoder.enabled
+              : defaults.providers.qoder.enabled,
+          useProxy: resolveUseProxy('qoder'),
+          settings: {
+            ...qoderSettings
           }
         },
         gemini: {
@@ -1197,83 +1193,18 @@ export class GatewayConfigStore {
           logs: Array.isArray(input?.providers?.grokWeb?.logs)
             ? input.providers.grokWeb.logs.slice(-1000)
             : []
+        },
+        qoder: {
+          ...defaults.providers.qoder,
+          ...(input?.providers?.qoder ?? {}),
+          accounts: input?.providers?.qoder?.accounts ?? {},
+          logs: Array.isArray(input?.providers?.qoder?.logs)
+            ? input.providers.qoder.logs.slice(-1000)
+            : []
         }
       }
     }
   }
-}
-
-async function writeJsonFileUnlocked(filePath: string, value: unknown): Promise<void> {
-  await mkdir(dirname(filePath), { recursive: true })
-  const tmpFile = `${filePath}.${randomBytes(4).toString('hex')}.tmp`
-  await writeFile(tmpFile, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
-  await rename(tmpFile, filePath)
-}
-
-async function writeJsonFileLocked(filePath: string, value: unknown): Promise<void> {
-  await withLock(filePath, async () => writeJsonFileUnlocked(filePath, value))
-}
-
-async function writeAccountFileWithConflict<T extends { id?: string }>(
-  targetPath: string,
-  data: T,
-  stripData: (data: T) => unknown
-): Promise<string> {
-  return withLock(targetPath, async () => {
-    const existing = await readJsonFile<any>(targetPath).catch(() => null)
-    if (existing && existing.id && data.id && existing.id !== data.id) {
-      const suffix = targetPath.endsWith('.json')
-        ? targetPath.slice(0, -'.json'.length)
-        : targetPath
-      const altPath = `${suffix}-${sha256Short(data.id)}.json`
-      await writeJsonFileLocked(altPath, stripData(data))
-      return altPath
-    }
-
-    await writeJsonFileUnlocked(targetPath, stripData(data))
-    return targetPath
-  })
-}
-
-async function deleteJsonFileLocked(filePath: string): Promise<boolean> {
-  return withLock(filePath, async () => {
-    await unlink(filePath)
-    return true
-  })
-}
-
-async function updateJsonFileLocked(filePath: string, updates: object): Promise<void> {
-  await withLock(filePath, async () => {
-    const data = await readJsonFile<any>(filePath)
-    Object.assign(data, updates)
-    await writeJsonFileUnlocked(filePath, data)
-  })
-}
-
-async function updateJsonFileLockedWithOptionalEmailRename(
-  filePath: string,
-  accountId: string,
-  previousEmail: string | undefined,
-  updates: { email?: unknown } & object
-): Promise<void> {
-  await withLock(filePath, async () => {
-    const data = await readJsonFile<any>(filePath)
-    Object.assign(data, updates)
-    await writeJsonFileUnlocked(filePath, data)
-
-    if (typeof updates.email !== 'string' || updates.email === previousEmail) return
-
-    const newBase = safeFileName(updates.email)
-    if (!newBase) return
-
-    const newPath = join(dirname(filePath), `${newBase}.json`)
-    await withLock(newPath, async () => {
-      const conflict = await readJsonFile<any>(newPath).catch(() => null)
-      if (!conflict || conflict.id === accountId) {
-        await rename(filePath, newPath).catch(() => {})
-      }
-    })
-  })
 }
 
 export function makeStableId(account: Partial<KiroAccountConfig>): string {
@@ -1318,10 +1249,6 @@ function normalizeEmail(value: unknown): string | undefined {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) ? trimmed : undefined
 }
 
-function safeFileName(value: unknown): string {
-  return String(value ?? '').replace(/[^a-zA-Z0-9@._-]/g, '_')
-}
-
 function migrateApiKeys(serverInput: any): ApiKeyEntry[] {
   const raw = serverInput?.apiKeys
   if (Array.isArray(raw) && raw.length > 0) {
@@ -1345,54 +1272,6 @@ function migrateApiKeys(serverInput: any): ApiKeyEntry[] {
     ]
   }
   return [generateApiKey()]
-}
-
-function stripPath(data: KiroAccountConfig): Omit<KiroAccountConfig, 'path'> {
-  const { path: _, ...rest } = data
-  return rest
-}
-
-function stripCodexPath(data: CodexAccountConfig): Omit<CodexAccountConfig, 'path'> {
-  const { path: _, ...rest } = data
-  return rest
-}
-
-function stripWindsurfPath(data: WindsurfAccountConfig): Omit<WindsurfAccountConfig, 'path'> {
-  const { path: _, ...rest } = data
-  return rest
-}
-
-function stripTraePath(data: TraeAccountConfig): Omit<TraeAccountConfig, 'path'> {
-  const {
-    path: _,
-    sourceType: _sourceType,
-    existing: _existing,
-    ...rest
-  } = data as TraeAccountConfig & {
-    sourceType?: string
-    existing?: boolean
-  }
-  return rest
-}
-
-function stripOpenRouterPath(data: OpenRouterAccountConfig): Omit<OpenRouterAccountConfig, 'path'> {
-  const { path: _, ...rest } = data
-  return rest
-}
-
-function stripNvidiaPath(data: NvidiaAccountConfig): Omit<NvidiaAccountConfig, 'path'> {
-  const { path: _, ...rest } = data
-  return rest
-}
-
-function stripGptWebPath(data: GptWebAccountConfig): Omit<GptWebAccountConfig, 'path'> {
-  const { path: _, ...rest } = data
-  return rest
-}
-
-function stripGrokWebPath(data: GrokWebAccountConfig): Omit<GrokWebAccountConfig, 'path'> {
-  const { path: _, ...rest } = data
-  return rest
 }
 
 function makeTraeStableId(account: Partial<TraeAccountConfig>): string {
@@ -1677,3 +1556,14 @@ async function extractAccountFromSqlite(
 }
 
 export { writeJsonFile, accountIdentityKeys }
+
+/**
+ * True when `target` resolves to a path strictly below `root` (not equal to root).
+ * Used to keep qoderCliHome inside the managed auth directory so a hostile
+ * pasted JSON cannot point the gateway at an out-of-tree credential bundle.
+ */
+function isPathInside(target: string, root: string): boolean {
+  const t = resolve(target)
+  const r = resolve(root)
+  return r !== t && t.startsWith(`${r}${sep}`)
+}

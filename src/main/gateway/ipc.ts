@@ -1,6 +1,8 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { gatewayHubService } from './service'
 import type { AccountStatus, LogCategory, ModelMapping } from './types'
+import type { GatewayStatusSnapshot } from './types'
+import { daemonStatus, daemonStop, notifyDaemonReload } from '../../cli/daemon/controller'
 import type { CodexLoginEvent } from './providers/codex/types'
 import { DEFAULT_KIRO_SETTINGS } from './providers/kiro/constants'
 import { DEFAULT_CODEX_SETTINGS } from './providers/codex/constants'
@@ -10,6 +12,7 @@ import { DEFAULT_OPENROUTER_SETTINGS } from './providers/openrouter/constants'
 import { DEFAULT_NVIDIA_SETTINGS } from './providers/nvidia/constants'
 import { DEFAULT_GPT_WEB_SETTINGS } from './providers/gptWeb/constants'
 import { DEFAULT_GROK_WEB_SETTINGS } from './providers/grokWeb/constants'
+import { DEFAULT_QODER_SETTINGS } from './providers/qoder/constants'
 
 const KIRO_KEYS = new Set(Object.keys(DEFAULT_KIRO_SETTINGS))
 const CODEX_KEYS = new Set(Object.keys(DEFAULT_CODEX_SETTINGS))
@@ -19,6 +22,7 @@ const OPENROUTER_KEYS = new Set(Object.keys(DEFAULT_OPENROUTER_SETTINGS))
 const NVIDIA_KEYS = new Set(Object.keys(DEFAULT_NVIDIA_SETTINGS))
 const GPT_WEB_KEYS = new Set(Object.keys(DEFAULT_GPT_WEB_SETTINGS))
 const GROK_WEB_KEYS = new Set(Object.keys(DEFAULT_GROK_WEB_SETTINGS))
+const QODER_KEYS = new Set(Object.keys(DEFAULT_QODER_SETTINGS))
 
 function safeHandler(fn: (...args: any[]) => any) {
   return async (...args: any[]) => {
@@ -26,7 +30,11 @@ function safeHandler(fn: (...args: any[]) => any) {
       return await fn(...args)
     } catch (e) {
       console.error('[ipc] handler error:', e)
-      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+      return {
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+        code: typeof (e as any)?.code === 'string' ? (e as any).code : undefined
+      }
     }
   }
 }
@@ -34,15 +42,15 @@ function safeHandler(fn: (...args: any[]) => any) {
 export function registerGatewayIpc(): void {
   ipcMain.handle(
     'gateway:status',
-    safeHandler(() => gatewayHubService.getStatus())
+    safeHandler(() => getGatewayStatusForUi())
   )
   ipcMain.handle(
     'gateway:start',
-    safeHandler(() => gatewayHubService.start())
+    safeHandler(() => startGatewayForUi())
   )
   ipcMain.handle(
     'gateway:stop',
-    safeHandler(() => gatewayHubService.stop())
+    safeHandler(() => stopGatewayForUi())
   )
   ipcMain.handle(
     'gateway:autoDiscoverKiro',
@@ -54,21 +62,27 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:importScannedAccounts',
-    safeHandler((_event, ids: string[]) => gatewayHubService.importScannedAccounts(ids))
+    safeHandler((_event, ids: string[]) =>
+      withDaemonReload(() => gatewayHubService.importScannedAccounts(ids))
+    )
   )
   ipcMain.handle(
     'gateway:testKiroAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.testKiroAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.testKiroAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:toggleKiroAccount',
     safeHandler((_event, accountId: string, enabled: boolean) =>
-      gatewayHubService.toggleKiroAccount(accountId, enabled)
+      withDaemonReload(() => gatewayHubService.toggleKiroAccount(accountId, enabled))
     )
   )
   ipcMain.handle(
     'gateway:removeKiroAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.removeKiroAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.removeKiroAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:listModels',
@@ -81,17 +95,21 @@ export function registerGatewayIpc(): void {
   ipcMain.handle(
     'gateway:refreshKiroAccountModels',
     safeHandler((_event, accountId: string) =>
-      gatewayHubService.refreshKiroAccountModels(accountId)
+      withDaemonReload(() => gatewayHubService.refreshKiroAccountModels(accountId))
     )
   )
   ipcMain.handle(
     'gateway:resetKiroAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.resetKiroAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.resetKiroAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:setKiroAccountStatus',
     safeHandler((_event, accountId: string, status: string, reason?: string) =>
-      gatewayHubService.setKiroAccountStatus(accountId, status as AccountStatus, reason)
+      withDaemonReload(() =>
+        gatewayHubService.setKiroAccountStatus(accountId, status as AccountStatus, reason)
+      )
     )
   )
   ipcMain.handle(
@@ -104,30 +122,38 @@ export function registerGatewayIpc(): void {
       const filtered = Object.fromEntries(
         Object.entries(settings).filter(([k]) => KIRO_KEYS.has(k))
       )
-      return gatewayHubService.updateKiroSettings(filtered)
+      return withDaemonReload(() => gatewayHubService.updateKiroSettings(filtered))
     })
   )
   ipcMain.handle(
     'gateway:updateKiroRouteName',
-    safeHandler((_event, routeName: string) => gatewayHubService.updateKiroRouteName(routeName))
+    safeHandler((_event, routeName: string) =>
+      withDaemonReload(() => gatewayHubService.updateKiroRouteName(routeName))
+    )
   )
   ipcMain.handle(
     'gateway:updateProviderRouteName',
     safeHandler((_event, providerType: string, routeName: string) =>
-      gatewayHubService.updateProviderRouteName(providerType, routeName)
+      withDaemonReload(() => gatewayHubService.updateProviderRouteName(providerType, routeName))
     )
   )
   ipcMain.handle(
     'gateway:addKiroRefreshToken',
-    safeHandler((_event, text: string) => gatewayHubService.addKiroRefreshToken(text))
+    safeHandler((_event, text: string) =>
+      withDaemonReload(() => gatewayHubService.addKiroRefreshToken(text))
+    )
   )
   ipcMain.handle(
     'gateway:addKiroAccessToken',
-    safeHandler((_event, text: string) => gatewayHubService.addKiroAccessToken(text))
+    safeHandler((_event, text: string) =>
+      withDaemonReload(() => gatewayHubService.addKiroAccessToken(text))
+    )
   )
   ipcMain.handle(
     'gateway:importKiroJson',
-    safeHandler((_event, text: string) => gatewayHubService.importKiroJson(text))
+    safeHandler((_event, text: string) =>
+      withDaemonReload(() => gatewayHubService.importKiroJson(text))
+    )
   )
   ipcMain.handle(
     'gateway:detectKiroCli',
@@ -150,18 +176,18 @@ export function registerGatewayIpc(): void {
   ipcMain.handle(
     'gateway:updateModelMappings',
     safeHandler((_event, mappings: ModelMapping[]) =>
-      gatewayHubService.updateModelMappings(mappings)
+      withDaemonReload(() => gatewayHubService.updateModelMappings(mappings))
     )
   )
   ipcMain.handle(
     'gateway:generateApiKey',
     safeHandler((_event, options: { name: string; expiresAt?: number; scopes?: string[] }) =>
-      gatewayHubService.generateNewApiKey(options)
+      withDaemonReload(() => gatewayHubService.generateNewApiKey(options))
     )
   )
   ipcMain.handle(
     'gateway:revokeApiKey',
-    safeHandler((_event, id: string) => gatewayHubService.revokeApiKey(id))
+    safeHandler((_event, id: string) => withDaemonReload(() => gatewayHubService.revokeApiKey(id)))
   )
   ipcMain.handle(
     'gateway:updateApiKey',
@@ -170,18 +196,40 @@ export function registerGatewayIpc(): void {
         _event,
         id: string,
         updates: { name?: string; expiresAt?: number | null; scopes?: string[] | null }
-      ) => gatewayHubService.updateApiKey(id, updates)
+      ) => withDaemonReload(() => gatewayHubService.updateApiKey(id, updates))
     )
   )
   ipcMain.handle(
     'gateway:updateProviderDisplayName',
     safeHandler((_event, providerType: string, displayName: string) =>
-      gatewayHubService.updateProviderDisplayName(providerType, displayName)
+      withDaemonReload(() => gatewayHubService.updateProviderDisplayName(providerType, displayName))
     )
   )
   ipcMain.handle(
     'gateway:setPort',
-    safeHandler((_event, port: number) => gatewayHubService.setPort(port))
+    safeHandler((_event, port: number) => withDaemonReload(() => gatewayHubService.setPort(port)))
+  )
+  ipcMain.handle(
+    'gateway:setHost',
+    safeHandler((_event, host: string) => withDaemonReload(() => gatewayHubService.setHost(host)))
+  )
+  ipcMain.handle(
+    'gateway:getHost',
+    safeHandler(() => gatewayHubService.getHost())
+  )
+  ipcMain.handle(
+    'gateway:getProxyUrl',
+    safeHandler(() => gatewayHubService.getProxyUrl())
+  )
+  ipcMain.handle(
+    'gateway:setProxyUrl',
+    safeHandler((_event, url: string) => withDaemonReload(() => gatewayHubService.setProxyUrl(url)))
+  )
+  ipcMain.handle(
+    'gateway:setProviderUseProxy',
+    safeHandler((_event, providerType: string, enabled: boolean) =>
+      withDaemonReload(() => gatewayHubService.setProviderUseProxy(providerType, enabled))
+    )
   )
   ipcMain.handle(
     'gateway:getAutoStart',
@@ -189,7 +237,9 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:setAutoStart',
-    safeHandler((_event, enabled: boolean) => gatewayHubService.setAutoStart(enabled))
+    safeHandler((_event, enabled: boolean) =>
+      withDaemonReload(() => gatewayHubService.setAutoStart(enabled))
+    )
   )
   ipcMain.handle(
     'gateway:clearLogs',
@@ -240,21 +290,27 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:importScannedCodexAccounts',
-    safeHandler((_event, ids: string[]) => gatewayHubService.importScannedCodexAccounts(ids))
+    safeHandler((_event, ids: string[]) =>
+      withDaemonReload(() => gatewayHubService.importScannedCodexAccounts(ids))
+    )
   )
   ipcMain.handle(
     'gateway:testCodexAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.testCodexAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.testCodexAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:toggleCodexAccount',
     safeHandler((_event, accountId: string, enabled: boolean) =>
-      gatewayHubService.toggleCodexAccount(accountId, enabled)
+      withDaemonReload(() => gatewayHubService.toggleCodexAccount(accountId, enabled))
     )
   )
   ipcMain.handle(
     'gateway:removeCodexAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.removeCodexAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.removeCodexAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:getCodexAccountInfo',
@@ -262,12 +318,16 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:resetCodexAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.resetCodexAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.resetCodexAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:setCodexAccountStatus',
     safeHandler((_event, accountId: string, status: string, reason?: string) =>
-      gatewayHubService.setCodexAccountStatus(accountId, status as AccountStatus, reason)
+      withDaemonReload(() =>
+        gatewayHubService.setCodexAccountStatus(accountId, status as AccountStatus, reason)
+      )
     )
   )
   ipcMain.handle(
@@ -285,7 +345,9 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:importCodexJson',
-    safeHandler((_event, text: string) => gatewayHubService.importCodexAuthJson(text))
+    safeHandler((_event, text: string) =>
+      withDaemonReload(() => gatewayHubService.importCodexAuthJson(text))
+    )
   )
   ipcMain.handle(
     'gateway:loginCodexBrowser',
@@ -316,29 +378,39 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:importScannedWindsurfAccounts',
-    safeHandler((_event, ids: string[]) => gatewayHubService.importScannedWindsurfAccounts(ids))
+    safeHandler((_event, ids: string[]) =>
+      withDaemonReload(() => gatewayHubService.importScannedWindsurfAccounts(ids))
+    )
   )
   ipcMain.handle(
     'gateway:importWindsurfJson',
-    safeHandler((_event, text: string) => gatewayHubService.importWindsurfAuthJson(text))
+    safeHandler((_event, text: string) =>
+      withDaemonReload(() => gatewayHubService.importWindsurfAuthJson(text))
+    )
   )
   ipcMain.handle(
     'gateway:addWindsurfApiKey',
-    safeHandler((_event, text: string) => gatewayHubService.addWindsurfApiKey(text))
+    safeHandler((_event, text: string) =>
+      withDaemonReload(() => gatewayHubService.addWindsurfApiKey(text))
+    )
   )
   ipcMain.handle(
     'gateway:testWindsurfAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.testWindsurfAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.testWindsurfAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:toggleWindsurfAccount',
     safeHandler((_event, accountId: string, enabled: boolean) =>
-      gatewayHubService.toggleWindsurfAccount(accountId, enabled)
+      withDaemonReload(() => gatewayHubService.toggleWindsurfAccount(accountId, enabled))
     )
   )
   ipcMain.handle(
     'gateway:removeWindsurfAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.removeWindsurfAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.removeWindsurfAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:getWindsurfAccountInfo',
@@ -347,17 +419,21 @@ export function registerGatewayIpc(): void {
   ipcMain.handle(
     'gateway:refreshWindsurfAccountModels',
     safeHandler((_event, accountId: string) =>
-      gatewayHubService.refreshWindsurfAccountModels(accountId)
+      withDaemonReload(() => gatewayHubService.refreshWindsurfAccountModels(accountId))
     )
   )
   ipcMain.handle(
     'gateway:resetWindsurfAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.resetWindsurfAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.resetWindsurfAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:setWindsurfAccountStatus',
     safeHandler((_event, accountId: string, status: string, reason?: string) =>
-      gatewayHubService.setWindsurfAccountStatus(accountId, status as AccountStatus, reason)
+      withDaemonReload(() =>
+        gatewayHubService.setWindsurfAccountStatus(accountId, status as AccountStatus, reason)
+      )
     )
   )
   ipcMain.handle(
@@ -382,11 +458,15 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:importScannedTraeAccounts',
-    safeHandler((_event, ids: string[]) => gatewayHubService.importScannedTraeAccounts(ids))
+    safeHandler((_event, ids: string[]) =>
+      withDaemonReload(() => gatewayHubService.importScannedTraeAccounts(ids))
+    )
   )
   ipcMain.handle(
     'gateway:importTraeJson',
-    safeHandler((_event, text: string) => gatewayHubService.importTraeAuthJson(text))
+    safeHandler((_event, text: string) =>
+      withDaemonReload(() => gatewayHubService.importTraeAuthJson(text))
+    )
   )
   ipcMain.handle(
     'gateway:addTraeJwtToken',
@@ -398,17 +478,21 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:testTraeAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.testTraeAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.testTraeAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:toggleTraeAccount',
     safeHandler((_event, accountId: string, enabled: boolean) =>
-      gatewayHubService.toggleTraeAccount(accountId, enabled)
+      withDaemonReload(() => gatewayHubService.toggleTraeAccount(accountId, enabled))
     )
   )
   ipcMain.handle(
     'gateway:removeTraeAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.removeTraeAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.removeTraeAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:getTraeAccountInfo',
@@ -417,17 +501,21 @@ export function registerGatewayIpc(): void {
   ipcMain.handle(
     'gateway:refreshTraeAccountModels',
     safeHandler((_event, accountId: string) =>
-      gatewayHubService.refreshTraeAccountModels(accountId)
+      withDaemonReload(() => gatewayHubService.refreshTraeAccountModels(accountId))
     )
   )
   ipcMain.handle(
     'gateway:resetTraeAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.resetTraeAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.resetTraeAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:setTraeAccountStatus',
     safeHandler((_event, accountId: string, status: string, reason?: string) =>
-      gatewayHubService.setTraeAccountStatus(accountId, status as AccountStatus, reason)
+      withDaemonReload(() =>
+        gatewayHubService.setTraeAccountStatus(accountId, status as AccountStatus, reason)
+      )
     )
   )
   ipcMain.handle(
@@ -448,7 +536,9 @@ export function registerGatewayIpc(): void {
 
   ipcMain.handle(
     'gateway:addOpenRouterApiKey',
-    safeHandler((_event, text: string) => gatewayHubService.addOpenRouterApiKey(text))
+    safeHandler((_event, text: string) =>
+      withDaemonReload(() => gatewayHubService.addOpenRouterApiKey(text))
+    )
   )
   ipcMain.handle(
     'gateway:importOpenRouterJson',
@@ -456,17 +546,21 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:testOpenRouterAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.testOpenRouterAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.testOpenRouterAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:toggleOpenRouterAccount',
     safeHandler((_event, accountId: string, enabled: boolean) =>
-      gatewayHubService.toggleOpenRouterAccount(accountId, enabled)
+      withDaemonReload(() => gatewayHubService.toggleOpenRouterAccount(accountId, enabled))
     )
   )
   ipcMain.handle(
     'gateway:removeOpenRouterAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.removeOpenRouterAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.removeOpenRouterAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:getOpenRouterAccountInfo',
@@ -477,17 +571,21 @@ export function registerGatewayIpc(): void {
   ipcMain.handle(
     'gateway:refreshOpenRouterAccountModels',
     safeHandler((_event, accountId: string) =>
-      gatewayHubService.refreshOpenRouterAccountModels(accountId)
+      withDaemonReload(() => gatewayHubService.refreshOpenRouterAccountModels(accountId))
     )
   )
   ipcMain.handle(
     'gateway:resetOpenRouterAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.resetOpenRouterAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.resetOpenRouterAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:setOpenRouterAccountStatus',
     safeHandler((_event, accountId: string, status: string, reason?: string) =>
-      gatewayHubService.setOpenRouterAccountStatus(accountId, status as AccountStatus, reason)
+      withDaemonReload(() =>
+        gatewayHubService.setOpenRouterAccountStatus(accountId, status as AccountStatus, reason)
+      )
     )
   )
   ipcMain.handle(
@@ -508,7 +606,9 @@ export function registerGatewayIpc(): void {
 
   ipcMain.handle(
     'gateway:addNvidiaApiKey',
-    safeHandler((_event, text: string) => gatewayHubService.addNvidiaApiKey(text))
+    safeHandler((_event, text: string) =>
+      withDaemonReload(() => gatewayHubService.addNvidiaApiKey(text))
+    )
   )
   ipcMain.handle(
     'gateway:importNvidiaJson',
@@ -516,17 +616,21 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:testNvidiaAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.testNvidiaAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.testNvidiaAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:toggleNvidiaAccount',
     safeHandler((_event, accountId: string, enabled: boolean) =>
-      gatewayHubService.toggleNvidiaAccount(accountId, enabled)
+      withDaemonReload(() => gatewayHubService.toggleNvidiaAccount(accountId, enabled))
     )
   )
   ipcMain.handle(
     'gateway:removeNvidiaAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.removeNvidiaAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.removeNvidiaAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:getNvidiaAccountInfo',
@@ -535,17 +639,21 @@ export function registerGatewayIpc(): void {
   ipcMain.handle(
     'gateway:refreshNvidiaAccountModels',
     safeHandler((_event, accountId: string) =>
-      gatewayHubService.refreshNvidiaAccountModels(accountId)
+      withDaemonReload(() => gatewayHubService.refreshNvidiaAccountModels(accountId))
     )
   )
   ipcMain.handle(
     'gateway:resetNvidiaAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.resetNvidiaAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.resetNvidiaAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:setNvidiaAccountStatus',
     safeHandler((_event, accountId: string, status: string, reason?: string) =>
-      gatewayHubService.setNvidiaAccountStatus(accountId, status as AccountStatus, reason)
+      withDaemonReload(() =>
+        gatewayHubService.setNvidiaAccountStatus(accountId, status as AccountStatus, reason)
+      )
     )
   )
   ipcMain.handle(
@@ -566,21 +674,27 @@ export function registerGatewayIpc(): void {
 
   ipcMain.handle(
     'gateway:importGptWebJson',
-    safeHandler((_event, text: string) => gatewayHubService.importGptWebAuthJson(text))
+    safeHandler((_event, text: string) =>
+      withDaemonReload(() => gatewayHubService.importGptWebAuthJson(text))
+    )
   )
   ipcMain.handle(
     'gateway:testGptWebAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.testGptWebAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.testGptWebAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:toggleGptWebAccount',
     safeHandler((_event, accountId: string, enabled: boolean) =>
-      gatewayHubService.toggleGptWebAccount(accountId, enabled)
+      withDaemonReload(() => gatewayHubService.toggleGptWebAccount(accountId, enabled))
     )
   )
   ipcMain.handle(
     'gateway:removeGptWebAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.removeGptWebAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.removeGptWebAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:getGptWebAccountInfo',
@@ -589,17 +703,21 @@ export function registerGatewayIpc(): void {
   ipcMain.handle(
     'gateway:refreshGptWebAccountModels',
     safeHandler((_event, accountId: string) =>
-      gatewayHubService.refreshGptWebAccountModels(accountId)
+      withDaemonReload(() => gatewayHubService.refreshGptWebAccountModels(accountId))
     )
   )
   ipcMain.handle(
     'gateway:resetGptWebAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.resetGptWebAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.resetGptWebAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:setGptWebAccountStatus',
     safeHandler((_event, accountId: string, status: string, reason?: string) =>
-      gatewayHubService.setGptWebAccountStatus(accountId, status as AccountStatus, reason)
+      withDaemonReload(() =>
+        gatewayHubService.setGptWebAccountStatus(accountId, status as AccountStatus, reason)
+      )
     )
   )
   ipcMain.handle(
@@ -620,21 +738,27 @@ export function registerGatewayIpc(): void {
 
   ipcMain.handle(
     'gateway:importGrokWebJson',
-    safeHandler((_event, text: string) => gatewayHubService.importGrokWebAuthJson(text))
+    safeHandler((_event, text: string) =>
+      withDaemonReload(() => gatewayHubService.importGrokWebAuthJson(text))
+    )
   )
   ipcMain.handle(
     'gateway:testGrokWebAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.testGrokWebAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.testGrokWebAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:toggleGrokWebAccount',
     safeHandler((_event, accountId: string, enabled: boolean) =>
-      gatewayHubService.toggleGrokWebAccount(accountId, enabled)
+      withDaemonReload(() => gatewayHubService.toggleGrokWebAccount(accountId, enabled))
     )
   )
   ipcMain.handle(
     'gateway:removeGrokWebAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.removeGrokWebAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.removeGrokWebAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:getGrokWebAccountInfo',
@@ -643,17 +767,21 @@ export function registerGatewayIpc(): void {
   ipcMain.handle(
     'gateway:refreshGrokWebAccountModels',
     safeHandler((_event, accountId: string) =>
-      gatewayHubService.refreshGrokWebAccountModels(accountId)
+      withDaemonReload(() => gatewayHubService.refreshGrokWebAccountModels(accountId))
     )
   )
   ipcMain.handle(
     'gateway:resetGrokWebAccount',
-    safeHandler((_event, accountId: string) => gatewayHubService.resetGrokWebAccount(accountId))
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.resetGrokWebAccount(accountId))
+    )
   )
   ipcMain.handle(
     'gateway:setGrokWebAccountStatus',
     safeHandler((_event, accountId: string, status: string, reason?: string) =>
-      gatewayHubService.setGrokWebAccountStatus(accountId, status as AccountStatus, reason)
+      withDaemonReload(() =>
+        gatewayHubService.setGrokWebAccountStatus(accountId, status as AccountStatus, reason)
+      )
     )
   )
   ipcMain.handle(
@@ -669,6 +797,147 @@ export function registerGatewayIpc(): void {
       return gatewayHubService.updateGrokWebSettings(filtered)
     })
   )
+
+  // ============== Qoder ==============
+
+  ipcMain.handle(
+    'gateway:addQoderPersonalAccessToken',
+    safeHandler((_event, text: string) =>
+      withDaemonReload(() => gatewayHubService.addQoderPersonalAccessToken(text))
+    )
+  )
+  ipcMain.handle(
+    'gateway:addQoderCliLogin',
+    safeHandler((_event, options?: { label?: string; qoderCliPath?: string }) =>
+      withDaemonReload(() => gatewayHubService.addQoderCliLogin(options))
+    )
+  )
+  ipcMain.handle(
+    'gateway:detectQoderCli',
+    safeHandler((_event, customPath?: string) => gatewayHubService.detectQoderCli(customPath))
+  )
+  ipcMain.handle(
+    'gateway:loginWithQoderCli',
+    safeHandler((_event, options?: { cliPath?: string; label?: string }) =>
+      gatewayHubService.loginWithQoderCli(options)
+    )
+  )
+  ipcMain.handle(
+    'gateway:cancelQoderCliLogin',
+    safeHandler(() => gatewayHubService.cancelQoderCliLogin())
+  )
+  ipcMain.handle(
+    'gateway:importQoderJson',
+    safeHandler((_event, text: string) =>
+      withDaemonReload(() => gatewayHubService.importQoderAuthJson(text))
+    )
+  )
+  ipcMain.handle(
+    'gateway:testQoderAccount',
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.testQoderAccount(accountId))
+    )
+  )
+  ipcMain.handle(
+    'gateway:toggleQoderAccount',
+    safeHandler((_event, accountId: string, enabled: boolean) =>
+      withDaemonReload(() => gatewayHubService.toggleQoderAccount(accountId, enabled))
+    )
+  )
+  ipcMain.handle(
+    'gateway:removeQoderAccount',
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.removeQoderAccount(accountId))
+    )
+  )
+  ipcMain.handle(
+    'gateway:getQoderAccountInfo',
+    safeHandler((_event, accountId: string) => gatewayHubService.getQoderAccountInfo(accountId))
+  )
+  ipcMain.handle(
+    'gateway:refreshQoderAccountModels',
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.refreshQoderAccountModels(accountId))
+    )
+  )
+  ipcMain.handle(
+    'gateway:resetQoderAccount',
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.resetQoderAccount(accountId))
+    )
+  )
+  ipcMain.handle(
+    'gateway:setQoderAccountStatus',
+    safeHandler((_event, accountId: string, status: string, reason?: string) =>
+      withDaemonReload(() =>
+        gatewayHubService.setQoderAccountStatus(accountId, status as AccountStatus, reason)
+      )
+    )
+  )
+  ipcMain.handle(
+    'gateway:getQoderSettings',
+    safeHandler(() => gatewayHubService.getQoderSettings())
+  )
+  ipcMain.handle(
+    'gateway:updateQoderSettings',
+    safeHandler((_event, settings: Record<string, any>) => {
+      const filtered = Object.fromEntries(
+        Object.entries(settings).filter(([k]) => QODER_KEYS.has(k))
+      )
+      return withDaemonReload(() => gatewayHubService.updateQoderSettings(filtered))
+    })
+  )
+}
+
+async function getGatewayStatusForUi(): Promise<GatewayStatusSnapshot> {
+  const local = await gatewayHubService.getStatus()
+  if (local.server.running) return local
+  const daemon = await daemonStatus().catch(() => ({ running: false as const }))
+  if (!daemon.running) return local
+  const daemonStatusSnapshot =
+    daemon.serviceStatus && typeof daemon.serviceStatus === 'object'
+      ? (daemon.serviceStatus as GatewayStatusSnapshot)
+      : local
+  const daemonServer = daemonStatusSnapshot.server ?? local.server
+  const host = daemon.host ?? daemonServer.host ?? local.server.host
+  const port = daemon.port ?? daemonServer.port ?? local.server.port
+  return {
+    ...daemonStatusSnapshot,
+    server: {
+      ...daemonServer,
+      running: true,
+      host,
+      port,
+      url: `http://${host}:${port}`
+    }
+  }
+}
+
+async function startGatewayForUi(): Promise<GatewayStatusSnapshot> {
+  const local = await gatewayHubService.getStatus()
+  if (local.server.running) return local
+  const daemon = await daemonStatus().catch(() => ({ running: false as const }))
+  if (daemon.running) {
+    return getGatewayStatusForUi()
+  }
+  return gatewayHubService.start()
+}
+
+async function stopGatewayForUi(): Promise<GatewayStatusSnapshot> {
+  const local = await gatewayHubService.getStatus()
+  if (local.server.running) return gatewayHubService.stop()
+  const daemon = await daemonStatus().catch(() => ({ running: false as const }))
+  if (daemon.running) {
+    await daemonStop()
+    return gatewayHubService.getStatus()
+  }
+  return gatewayHubService.stop()
+}
+
+async function withDaemonReload<T>(action: () => Promise<T>): Promise<T> {
+  const result = await action()
+  await notifyDaemonReload().catch(() => false)
+  return result
 }
 
 function makeCodexLoginEmitter(window: BrowserWindow | null): (event: CodexLoginEvent) => void {

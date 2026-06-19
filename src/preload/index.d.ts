@@ -69,6 +69,11 @@ declare global {
         ) => Promise<any>
         updateProviderDisplayName: (providerType: string, displayName: string) => Promise<any>
         setPort: (port: number) => Promise<void>
+        setHost: (host: string) => Promise<void>
+        getHost: () => Promise<string>
+        getProxyUrl: () => Promise<string>
+        setProxyUrl: (url: string) => Promise<any>
+        setProviderUseProxy: (providerType: string, enabled: boolean) => Promise<any>
         getAutoStart: () => Promise<boolean>
         setAutoStart: (enabled: boolean) => Promise<void>
         clearLogs: () => Promise<void>
@@ -301,6 +306,24 @@ declare global {
         ) => Promise<any>
         getGrokWebSettings: () => Promise<any>
         updateGrokWebSettings: (settings: Record<string, any>) => Promise<any>
+        // ========== Qoder ==========
+        addQoderPersonalAccessToken: (text: string) => Promise<any>
+        addQoderCliLogin: (options?: { label?: string; qoderCliPath?: string }) => Promise<any>
+        detectQoderCli: (customPath?: string) => Promise<any>
+        loginWithQoderCli: (options?: { cliPath?: string; label?: string }) => Promise<any>
+        cancelQoderCliLogin: () => Promise<boolean>
+        importQoderJson: (
+          text: string
+        ) => Promise<{ added: number; skipped: number; errors: string[]; status: any }>
+        testQoderAccount: (accountId: string) => Promise<any>
+        toggleQoderAccount: (accountId: string, enabled: boolean) => Promise<any>
+        removeQoderAccount: (accountId: string) => Promise<any>
+        getQoderAccountInfo: (accountId: string) => Promise<any>
+        refreshQoderAccountModels: (accountId: string) => Promise<any>
+        resetQoderAccount: (accountId: string) => Promise<any>
+        setQoderAccountStatus: (accountId: string, status: string, reason?: string) => Promise<any>
+        getQoderSettings: () => Promise<any>
+        updateQoderSettings: (settings: Record<string, any>) => Promise<any>
       }
       updater: {
         check: () => Promise<any>

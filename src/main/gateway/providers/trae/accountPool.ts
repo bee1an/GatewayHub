@@ -2,13 +2,18 @@ import type {
   AccountRuntimeState,
   AccountStatus,
   AccountTestResult,
-  ResponseKind,
   TraeAccountConfig,
   TraeProviderConfig,
   TraeProviderState
 } from '../../types'
 import { GatewayLogger } from '../../core/logger'
 import { toErrorMessage } from '../../core/utils'
+import {
+  BaseAccountPool,
+  type AccountWithState,
+  type ClassifiedError
+} from '../../core/accountPool'
+import type { ResponseKind } from '../../types'
 import { TraeAuthError, TraeAuthManager, type TraeTokenSnapshot } from './client'
 import {
   DEFAULT_TRAE_MODEL,
@@ -18,62 +23,116 @@ import {
   normalizeTraeModel
 } from './constants'
 
-export interface TraeAccountRuntime {
-  config: TraeAccountConfig
-  state: AccountRuntimeState
+/**
+ * Trae runtime carries an optional auth manager that is constructed eagerly in
+ * reload() (sync init) and whose JWT is fetched lazily on selection. The shared
+ * {@link AccountWithState} shape is widened by this one extra field.
+ */
+export interface TraeAccountRuntime extends AccountWithState<TraeAccountConfig> {
   auth?: TraeAuthManager
 }
 
-export interface TraeClassifiedError {
-  kind: ResponseKind
-  cooldownMs: number
-}
+export interface TraeClassifiedError extends ClassifiedError {}
 
 const MODELS_CACHE_TTL_MS = 30 * 60_000
 
-export class TraeAccountPool {
-  private accounts: TraeAccountRuntime[] = []
-  private currentAccountIndex = 0
+export class TraeAccountPool extends BaseAccountPool<TraeAccountConfig> {
+  protected providerName = 'trae'
+
+  /**
+   * Shadowed with the trae-specific runtime (carries the `auth` manager).
+   * The base class declares this as `AccountWithState<C>[]`; narrowing here lets
+   * trae-only methods reach `account.auth` without casts.
+   */
+  declare protected accounts: TraeAccountRuntime[]
 
   constructor(
     private readonly config: TraeProviderConfig,
     private readonly state: TraeProviderState,
-    private readonly logger: GatewayLogger,
-    private readonly onStateChanged: () => void,
+    logger: GatewayLogger,
+    onStateChanged: () => void,
     private readonly persistAccount?: (
       accountId: string,
       updates: Partial<TraeAccountConfig>
     ) => Promise<void>
   ) {
+    super(logger, onStateChanged)
     this.currentAccountIndex = state.currentAccountIndex || 0
   }
 
+  // --- state-store wiring ---
+
+  protected lookupState(accountId: string): AccountRuntimeState | undefined {
+    return this.state.accounts[accountId]
+  }
+  protected storeState(accountId: string, state: AccountRuntimeState): void {
+    this.state.accounts[accountId] = state
+  }
+  protected deleteState(accountId: string): void {
+    delete this.state.accounts[accountId]
+  }
+  protected stateIds(): string[] {
+    return Object.keys(this.state.accounts)
+  }
+  protected setCurrentIndex(index: number): void {
+    this.state.currentAccountIndex = index
+  }
+
+  // --- model hooks ---
+
+  protected seedModels(): string[] {
+    return listTraeBuiltInModelIds()
+  }
+  protected normalizeModel(model: string): string {
+    return normalizeTraeModel(model)
+  }
+  protected accountHasModel(account: TraeAccountRuntime, model: string): boolean {
+    const list = account.state.modelIds || []
+    if (!list.length) return true
+    return list.some((available) => normalizeTraeModel(available) === model)
+  }
+  protected redactSecrets(config: TraeAccountConfig): TraeAccountConfig {
+    return {
+      ...config,
+      jwtToken: config.jwtToken ? '***' : undefined,
+      refreshToken: config.refreshToken ? '***' : undefined
+    }
+  }
+  protected accountLabel(account: TraeAccountRuntime): string {
+    return account.config.email || account.config.label || account.config.id
+  }
+
+  // --- reload: invalidate persisted model cache + eagerly construct auth managers ---
+
   async reload(accountFiles: TraeAccountConfig[]): Promise<void> {
     this.accounts = accountFiles.map((account) => {
-      const fallbackModels = this.modelsForAccount(account)
-      const state = this.state.accounts[account.id] ?? defaultAccountState(fallbackModels)
-      state.modelIds = sanitizeUsableModelIds(
-        state.modelIds?.length ? state.modelIds : fallbackModels
-      )
-      if (!state.modelIds.length) state.modelIds = fallbackModels
+      const state = this.lookupState(account.id) ?? this.defaultAccountState()
+      // Older GatewayHub builds filtered the upstream model list through a
+      // built-in whitelist, so persisted modelIds may be a stale subset (e.g.
+      // only gemini_2.5_flash). Do not trust them across runtime reloads; the
+      // next listModelsFresh/getAccountInfo call repopulates the list through
+      // the current extractor. Resetting modelsCachedAt forces that refresh.
+      state.modelsCachedAt = 0
+      state.modelIds = []
       state.status ??= 'available'
       state.statusUpdatedAt ??= 0
-      this.state.accounts[account.id] = state
+      this.storeState(account.id, state)
       const runtime: TraeAccountRuntime = { config: account, state }
       this.ensureAuth(runtime)
       return runtime
     })
     const active = new Set(accountFiles.map((account) => account.id))
-    for (const id of Object.keys(this.state.accounts)) {
-      if (!active.has(id)) delete this.state.accounts[id]
+    for (const id of this.stateIds()) {
+      if (!active.has(id)) this.deleteState(id)
     }
     this.onStateChanged()
   }
 
+  /** Preserve the `auth` manager on the redacted runtime copy (cleared to avoid leaking it). */
   listAccounts(): TraeAccountRuntime[] {
     return this.accounts.map((runtime) => ({
       ...runtime,
-      config: redactAccount(runtime.config),
+      config: this.redactSecrets(runtime.config),
       auth: undefined
     }))
   }
@@ -101,30 +160,22 @@ export class TraeAccountPool {
     return this.listModels()
   }
 
+  // --- account selection: availability → model → auth (trae ordering) ---
+
   async getAccountForModel(
     model: string,
     exclude = new Set<string>()
   ): Promise<TraeAccountRuntime | undefined> {
-    if (!this.accounts.length) return undefined
-    const now = Date.now()
-    const normalized = normalizeTraeModel(model || DEFAULT_TRAE_MODEL)
-    const start = this.currentAccountIndex % this.accounts.length
-    for (let pass = 0; pass < 2; pass++) {
-      for (let i = 0; i < this.accounts.length; i++) {
-        const idx = (start + i) % this.accounts.length
-        const account = this.accounts[idx]
-        if (account.config.enabled === false || exclude.has(account.config.id)) continue
-        if (pass === 0 && !this.isAvailable(account, now)) continue
-        if (pass === 1 && isHardOffline(account.state.status)) continue
-        if (!this.accountHasModel(account, normalized)) continue
-        if (!(await this.tryEnsureAuth(account))) continue
-        this.currentAccountIndex = idx
-        this.state.currentAccountIndex = idx
-        this.onStateChanged()
-        return account
+    const normalizedModel = normalizeTraeModel(model || DEFAULT_TRAE_MODEL)
+    return this.pickAccountTwoPassGeneric(exclude, async (account, relax) => {
+      if (relax) {
+        if (this.isHardOffline(account.state.status)) return false
+      } else if (!this.isAvailable(account, Date.now())) {
+        return false
       }
-    }
-    return undefined
+      if (!this.accountHasModel(account, normalizedModel)) return false
+      return this.tryEnsureAuth(account)
+    })
   }
 
   async testAccount(accountId: string): Promise<AccountTestResult> {
@@ -203,68 +254,25 @@ export class TraeAccountPool {
     return { models: account.state.modelIds }
   }
 
-  async reportSuccess(account: TraeAccountRuntime): Promise<void> {
-    account.state.failures = 0
-    account.state.lastError = undefined
-    account.state.lastSuccessAt = Date.now()
-    account.state.stats.totalRequests += 1
-    account.state.stats.successfulRequests += 1
-    account.state.lastResponseKind = 'success'
-    this.transitionStatus(account, 'available')
-    this.onStateChanged()
-  }
+  // --- failure reporting: trae uses the BaseAccountPool default
+  // (auth/quota/rate_limit/cooling + cap-64 exponential backoff). The
+  // trae-specific transitionStatus override below still applies. ---
 
-  async reportFailure(
+  // --- transitionStatus override: trae clears cooldownUntil for non-cooling states ---
+
+  protected transitionStatus(
     account: TraeAccountRuntime,
-    error: unknown,
-    classified: TraeClassifiedError
-  ): Promise<void> {
-    account.state.failures += 1
-    account.state.lastFailureAt = Date.now()
-    account.state.lastError = toErrorMessage(error)
-    account.state.stats.totalRequests += 1
-    account.state.stats.failedRequests += 1
-    account.state.lastResponseKind = classified.kind
-    const now = Date.now()
-    const reason = account.state.lastError.slice(0, 200)
-    if (classified.kind === 'auth') this.transitionStatus(account, 'auth_failed', reason)
-    else if (classified.kind === 'quota')
-      this.transitionStatus(account, 'quota_exceeded', reason, now + classified.cooldownMs)
-    else if (classified.kind === 'rate_limit')
-      this.transitionStatus(account, 'rate_limited', reason, now + classified.cooldownMs)
-    else {
-      const multiplier = Math.min(64, Math.pow(2, Math.max(0, account.state.failures - 1)))
-      this.transitionStatus(account, 'cooling', reason, now + classified.cooldownMs * multiplier)
-    }
-    this.logger.warn(account.state.lastError, {
-      provider: 'trae',
-      accountId: accountLabel(account),
-      category: 'account'
-    })
-    this.onStateChanged()
-  }
-
-  async resetAccount(accountId: string): Promise<void> {
-    const account = this.accounts.find((item) => item.config.id === accountId)
-    if (!account) return
-    account.state.failures = 0
-    account.state.lastError = undefined
-    account.state.lastFailureAt = 0
-    account.state.lastResponseKind = undefined
-    this.transitionStatus(account, 'available')
-    this.onStateChanged()
-  }
-
-  async setAccountStatus(accountId: string, status: AccountStatus, reason?: string): Promise<void> {
-    const account = this.accounts.find((item) => item.config.id === accountId)
-    if (!account) throw new Error(`Account not found: ${accountId}`)
-    if (status === 'available') {
-      account.state.failures = 0
-      account.state.lastError = undefined
+    status: AccountStatus,
+    reason?: string,
+    cooldownUntil?: number
+  ): void {
+    account.state.status = status
+    account.state.statusReason = reason
+    account.state.statusUpdatedAt = Date.now()
+    if (cooldownUntil) account.state.cooldownUntil = cooldownUntil
+    else if (status === 'available' || status === 'manual_disabled' || status === 'auth_failed') {
       account.state.cooldownUntil = undefined
     }
-    this.transitionStatus(account, status, reason)
-    this.onStateChanged()
   }
 
   private async maybeRefreshAccountModels(account: TraeAccountRuntime): Promise<void> {
@@ -286,7 +294,7 @@ export class TraeAccountPool {
     } catch (error) {
       this.logger.warn(`Trae model list refresh failed: ${toErrorMessage(error)}`, {
         provider: 'trae',
-        accountId: accountLabel(account),
+        accountId: this.accountLabel(account),
         category: 'account'
       })
     }
@@ -322,38 +330,11 @@ export class TraeAccountPool {
     }
   }
 
-  private accountHasModel(account: TraeAccountRuntime, model: string): boolean {
-    const list = account.state.modelIds || []
-    if (!list.length) return true
-    const normalized = normalizeTraeModel(model)
-    return list.some((available) => normalizeTraeModel(available) === normalized)
-  }
-
   private modelsForAccount(account?: TraeAccountConfig): string[] {
     const includeUnavailableInUS =
       this.config.settings.exposeUnavailableInUS ||
       Boolean(account?.countryCode && account.countryCode !== 'US')
     return listTraeBuiltInModelIds({ includeUnavailableInUS })
-  }
-
-  private isAvailable(account: TraeAccountRuntime, now: number): boolean {
-    const status = account.state.status
-    if (status === 'available') return true
-    if (isHardOffline(status)) return false
-    if (account.state.cooldownUntil && now > account.state.cooldownUntil) return true
-    return Math.random() < 0.1
-  }
-
-  private transitionStatus(
-    account: TraeAccountRuntime,
-    status: AccountStatus,
-    reason?: string,
-    cooldownUntil?: number
-  ): void {
-    account.state.status = status
-    account.state.statusReason = reason
-    account.state.statusUpdatedAt = Date.now()
-    account.state.cooldownUntil = cooldownUntil
   }
 }
 
@@ -377,38 +358,14 @@ export function classifyTraeError(error: unknown): TraeClassifiedError {
   return { kind: 'server_error', cooldownMs: 30_000 }
 }
 
-function defaultAccountState(modelIds = listTraeBuiltInModelIds()): AccountRuntimeState {
-  return {
-    failures: 0,
-    lastFailureAt: 0,
-    lastSuccessAt: 0,
-    modelsCachedAt: 0,
-    modelIds,
-    status: 'available',
-    statusUpdatedAt: 0,
-    stats: { totalRequests: 0, successfulRequests: 0, failedRequests: 0 }
-  }
-}
-
-function sanitizeUsableModelIds(modelIds: string[]): string[] {
+export function sanitizeUsableModelIds(modelIds: string[]): string[] {
   const set = new Set<string>()
   for (const modelId of modelIds) {
-    const normalized = normalizeTraeModel(modelId)
-    if (describeTraeModel(normalized)) set.add(normalized)
+    const trimmed = String(modelId || '').trim()
+    if (!trimmed) continue
+    set.add(normalizeTraeModel(trimmed))
   }
   return [...set].sort()
-}
-
-function isHardOffline(status: AccountStatus): boolean {
-  return status === 'auth_failed' || status === 'manual_disabled' || status === 'quota_exceeded'
-}
-
-function redactAccount(account: TraeAccountConfig): TraeAccountConfig {
-  return {
-    ...account,
-    jwtToken: account.jwtToken ? '***' : undefined,
-    refreshToken: account.refreshToken ? '***' : undefined
-  }
 }
 
 function applyTokenSnapshot(account: TraeAccountConfig, snapshot: TraeTokenSnapshot): void {
@@ -418,8 +375,6 @@ function applyTokenSnapshot(account: TraeAccountConfig, snapshot: TraeTokenSnaps
   if (snapshot.refreshExpiresAt) account.refreshExpiresAt = snapshot.refreshExpiresAt
 }
 
-function accountLabel(account: TraeAccountRuntime): string {
-  return account.config.email || account.config.label || account.config.id
-}
-
+// re-exported type aliases / model docs used by consumers
+export type { AccountStatus, ResponseKind }
 export const TRAE_MODEL_DOCS = TRAE_BUILT_IN_MODELS

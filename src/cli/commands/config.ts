@@ -23,6 +23,10 @@ export function registerConfigCommands(cli: CAC): void {
           traeAccountsDir: join(dir, 'trae', 'accounts'),
           openrouterAccountsDir: join(dir, 'openrouter', 'accounts'),
           nvidiaAccountsDir: join(dir, 'nvidia', 'accounts'),
+          gptWebAccountsDir: join(dir, 'gptWeb', 'accounts'),
+          grokWebAccountsDir: join(dir, 'grokWeb', 'accounts'),
+          qoderAccountsDir: join(dir, 'qoder', 'accounts'),
+          qoderAuthDir: join(dir, 'qoder', 'auth'),
           logsDir: join(dir, 'logs'),
           pidFile: join(dir, 'gatewayhub.pid')
         }

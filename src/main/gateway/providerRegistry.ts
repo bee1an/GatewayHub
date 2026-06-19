@@ -14,6 +14,7 @@ import type {
   ProviderModel,
   ProviderName,
   ProviderStatus,
+  QoderAccountConfig,
   TraeAccountConfig,
   WindsurfAccountConfig
 } from './types'
@@ -26,6 +27,7 @@ import { OpenRouterProvider } from './providers/openrouter/provider'
 import { NvidiaProvider } from './providers/nvidia/provider'
 import { GptWebProvider } from './providers/gptWeb/provider'
 import { GrokWebProvider } from './providers/grokWeb/provider'
+import { QoderProvider } from './providers/qoder/provider'
 import type { GatewayHubState } from './types'
 
 class PlaceholderProvider implements ProviderAdapter {
@@ -108,109 +110,93 @@ export class ProviderRegistry {
     openrouterAccountFiles: OpenRouterAccountConfig[] = [],
     nvidiaAccountFiles: NvidiaAccountConfig[] = [],
     gptWebAccountFiles: GptWebAccountConfig[] = [],
-    grokWebAccountFiles: GrokWebAccountConfig[] = []
+    grokWebAccountFiles: GrokWebAccountConfig[] = [],
+    qoderAccountFiles: QoderAccountConfig[] = []
   ): Promise<void> {
-    const kiro = new KiroProvider(
-      this.config.providers.kiro,
-      this.state.providers.kiro,
-      this.logger,
-      this.onStateChanged
-    )
-    await kiro.initialize(accountFiles)
-    this.registerProvider('kiro', kiro, this.config.providers.kiro.routeName || 'kiro')
+    const p = this.config.providers
+    const s = this.state.providers
+    const log = this.logger
+    const onChange = this.onStateChanged
 
-    // Settings 页"代理"是全局字段（持久化在 kiro.settings.vpnProxyUrl 上），运行时同步给 codex
-    this.config.providers.codex.settings.vpnProxyUrl =
-      this.config.providers.kiro.settings.vpnProxyUrl
-    this.config.providers.trae.settings.vpnProxyUrl =
-      this.config.providers.kiro.settings.vpnProxyUrl
-    this.config.providers.gptWeb.settings.vpnProxyUrl =
-      this.config.providers.gptWeb.settings.vpnProxyUrl ||
-      this.config.providers.kiro.settings.vpnProxyUrl
-    this.config.providers.grokWeb.settings.vpnProxyUrl =
-      this.config.providers.grokWeb.settings.vpnProxyUrl ||
-      this.config.providers.kiro.settings.vpnProxyUrl
+    // Resolve runtime proxy URLs from the global server.proxyUrl + each provider's
+    // useProxy toggle. Settings.vpnProxyUrl is a runtime-injected field; the disk
+    // config only stores server.proxyUrl + useProxy and saveConfig strips this
+    // value. Done before any provider initializes so token-refresh paths see the
+    // resolved value.
+    const globalProxyUrl = this.config.server.proxyUrl || ''
+    const resolveProxy = (useProxy: boolean | undefined): string => (useProxy ? globalProxyUrl : '')
+    p.kiro.settings.vpnProxyUrl = resolveProxy(p.kiro.useProxy)
+    p.codex.settings.vpnProxyUrl = resolveProxy(p.codex.useProxy)
+    p.windsurf.settings.vpnProxyUrl = resolveProxy(p.windsurf.useProxy)
+    p.trae.settings.vpnProxyUrl = resolveProxy(p.trae.useProxy)
+    p.gptWeb.settings.vpnProxyUrl = resolveProxy(p.gptWeb.useProxy)
+    p.grokWeb.settings.vpnProxyUrl = resolveProxy(p.grokWeb.useProxy)
+    p.qoder.settings.vpnProxyUrl = resolveProxy(p.qoder.useProxy)
 
-    const codex = new CodexProvider(
-      this.config.providers.codex,
-      this.state.providers.codex,
-      this.logger,
-      this.onStateChanged,
-      this.persistCodexAccount
-    )
-    await codex.initialize(codexAccountFiles)
-    this.registerProvider('codex', codex, this.config.providers.codex.routeName || 'codex')
+    await this.initProvider('kiro', new KiroProvider(p.kiro, s.kiro, log, onChange), accountFiles)
 
-    const windsurf = new WindsurfProvider(
-      this.config.providers.windsurf,
-      this.state.providers.windsurf,
-      this.logger,
-      this.onStateChanged
+    await this.initProvider(
+      'codex',
+      new CodexProvider(p.codex, s.codex, log, onChange, this.persistCodexAccount),
+      codexAccountFiles
     )
-    await windsurf.initialize(windsurfAccountFiles)
-    this.registerProvider(
+    await this.initProvider(
       'windsurf',
-      windsurf,
-      this.config.providers.windsurf.routeName || 'windsurf'
+      new WindsurfProvider(p.windsurf, s.windsurf, log, onChange),
+      windsurfAccountFiles
     )
-
-    const trae = new TraeProvider(
-      this.config.providers.trae,
-      this.state.providers.trae,
-      this.logger,
-      this.onStateChanged,
-      this.persistTraeAccount
+    await this.initProvider(
+      'trae',
+      new TraeProvider(p.trae, s.trae, log, onChange, this.persistTraeAccount),
+      traeAccountFiles
     )
-    await trae.initialize(traeAccountFiles)
-    this.registerProvider('trae', trae, this.config.providers.trae.routeName || 'trae')
-
-    const openrouter = new OpenRouterProvider(
-      this.config.providers.openrouter,
-      this.state.providers.openrouter,
-      this.logger,
-      this.onStateChanged,
-      this.persistOpenRouterAccount
-    )
-    await openrouter.initialize(openrouterAccountFiles)
-    this.registerProvider(
+    await this.initProvider(
       'openrouter',
-      openrouter,
-      this.config.providers.openrouter.routeName || 'openrouter'
+      new OpenRouterProvider(
+        p.openrouter,
+        s.openrouter,
+        log,
+        onChange,
+        this.persistOpenRouterAccount
+      ),
+      openrouterAccountFiles
     )
-
-    const nvidia = new NvidiaProvider(
-      this.config.providers.nvidia,
-      this.state.providers.nvidia,
-      this.logger,
-      this.onStateChanged,
-      this.persistNvidiaAccount
+    await this.initProvider(
+      'nvidia',
+      new NvidiaProvider(p.nvidia, s.nvidia, log, onChange, this.persistNvidiaAccount),
+      nvidiaAccountFiles
     )
-    await nvidia.initialize(nvidiaAccountFiles)
-    this.registerProvider('nvidia', nvidia, this.config.providers.nvidia.routeName || 'nvidia')
-
-    const gptWeb = new GptWebProvider(
-      this.config.providers.gptWeb,
-      this.state.providers.gptWeb,
-      this.logger,
-      this.onStateChanged
+    await this.initProvider(
+      'gptWeb',
+      new GptWebProvider(p.gptWeb, s.gptWeb, log, onChange),
+      gptWebAccountFiles
     )
-    await gptWeb.initialize(gptWebAccountFiles)
-    this.registerProvider('gptWeb', gptWeb, this.config.providers.gptWeb.routeName || 'gptWeb')
-
-    const grokWeb = new GrokWebProvider(
-      this.config.providers.grokWeb,
-      this.state.providers.grokWeb,
-      this.logger,
-      this.onStateChanged
+    await this.initProvider(
+      'grokWeb',
+      new GrokWebProvider(p.grokWeb, s.grokWeb, log, onChange),
+      grokWebAccountFiles
     )
-    await grokWeb.initialize(grokWebAccountFiles)
-    this.registerProvider('grokWeb', grokWeb, this.config.providers.grokWeb.routeName || 'grokWeb')
+    await this.initProvider(
+      'qoder',
+      new QoderProvider(p.qoder, s.qoder, log, onChange),
+      qoderAccountFiles
+    )
 
     this.registerProvider(
       'gemini',
-      new PlaceholderProvider('gemini', this.config.providers.gemini.note),
-      this.config.providers.gemini.routeName || 'gemini'
+      new PlaceholderProvider('gemini', p.gemini.note),
+      p.gemini.routeName || 'gemini'
     )
+  }
+
+  private async initProvider(
+    name: ProviderName,
+    provider: ProviderAdapter & { initialize(files: any[]): Promise<void> },
+    accountFiles: any[]
+  ): Promise<void> {
+    await provider.initialize(accountFiles)
+    const cfg = (this.config.providers as Record<string, { routeName?: string }>)[name]
+    this.registerProvider(name, provider, cfg?.routeName || name)
   }
 
   async dispose(): Promise<void> {
@@ -292,14 +278,24 @@ export class ProviderRegistry {
   }
 
   async statuses(): Promise<ProviderStatus[]> {
+    const proxyCapable = new Set([
+      'kiro',
+      'codex',
+      'windsurf',
+      'trae',
+      'gptWeb',
+      'grokWeb',
+      'qoder'
+    ])
     const result: ProviderStatus[] = []
     for (const [name, provider] of this.providers) {
       const routeName = this.getRouteName(name)
       const providerCfg = (this.config.providers as Record<string, any>)[name]
       const displayName = providerCfg?.displayName || undefined
+      const useProxy = proxyCapable.has(name) ? !!providerCfg?.useProxy : undefined
       if (provider.getStatus) {
         const s = await provider.getStatus()
-        result.push({ ...s, name: routeName, providerType: name, displayName })
+        result.push({ ...s, name: routeName, providerType: name, displayName, useProxy })
       } else {
         result.push({
           name: routeName,
@@ -308,7 +304,8 @@ export class ProviderRegistry {
           enabled: true,
           configured: true,
           status: 'ready',
-          models: []
+          models: [],
+          useProxy
         })
       }
     }
@@ -343,21 +340,21 @@ export class ProviderRegistry {
   }
 
   async getAccountInfo(providerName: ProviderName, accountId: string) {
-    const provider = this.providers.get(providerName) as any
+    const provider = this.providers.get(providerName)
     if (!provider?.getAccountInfo)
       throw new Error(`Provider ${providerName} does not support getAccountInfo`)
     return provider.getAccountInfo(accountId)
   }
 
   async refreshAccountModels(providerName: ProviderName, accountId: string) {
-    const provider = this.providers.get(providerName) as any
+    const provider = this.providers.get(providerName)
     if (!provider?.refreshAccountModels)
       throw new Error(`Provider ${providerName} does not support refreshAccountModels`)
     return provider.refreshAccountModels(accountId)
   }
 
   async resetAccount(providerName: ProviderName, accountId: string) {
-    const provider = this.providers.get(providerName) as any
+    const provider = this.providers.get(providerName)
     if (!provider?.resetAccount)
       throw new Error(`Provider ${providerName} does not support resetAccount`)
     return provider.resetAccount(accountId)
@@ -369,7 +366,7 @@ export class ProviderRegistry {
     status: AccountStatus,
     reason?: string
   ) {
-    const provider = this.providers.get(providerName) as any
+    const provider = this.providers.get(providerName)
     if (!provider?.setAccountStatus)
       throw new Error(`Provider ${providerName} does not support setAccountStatus`)
     return provider.setAccountStatus(accountId, status, reason)

@@ -104,6 +104,22 @@ pnpm cli shell install-shim
 | `nvidia set-status <id> <status> [--reason <text>]`         | 手动设置 key 状态                                             |
 | `nvidia chat [prompt] [--model <model>] [--max-tokens <n>]` | 通过本地网关发起一次 NVIDIA OpenAI 兼容 chat 冒烟测试         |
 
+### qoder — Qoder 本地登录态 / Personal Access Token 账号池
+
+| 命令                                                          | 说明                                                               |
+| ------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `qoder list`                                                  | 列出已导入的 Qoder 账号                                            |
+| `qoder login-cli [--label <text>] [--qoder-cli-path <path>]`  | 在隔离的 qodercli 环境里登录新账号，并导入托管 auth bundle         |
+| `qoder import-cli [--label <text>] [--qoder-cli-path <path>]` | 把当前全局 qodercli 登录态复制为 GatewayHub 托管账号               |
+| `qoder import-token [token]`                                  | 导入 Qoder Personal Access Token（支持 stdin）                     |
+| `qoder import-json [<path\|->]`                               | 从包含 PAT，或 authType=qoder-cli-auth + qoderCliHome 的 JSON 导入 |
+| `qoder test <id>`                                             | 通过 Qoder 直连 API 最小请求校验账号，并刷新模型列表               |
+| `qoder info <id>`                                             | 查看账号运行态详情与模型列表                                       |
+| `qoder refresh-models <id>`                                   | 刷新/重建 Qoder 直连模型列表                                       |
+| `qoder enable\|disable\|remove\|reset <id>`                   | 启用、禁用、删除或重置账号状态                                     |
+| `qoder set-status <id> <status> [--reason <text>]`            | 手动设置账号状态                                                   |
+| `qoder chat [prompt] [--model <model>] [--max-tokens <n>]`    | 通过本地网关发起一次 Qoder chat 冒烟测试                           |
+
 ### apikey — API 密钥管理
 
 | 命令                                                                                    | 说明              |
@@ -139,16 +155,24 @@ pnpm cli shell install-shim
 | 命令                                     | 说明                                                                 |
 | ---------------------------------------- | -------------------------------------------------------------------- |
 | `settings kiro show`                     | 显示 Kiro 提供商设置                                                 |
-| `settings kiro set <key=value...>`       | 修改 Kiro 设置（如 `vpnProxyUrl=http://...`）                        |
+| `settings kiro set <key=value...>`       | 修改 Kiro 设置（如 `region=us-east-1`）                              |
 | `settings trae show`                     | 显示 Trae 国际服提供商设置                                           |
 | `settings trae set <key=value...>`       | 修改 Trae 设置（如 `rawChatPath=/api/...`）                          |
 | `settings openrouter show`               | 显示 OpenRouter 提供商设置                                           |
 | `settings openrouter set <key=value...>` | 修改 OpenRouter 设置（如 `baseUrl=https://openrouter.ai/api/v1`）    |
 | `settings nvidia show`                   | 显示 NVIDIA NIM 提供商设置                                           |
 | `settings nvidia set <key=value...>`     | 修改 NVIDIA 设置（如 `baseUrl=https://integrate.api.nvidia.com/v1`） |
+| `settings qoder show`                    | 显示 Qoder 提供商设置                                                |
+| `settings qoder set <key=value...>`      | 修改 Qoder 设置（如 `qoderCliPath=/opt/homebrew/bin/qodercli`）      |
 | `settings auto-start show`               | 查看自启动状态                                                       |
 | `settings auto-start on`                 | 开启自启动                                                           |
 | `settings auto-start off`                | 关闭自启动                                                           |
+| `settings host show`                     | 查看网关监听地址                                                     |
+| `settings host set <host>`               | 设置监听地址（`127.0.0.1` 仅本机 / `0.0.0.0` 局域网）               |
+| `settings proxy show`                    | 查看全局代理 URL                                                     |
+| `settings proxy set <url>`               | 设置全局代理 URL（留空清除，如 `socks5://127.0.0.1:1080`）           |
+| `settings use-proxy <provider> on`       | 让指定网关经全局代理转发（kiro/codex/windsurf/trae/gptWeb/grokWeb/qoder） |
+| `settings use-proxy <provider> off`      | 关闭指定网关的代理转发                                               |
 
 ### config — 配置查看
 
@@ -218,6 +242,13 @@ gatewayhub openrouter chat "只回复 OK" --model openrouter/free
 gatewayhub nvidia import-key "$NVIDIA_API_KEY"
 gatewayhub nvidia list
 gatewayhub nvidia chat "只回复 OK" --model meta/llama-3.1-8b-instruct
+
+# 登录新的 Qoder 账号，或导入当前全局 qodercli，再做一次直连冒烟测试
+gatewayhub qoder login-cli
+# gatewayhub qoder import-cli
+gatewayhub qoder import-token "$QODER_PERSONAL_ACCESS_TOKEN"
+gatewayhub qoder list
+gatewayhub qoder chat "只回复 OK" --model auto
 
 # 创建 API Key
 gatewayhub apikey create --name "production"

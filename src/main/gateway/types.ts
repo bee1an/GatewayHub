@@ -7,6 +7,7 @@ export type ProviderName =
   | 'nvidia'
   | 'gptWeb'
   | 'grokWeb'
+  | 'qoder'
   | 'gemini'
   | string
 
@@ -23,6 +24,7 @@ export interface GatewayHubConfig {
     nvidia: NvidiaProviderConfig
     gptWeb: GptWebProviderConfig
     grokWeb: GrokWebProviderConfig
+    qoder: QoderProviderConfig
     gemini: PlaceholderProviderConfig
     [name: string]: unknown
   }
@@ -52,6 +54,8 @@ export interface GatewayServerConfig {
   port: number
   apiKeys: ApiKeyEntry[]
   autoStart: boolean
+  /** Global HTTP/SOCKS5 proxy URL applied to providers whose `useProxy` is on. */
+  proxyUrl: string
 }
 
 export interface PlaceholderProviderConfig {
@@ -63,6 +67,8 @@ export interface PlaceholderProviderConfig {
 
 export interface KiroProviderConfig {
   enabled: boolean
+  /** When true, this gateway routes upstream requests through the global server.proxyUrl. Defaults to false. */
+  useProxy?: boolean
   routeName?: string
   displayName?: string
   settings: KiroProviderSettings
@@ -71,6 +77,10 @@ export interface KiroProviderConfig {
 export interface KiroProviderSettings {
   apiRegion?: string
   region: string
+  /**
+   * Runtime-injected proxy URL. Not user-configured — resolved from the global
+   * `server.proxyUrl` + this provider's `useProxy` flag by the registry on rebuild.
+   */
   vpnProxyUrl: string
   sqliteReadonly: boolean
   firstTokenTimeoutSeconds: number
@@ -105,6 +115,8 @@ export interface KiroAccountConfig {
 
 export interface CodexProviderConfig {
   enabled: boolean
+  /** When true, this gateway routes upstream requests through the global server.proxyUrl. Defaults to false. */
+  useProxy?: boolean
   routeName?: string
   displayName?: string
   settings: CodexProviderSettings
@@ -113,7 +125,10 @@ export interface CodexProviderConfig {
 export interface CodexProviderSettings {
   /** ChatGPT 后端 base URL，默认 https://chatgpt.com/backend-api */
   baseUrl: string
-  /** HTTP/SOCKS5 代理 URL */
+  /**
+   * Runtime-injected proxy URL. Not user-configured — resolved from the global
+   * `server.proxyUrl` + this provider's `useProxy` flag by the registry on rebuild.
+   */
   vpnProxyUrl: string
   firstTokenTimeoutSeconds: number
   streamingReadTimeoutSeconds: number
@@ -155,6 +170,8 @@ export interface CodexAccountConfig {
 
 export interface WindsurfProviderConfig {
   enabled: boolean
+  /** When true, this gateway routes upstream requests through the global server.proxyUrl. Defaults to false. */
+  useProxy?: boolean
   routeName?: string
   displayName?: string
   settings: WindsurfProviderSettings
@@ -169,7 +186,11 @@ export interface WindsurfProviderSettings {
   languageServerBinaryPath: string
   /** 传给 language_server 的 codeium_dir，默认 .codeium/windsurf */
   codeiumDir: string
-  /** HTTP/SOCKS5 proxy URL passed to Windsurf language_server via proxy env vars */
+  /**
+   * Runtime-injected proxy URL passed to Windsurf language_server via proxy env vars.
+   * Not user-configured — resolved from the global `server.proxyUrl` + this provider's
+   * `useProxy` flag by the registry on rebuild.
+   */
   vpnProxyUrl: string
   firstTokenTimeoutSeconds: number
   streamingReadTimeoutSeconds: number
@@ -193,6 +214,8 @@ export interface WindsurfAccountConfig {
 
 export interface TraeProviderConfig {
   enabled: boolean
+  /** When true, this gateway routes upstream requests through the global server.proxyUrl. Defaults to false. */
+  useProxy?: boolean
   routeName?: string
   displayName?: string
   settings: TraeProviderSettings
@@ -215,7 +238,10 @@ export interface TraeProviderSettings {
   localAppPath: string
   /** Model list endpoint path observed in Trae IDE */
   modelListPath: string
-  /** HTTP/SOCKS5 proxy URL */
+  /**
+   * Runtime-injected proxy URL. Not user-configured — resolved from the global
+   * `server.proxyUrl` + this provider's `useProxy` flag by the registry on rebuild.
+   */
   vpnProxyUrl: string
   ideVersion: string
   productVersion: string
@@ -321,6 +347,8 @@ export interface NvidiaProviderState {
 
 export interface GptWebProviderConfig {
   enabled: boolean
+  /** When true, this gateway routes upstream requests through the global server.proxyUrl. Defaults to false. */
+  useProxy?: boolean
   routeName?: string
   displayName?: string
   settings: GptWebProviderSettings
@@ -329,7 +357,10 @@ export interface GptWebProviderConfig {
 export interface GptWebProviderSettings {
   /** GptWeb backend base URL */
   baseUrl: string
-  /** HTTP/SOCKS5 proxy URL */
+  /**
+   * Runtime-injected proxy URL. Not user-configured — resolved from the global
+   * `server.proxyUrl` + this provider's `useProxy` flag by the registry on rebuild.
+   */
   vpnProxyUrl: string
   firstTokenTimeoutSeconds: number
   streamingReadTimeoutSeconds: number
@@ -359,6 +390,8 @@ export interface GptWebProviderState {
 
 export interface GrokWebProviderConfig {
   enabled: boolean
+  /** When true, this gateway routes upstream requests through the global server.proxyUrl. Defaults to false. */
+  useProxy?: boolean
   routeName?: string
   displayName?: string
   settings: GrokWebProviderSettings
@@ -369,7 +402,10 @@ export interface GrokWebProviderSettings {
   baseUrl: string
   /** Grok Web gateway WebSocket URL */
   wsUrl: string
-  /** HTTP/SOCKS5 proxy URL */
+  /**
+   * Runtime-injected proxy URL. Not user-configured — resolved from the global
+   * `server.proxyUrl` + this provider's `useProxy` flag by the registry on rebuild.
+   */
   vpnProxyUrl: string
   firstTokenTimeoutSeconds: number
   streamingReadTimeoutSeconds: number
@@ -396,6 +432,61 @@ export interface GrokWebProviderState {
   logs: GatewayLogEntry[]
 }
 
+export interface QoderProviderConfig {
+  enabled: boolean
+  /** When true, this gateway routes upstream requests through the global server.proxyUrl. Defaults to false. */
+  useProxy?: boolean
+  routeName?: string
+  displayName?: string
+  settings: QoderProviderSettings
+}
+
+export interface QoderProviderSettings {
+  /** Qoder model-server base URL. Gateway API requests go directly here with the account token. */
+  apiBaseUrl: string
+  /** qodercli binary path, used only to import auth and extract embedded Qoder auth WASM; GatewayHub never spawns it for chat requests. */
+  qoderCliPath: string
+  /**
+   * Runtime-injected proxy URL used by direct Qoder HTTP requests. Not user-configured —
+   * resolved from the global `server.proxyUrl` + this provider's `useProxy` flag by the
+   * registry on rebuild.
+   */
+  vpnProxyUrl: string
+  firstTokenTimeoutSeconds: number
+  streamingReadTimeoutSeconds: number
+  maxRetries: number
+  /** Default max_tokens sent to Qoder model server when the client omits max_tokens. */
+  maxOutputTokens: '16k' | '32k'
+}
+
+export interface QoderAccountConfig {
+  id: string
+  label?: string
+  email?: string
+  enabled: boolean
+  path?: string
+  /**
+   * Authentication source.
+   * `qoder-personal-access-token` is exchanged for a Qoder access token and used directly over HTTP.
+   * `qoder-cli-auth` / `qoder-cli-login` point at an imported local auth bundle; GatewayHub reads
+   * the encrypted token file directly and never spawns qodercli in the request path.
+   * `qoder-cli-login` is accepted only as a legacy config value.
+   */
+  authType?: 'qoder-personal-access-token' | 'qoder-cli-auth' | 'qoder-cli-login'
+  /** Qoder Personal Access Token, sent directly as Authorization: Bearer <token>. */
+  personalAccessToken?: string
+  /** GatewayHub-managed QODER_CLI_HOME for CLI-login accounts. */
+  qoderCliHome?: string
+  /** Optional per-account qodercli binary path. */
+  qoderCliPath?: string
+}
+
+export interface QoderProviderState {
+  accounts: Record<string, AccountRuntimeState>
+  currentAccountIndex: number
+  logs: GatewayLogEntry[]
+}
+
 export interface GatewayHubState {
   version: 1
   providers: {
@@ -407,6 +498,7 @@ export interface GatewayHubState {
     nvidia: NvidiaProviderState
     gptWeb: GptWebProviderState
     grokWeb: GrokWebProviderState
+    qoder: QoderProviderState
     [name: string]: unknown
   }
 }
@@ -442,6 +534,19 @@ export type AccountStatus =
   | 'quota_exceeded'
   | 'auth_failed'
   | 'manual_disabled'
+
+/**
+ * Common core of every per-provider account config. Every `XxxAccountConfig`
+ * in this file extends this shape (id / label / email / enabled / path).
+ * Used by the generic `AccountFileStore<T>` so CRUD logic can be shared.
+ */
+export interface BaseAccountConfig {
+  id: string
+  label?: string
+  email?: string
+  enabled: boolean
+  path?: string
+}
 
 export type ResponseKind =
   | 'success'
@@ -589,6 +694,12 @@ export interface GatewayLogEntry {
 
 export interface GatewayRequestContext {
   requestId: string
+  /**
+   * Stable conversation/session identifier.
+   * Unlike requestId, this should stay constant across turns in the same client session.
+   */
+  sessionId?: string
+  sessionSource?: 'body' | 'metadata' | 'header' | 'fallback' | 'request'
   apiFormat: 'openai' | 'anthropic'
   onUsage?: (usage: UsageStats, meta?: UsageMeta) => void
   abortSignal?: AbortSignal
@@ -623,6 +734,8 @@ export interface ProviderStatus {
   status: 'ready' | 'disabled' | 'error' | 'placeholder'
   message?: string
   models: string[]
+  /** Present for providers that support the global proxy toggle; reflects `useProxy`. */
+  useProxy?: boolean
 }
 
 export interface ProviderAdapter {
@@ -634,6 +747,12 @@ export interface ProviderAdapter {
   testAccount?(accountId: string): Promise<AccountTestResult>
   getStatus?(): Promise<ProviderStatus>
   dispose?(): Promise<void> | void
+  // Account-management surface (implemented by delegating to the pool).
+  // Declared here so the registry can call without `as any`.
+  getAccountInfo?(accountId: string): Promise<any>
+  refreshAccountModels?(accountId: string): Promise<any>
+  resetAccount?(accountId: string): Promise<void>
+  setAccountStatus?(accountId: string, status: AccountStatus, reason?: string): Promise<void>
 }
 
 export interface AccountTestResult {

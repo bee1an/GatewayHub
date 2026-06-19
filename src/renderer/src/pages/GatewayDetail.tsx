@@ -21,6 +21,8 @@ import { AddOpenRouterAccountDialog } from './AddOpenRouterAccountDialog'
 import { AddNvidiaAccountDialog } from './AddNvidiaAccountDialog'
 import { AddGptWebAccountDialog } from './AddGptWebAccountDialog'
 import { AddGrokWebAccountDialog } from './AddGrokWebAccountDialog'
+import { AddQoderAccountDialog } from './AddQoderAccountDialog'
+import { WindsurfProviderSettings } from './WindsurfProviderSettings'
 import { normalizeAccountModels } from './accountModelUtils'
 
 import type { Account, AccountFilter, AccountInfo, GatewayStatus } from './gatewayDetailTypes'
@@ -48,7 +50,7 @@ export default function GatewayDetail(): React.JSX.Element {
   const [removeTarget, setRemoveTarget] = useState<{ id: string; label: string } | null>(null)
   const [filter, setFilter] = useState<AccountFilter>('all')
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [tab, setTab] = useState<'overview' | 'usage'>('overview')
+  const [tab, setTab] = useState<'overview' | 'settings' | 'usage'>('overview')
   const [modelRefreshIds, setModelRefreshIds] = useState<Set<string>>(() => new Set())
   const [raceSettings, setRaceSettings] = useState({
     providerType: '',
@@ -57,6 +59,8 @@ export default function GatewayDetail(): React.JSX.Element {
     enabled: false,
     maxConcurrent: 3
   })
+  const [globalProxyUrl, setGlobalProxyUrl] = useState('')
+  const [proxyToggleSaving, setProxyToggleSaving] = useState(false)
 
   const draftValue =
     routeNameDraft && routeNameDraft.name === name ? routeNameDraft.value : (name ?? '')
@@ -74,9 +78,20 @@ export default function GatewayDetail(): React.JSX.Element {
   const isNvidia = gateway?.providerType === 'nvidia'
   const isGptWeb = gateway?.providerType === 'gptWeb'
   const isGrokWeb = gateway?.providerType === 'grokWeb'
+  const isQoder = gateway?.providerType === 'qoder'
   const supportsRequestRace = isOpenRouter || isNvidia
+  const supportsProxy =
+    isKiro || isCodex || isWindsurf || isTrae || isGptWeb || isGrokWeb || isQoder
   const supportsAccounts =
-    isKiro || isCodex || isWindsurf || isTrae || isOpenRouter || isNvidia || isGptWeb || isGrokWeb
+    isKiro ||
+    isCodex ||
+    isWindsurf ||
+    isTrae ||
+    isOpenRouter ||
+    isNvidia ||
+    isGptWeb ||
+    isGrokWeb ||
+    isQoder
   const accountIdsKey = useMemo(() => accounts.map((a) => a.id).join(','), [accounts])
 
   const filteredAccounts = useMemo(() => {
@@ -121,7 +136,9 @@ export default function GatewayDetail(): React.JSX.Element {
                     ? await window.api.gateway.getGptWebAccountInfo(accountId)
                     : isGrokWeb
                       ? await window.api.gateway.getGrokWebAccountInfo(accountId)
-                      : await window.api.gateway.getAccountInfo(accountId)
+                      : isQoder
+                        ? await window.api.gateway.getQoderAccountInfo(accountId)
+                        : await window.api.gateway.getAccountInfo(accountId)
         const normalizedInfo = { ...info, models: normalizeAccountModels(info?.models) }
         setAccountInfoMap((prev) => {
           const next = { ...prev, [accountId]: { data: normalizedInfo, loading: false } }
@@ -136,7 +153,7 @@ export default function GatewayDetail(): React.JSX.Element {
         }))
       }
     },
-    [isCodex, isWindsurf, isTrae, isOpenRouter, isNvidia, isGptWeb, isGrokWeb]
+    [isCodex, isWindsurf, isTrae, isOpenRouter, isNvidia, isGptWeb, isGrokWeb, isQoder]
   )
 
   const fetchAllUsage = useCallback(() => {
@@ -152,7 +169,8 @@ export default function GatewayDetail(): React.JSX.Element {
         !isOpenRouter &&
         !isNvidia &&
         !isGptWeb &&
-        !isGrokWeb
+        !isGrokWeb &&
+        !isQoder
       )
         return
       setModelRefreshIds((prev) => new Set(prev).add(accountId))
@@ -169,7 +187,9 @@ export default function GatewayDetail(): React.JSX.Element {
                   ? await window.api.gateway.refreshGptWebAccountModels(accountId)
                   : isGrokWeb
                     ? await window.api.gateway.refreshGrokWebAccountModels(accountId)
-                    : await window.api.gateway.refreshKiroAccountModels(accountId)
+                    : isQoder
+                      ? await window.api.gateway.refreshQoderAccountModels(accountId)
+                      : await window.api.gateway.refreshKiroAccountModels(accountId)
         if (result?.ok === false) throw new Error(result.error || t('gateway.infoError'))
         const models = normalizeAccountModels(result?.models)
         setAccountInfoMap((prev) => {
@@ -204,7 +224,19 @@ export default function GatewayDetail(): React.JSX.Element {
         })
       }
     },
-    [isKiro, isWindsurf, isTrae, isOpenRouter, isNvidia, isGptWeb, isGrokWeb, refresh, t, toast]
+    [
+      isKiro,
+      isWindsurf,
+      isTrae,
+      isOpenRouter,
+      isNvidia,
+      isGptWeb,
+      isGrokWeb,
+      isQoder,
+      refresh,
+      t,
+      toast
+    ]
   )
 
   useEffect(() => {
@@ -248,6 +280,36 @@ export default function GatewayDetail(): React.JSX.Element {
       cancelled = true
     }
   }, [gateway?.providerType, isOpenRouter, supportsRequestRace, t, toast])
+
+  useEffect(() => {
+    if (!supportsProxy) return
+    let cancelled = false
+    window.api.gateway
+      .getProxyUrl()
+      .then((url) => {
+        if (!cancelled) setGlobalProxyUrl(url || '')
+      })
+      .catch(() => {
+        /* benign — UI shows the "configure proxy" hint when URL stays empty */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [supportsProxy])
+
+  async function toggleUseProxy(): Promise<void> {
+    if (!gateway?.providerType || proxyToggleSaving) return
+    const next = !gateway.useProxy
+    setProxyToggleSaving(true)
+    try {
+      await window.api.gateway.setProviderUseProxy(gateway.providerType, next)
+      await refresh()
+    } catch (error) {
+      toast(error instanceof Error ? error.message : String(error), 'error')
+    } finally {
+      setProxyToggleSaving(false)
+    }
+  }
 
   async function run(action: () => Promise<any>, success: string): Promise<void> {
     setBusy(true)
@@ -422,9 +484,10 @@ export default function GatewayDetail(): React.JSX.Element {
 
       <SegmentedControl
         value={tab}
-        onValueChange={(v) => setTab(v as 'overview' | 'usage')}
+        onValueChange={(v) => setTab(v as 'overview' | 'settings' | 'usage')}
         items={[
           { value: 'overview', label: t('gateway.tabOverview') },
+          { value: 'settings', label: t('gateway.tabSettings') },
           { value: 'usage', label: t('gateway.tabUsage') }
         ]}
       />
@@ -438,40 +501,8 @@ export default function GatewayDetail(): React.JSX.Element {
             accounts.map((a) => [a.id, accountInfoMap[a.id]?.data?.email || a.label || a.id])
           )}
         />
-      ) : (
+      ) : tab === 'settings' ? (
         <>
-          <div className="grid grid-cols-3 gap-3">
-            <div className="card px-3 py-2 flex flex-col gap-1">
-              <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
-                {t('gateway.healthy')}
-              </span>
-              <span className="text-[17px] font-[650] text-emerald tabular-nums leading-none">
-                {accountStats.healthy}{' '}
-                <span className="text-[12px] text-fog font-normal">/ {accountStats.total}</span>
-              </span>
-            </div>
-            <div className="card px-3 py-2 flex flex-col gap-1">
-              <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
-                {t('gateway.requests')}
-              </span>
-              <span className="text-[17px] font-[650] text-porcelain tabular-nums leading-none">
-                {accountStats.totalReqs}
-              </span>
-            </div>
-            <div className="card px-3 py-2 flex flex-col gap-1">
-              <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
-                {t('gateway.successRate')}
-              </span>
-              <span
-                className={`text-[17px] font-[650] tabular-nums leading-none ${accountStats.problematic > 0 ? 'text-warning' : 'text-emerald'}`}
-              >
-                {accountStats.totalReqs > 0
-                  ? `${Math.round((accounts.reduce((s, a) => s + (a.stats?.successfulRequests ?? 0), 0) / accountStats.totalReqs) * 100)}%`
-                  : '100%'}
-              </span>
-            </div>
-          </div>
-
           {supportsRequestRace && (
             <div className="card px-3 py-2 flex flex-wrap items-center justify-between gap-2.5">
               <div className="min-w-[180px] flex-1">
@@ -519,6 +550,85 @@ export default function GatewayDetail(): React.JSX.Element {
               </div>
             </div>
           )}
+
+          {supportsProxy && (
+            <div className="card">
+              <div className="flex items-center justify-between px-3.5 py-2.5">
+                <div className="min-w-0">
+                  <h2
+                    id="gateway-use-proxy-label"
+                    className="text-[13px] font-medium text-porcelain"
+                  >
+                    {t('gateway.proxy')}
+                  </h2>
+                  <p className="text-[12px] text-fog mt-0.5">{t('gateway.proxyDesc')}</p>
+                  {!globalProxyUrl && (
+                    <p className="text-[12px] text-warning mt-1">{t('gateway.proxyEmpty')}</p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={!!gateway.useProxy}
+                  aria-labelledby="gateway-use-proxy-label"
+                  disabled={proxyToggleSaving || busy || !globalProxyUrl}
+                  className="outline-none focus-visible:ring-1 focus-visible:ring-accent/40 disabled:opacity-40 shrink-0"
+                  onClick={toggleUseProxy}
+                >
+                  <div
+                    className={`relative w-8 h-[18px] rounded-full transition-colors duration-200 ${gateway.useProxy ? 'bg-emerald' : 'bg-charcoal border border-ash/60'}`}
+                  >
+                    <div
+                      className={`absolute top-[3px] w-3 h-3 rounded-full transition-[left,background-color] duration-200 shadow-sm ${gateway.useProxy ? 'left-[17px] bg-white' : 'left-[3px] bg-fog'}`}
+                    />
+                  </div>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {isWindsurf && <WindsurfProviderSettings />}
+
+          {!supportsRequestRace && !supportsProxy && !isWindsurf && (
+            <div className="card px-4 py-10 flex flex-col items-center gap-3">
+              <span className="i-ph-gear text-[28px] text-charcoal" aria-hidden="true" />
+              <span className="text-fog text-[13px]">{t('gateway.noSettings')}</span>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="card px-3 py-2 flex flex-col gap-1">
+              <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
+                {t('gateway.healthy')}
+              </span>
+              <span className="text-[17px] font-[650] text-emerald tabular-nums leading-none">
+                {accountStats.healthy}{' '}
+                <span className="text-[12px] text-fog font-normal">/ {accountStats.total}</span>
+              </span>
+            </div>
+            <div className="card px-3 py-2 flex flex-col gap-1">
+              <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
+                {t('gateway.requests')}
+              </span>
+              <span className="text-[17px] font-[650] text-porcelain tabular-nums leading-none">
+                {accountStats.totalReqs}
+              </span>
+            </div>
+            <div className="card px-3 py-2 flex flex-col gap-1">
+              <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
+                {t('gateway.successRate')}
+              </span>
+              <span
+                className={`text-[17px] font-[650] tabular-nums leading-none ${accountStats.problematic > 0 ? 'text-warning' : 'text-emerald'}`}
+              >
+                {accountStats.totalReqs > 0
+                  ? `${Math.round((accounts.reduce((s, a) => s + (a.stats?.successfulRequests ?? 0), 0) / accountStats.totalReqs) * 100)}%`
+                  : '100%'}
+              </span>
+            </div>
+          </div>
 
           <div className="flex items-center justify-between gap-3">
             <SegmentedControl
@@ -584,7 +694,15 @@ export default function GatewayDetail(): React.JSX.Element {
                                           acc.id,
                                           !acc.enabled
                                         )
-                                      : window.api.gateway.toggleKiroAccount(acc.id, !acc.enabled),
+                                      : isQoder
+                                        ? window.api.gateway.toggleQoderAccount(
+                                            acc.id,
+                                            !acc.enabled
+                                          )
+                                        : window.api.gateway.toggleKiroAccount(
+                                            acc.id,
+                                            !acc.enabled
+                                          ),
                       acc.enabled ? t('gateway.disabled') : t('gateway.enabled')
                     )
                   }
@@ -606,7 +724,9 @@ export default function GatewayDetail(): React.JSX.Element {
                                     ? window.api.gateway.resetGptWebAccount(acc.id)
                                     : isGrokWeb
                                       ? window.api.gateway.resetGrokWebAccount(acc.id)
-                                      : window.api.gateway.resetKiroAccount(acc.id),
+                                      : isQoder
+                                        ? window.api.gateway.resetQoderAccount(acc.id)
+                                        : window.api.gateway.resetKiroAccount(acc.id),
                       t('gateway.resetDone')
                     )
                   }
@@ -649,10 +769,15 @@ export default function GatewayDetail(): React.JSX.Element {
                                           acc.id,
                                           isPaused ? 'available' : 'manual_disabled'
                                         )
-                                      : window.api.gateway.setKiroAccountStatus(
-                                          acc.id,
-                                          isPaused ? 'available' : 'manual_disabled'
-                                        ),
+                                      : isQoder
+                                        ? window.api.gateway.setQoderAccountStatus(
+                                            acc.id,
+                                            isPaused ? 'available' : 'manual_disabled'
+                                          )
+                                        : window.api.gateway.setKiroAccountStatus(
+                                            acc.id,
+                                            isPaused ? 'available' : 'manual_disabled'
+                                          ),
                       isPaused ? t('gateway.resumed') : t('gateway.paused')
                     )
                   }}
@@ -664,7 +789,8 @@ export default function GatewayDetail(): React.JSX.Element {
                     isOpenRouter ||
                     isNvidia ||
                     isGptWeb ||
-                    isGrokWeb
+                    isGrokWeb ||
+                    isQoder
                       ? () => refreshAccountModels(acc.id)
                       : undefined
                   }
@@ -738,6 +864,14 @@ export default function GatewayDetail(): React.JSX.Element {
         />
       )}
 
+      {isQoder && (
+        <AddQoderAccountDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          onImported={refresh}
+        />
+      )}
+
       <ConfirmDialog
         open={!!removeTarget}
         onOpenChange={(v) => {
@@ -767,7 +901,9 @@ export default function GatewayDetail(): React.JSX.Element {
                             ? window.api.gateway.removeGptWebAccount(removeTarget.id)
                             : isGrokWeb
                               ? window.api.gateway.removeGrokWebAccount(removeTarget.id)
-                              : window.api.gateway.removeKiroAccount(removeTarget.id),
+                              : isQoder
+                                ? window.api.gateway.removeQoderAccount(removeTarget.id)
+                                : window.api.gateway.removeKiroAccount(removeTarget.id),
               t('gateway.removed')
             ).then(() => setRemoveTarget(null))
           }

@@ -10,6 +10,8 @@ export type Provider = {
   message?: string
   models: string[]
   accounts?: Account[]
+  /** Present for providers that support the global proxy toggle. */
+  useProxy?: boolean
 }
 
 export type AccountStatus =
@@ -60,13 +62,24 @@ export type AccountInfo = {
   usage?: {
     used: number
     limit: number
+    remaining?: number
+    percentage?: number
+    totalUsagePercentage?: number
+    percentUsed?: number
+    isQuotaExceeded?: boolean
+    usageType?: string
+    unit?: string
+    resetDate: string
+    expiresAt?: string
+    upgradeUrl?: string
+    isPlanQuotaProrated?: boolean
     overages: number
     overageCap: number
     overageRate: number
     overageCharges: number
-    resetDate: string
   }
   models: AccountModel[]
+  keyInfo?: Record<string, any>
   error?: string
   /** codex 专属：5h primary / weekly secondary 速率窗口 */
   rateLimits?: {

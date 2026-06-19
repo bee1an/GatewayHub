@@ -49,6 +49,25 @@ type LogEntry = {
   extra?: Record<string, unknown>
 }
 
+type GroupSummary = {
+  startTime: number
+  endTime: number
+  duration: number
+  statusCode?: number
+  provider?: string
+  accountId?: string
+  model?: string
+  usage?: UsageStats
+  cost?: CostStats
+  hasError: boolean
+  count: number
+  message: string
+}
+
+type GroupRow =
+  | { type: 'group'; key: string; requestId: string; entries: LogEntry[]; summary: GroupSummary }
+  | { type: 'single'; key: string; entry: LogEntry }
+
 type GatewayStatus = {
   server: { running: boolean }
   providers: Array<{
@@ -107,6 +126,41 @@ function statusCodeColor(code?: number): string {
   return 'text-red'
 }
 
+// Aggregate the entries of a single requestId into a group summary header.
+// The completion/stream-end entry carries statusCode/duration/usage/cost/model;
+// the request-start entry carries the message (path). account/provider may come
+// from any entry in the group.
+//
+// Detection avoids relying on `!statusCode`: a stream-error log is also
+// category='request' with no statusCode (its detail lives in error.stack), so
+// that naive check would surface a stack trace as the group's message. Instead
+// we key off sessionKey (always present on start logs) / usage / duration.
+function buildGroupSummary(entries: LogEntry[]): GroupSummary {
+  const sorted = [...entries].sort((a, b) => a.ts - b.ts)
+  const startTime = sorted[0].ts
+  const endTime = sorted[sorted.length - 1].ts
+  const startEntry =
+    sorted.find((e) => e.extra && typeof e.extra.sessionKey === 'string') ??
+    sorted.find((e) => e.category === 'request' && /^(POST|GET|DELETE|PUT) /.test(e.message))
+  const completionEntry =
+    sorted.find((e) => e.usage) ?? sorted.find((e) => e.duration !== undefined)
+  const hasError = sorted.some((e) => e.level === 'error')
+  return {
+    startTime,
+    endTime,
+    duration: endTime - startTime,
+    statusCode: completionEntry?.statusCode,
+    provider: sorted.find((e) => e.provider)?.provider,
+    accountId: sorted.find((e) => e.accountId)?.accountId,
+    model: completionEntry?.model ?? sorted.find((e) => e.model)?.model,
+    usage: completionEntry?.usage,
+    cost: completionEntry?.cost,
+    hasError,
+    count: sorted.length,
+    message: startEntry?.message ?? sorted[0].message
+  }
+}
+
 const MAX_LOG_ENTRIES = 1000
 
 export default function Logs(): React.JSX.Element {
@@ -120,6 +174,8 @@ export default function Logs(): React.JSX.Element {
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const [live, setLive] = useState(true)
   const [requestIdFilter, setRequestIdFilter] = useState<string | null>(null)
+  const [grouped, setGrouped] = useState(false)
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
 
   const { data: status, refresh } = usePolling<GatewayStatus>(
     () => window.api.gateway.status(),
@@ -174,6 +230,47 @@ export default function Logs(): React.JSX.Element {
     })
   }, [reversed, filter, categoryFilter, deferredSearch, timeRange, requestIdFilter, accountLabels])
 
+  // When grouped mode is on, collapse same-requestId entries into group rows.
+  // Entries without a requestId stay as standalone single rows. The mixed array
+  // is sorted newest-first by each row's start time so the timeline reads top-down.
+  const rows = useMemo<GroupRow[] | null>(() => {
+    if (!grouped) return null
+    const buckets = new Map<string, LogEntry[]>()
+    const singles: { key: string; entry: LogEntry }[] = []
+    for (const l of logs) {
+      if (l.requestId) {
+        const bucket = buckets.get(l.requestId)
+        if (bucket) bucket.push(l)
+        else buckets.set(l.requestId, [l])
+      } else {
+        singles.push({ key: getLogKey(l), entry: l })
+      }
+    }
+    const mixed: GroupRow[] = []
+    for (const [requestId, entries] of buckets) {
+      const summary = buildGroupSummary(entries)
+      mixed.push({ type: 'group', key: `g:${requestId}`, requestId, entries, summary })
+    }
+    for (const s of singles) {
+      mixed.push({ type: 'single', key: s.key, entry: s.entry })
+    }
+    mixed.sort((a, b) => {
+      const at = a.type === 'group' ? a.summary.startTime : a.entry.ts
+      const bt = b.type === 'group' ? b.summary.startTime : b.entry.ts
+      return bt - at
+    })
+    return mixed
+  }, [logs, grouped, getLogKey])
+
+  const toggleGroup = useCallback((key: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+
   const atMax = (status?.logs?.length ?? 0) >= MAX_LOG_ENTRIES
 
   useEffect(() => {
@@ -184,11 +281,24 @@ export default function Logs(): React.JSX.Element {
 
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
-    count: logs.length,
+    count: grouped ? (rows?.length ?? 0) : logs.length,
     getScrollElement: () => parentRef.current,
     estimateSize: useCallback(
-      (index: number) => (getLogKey(logs[index]) === expandedKey ? 180 : 32),
-      [expandedKey, logs, getLogKey]
+      (index: number) => {
+        if (grouped && rows) {
+          const row = rows[index]
+          if (row.type === 'single') {
+            return row.key === expandedKey ? 180 : 32
+          }
+          // group: header (32) + expanded children (each ~32, detail panel makes it taller)
+          if (expandedGroups.has(row.key)) {
+            return 32 + row.entries.length * 32
+          }
+          return 32
+        }
+        return getLogKey(logs[index]) === expandedKey ? 180 : 32
+      },
+      [grouped, rows, expandedGroups, expandedKey, logs, getLogKey]
     ),
     overscan: 20
   })
@@ -226,9 +336,7 @@ export default function Logs(): React.JSX.Element {
             {t('logs.clear')}
           </Button>
           <Button onClick={() => setLive(!live)} variant={live ? 'ghost' : 'default'} size="sm">
-            <span
-              className={`w-1.5 h-1.5 rounded-full ${live ? 'bg-emerald animate-pulse-green' : 'bg-fog'}`}
-            />
+            <span className={`w-1.5 h-1.5 rounded-full ${live ? 'bg-emerald' : 'bg-fog'}`} />
             {live ? t('logs.live') : t('logs.paused')}
           </Button>
         </div>
@@ -267,6 +375,44 @@ export default function Logs(): React.JSX.Element {
           ]}
         />
         <ToggleFilter value={timeRange} onValueChange={setTimeRange} items={TIME_RANGES} />
+        <ToggleFilter
+          value={grouped ? 'grouped' : 'flat'}
+          onValueChange={(v) => setGrouped(v === 'grouped')}
+          items={[
+            { value: 'flat', label: t('logs.flat') },
+            { value: 'grouped', label: t('logs.grouped') }
+          ]}
+        />
+        {grouped && rows && (
+          <>
+            <Button
+              onClick={() =>
+                setExpandedGroups(
+                  new Set(
+                    rows
+                      .filter((r): r is Extract<GroupRow, { type: 'group' }> => r.type === 'group')
+                      .map((r) => r.key)
+                  )
+                )
+              }
+              variant="ghost"
+              size="sm"
+              title={t('logs.expandAll')}
+            >
+              <span className="i-ph-arrows-out-line-vertical text-[13px]" aria-hidden="true" />
+              {t('logs.expandAll')}
+            </Button>
+            <Button
+              onClick={() => setExpandedGroups(new Set())}
+              variant="ghost"
+              size="sm"
+              title={t('logs.collapseAll')}
+            >
+              <span className="i-ph-arrows-in-line-vertical text-[13px]" aria-hidden="true" />
+              {t('logs.collapseAll')}
+            </Button>
+          </>
+        )}
         {requestIdFilter && (
           <button
             onClick={() => setRequestIdFilter(null)}
@@ -289,6 +435,55 @@ export default function Logs(): React.JSX.Element {
               aria-hidden="true"
             />
             {t('logs.noMatch')}
+          </div>
+        ) : grouped && rows ? (
+          <div
+            style={{
+              height: `${virtualizer.getTotalSize()}px`,
+              position: 'relative',
+              width: '100%'
+            }}
+          >
+            {virtualizer.getVirtualItems().map((virtualRow) => {
+              const row = rows[virtualRow.index]
+              return (
+                <div
+                  key={virtualRow.key}
+                  data-index={virtualRow.index}
+                  ref={virtualizer.measureElement}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualRow.start}px)`
+                  }}
+                >
+                  {row.type === 'single' ? (
+                    <LogRow
+                      log={row.entry}
+                      expanded={expandedKey === row.key}
+                      accountLabel={
+                        row.entry.accountId ? accountLabels[row.entry.accountId] : undefined
+                      }
+                      onClick={() => setExpandedKey(expandedKey === row.key ? null : row.key)}
+                      onRequestIdClick={handleRequestIdClick}
+                    />
+                  ) : (
+                    <GroupBlock
+                      row={row}
+                      expanded={expandedGroups.has(row.key)}
+                      expandedKey={expandedKey}
+                      accountLabels={accountLabels}
+                      getLogKey={getLogKey}
+                      onToggle={() => toggleGroup(row.key)}
+                      onRowClick={(key) => setExpandedKey(expandedKey === key ? null : key)}
+                      onRequestIdClick={handleRequestIdClick}
+                    />
+                  )}
+                </div>
+              )
+            })}
           </div>
         ) : (
           <div
@@ -622,6 +817,152 @@ function LogRow({
               </>
             )}
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// A grouped block: a clickable summary header plus (when expanded) the group's
+// child entries rendered with the same LogRow component used in flat mode, so a
+// child row can still expand its own detail panel.
+function GroupBlock({
+  row,
+  expanded,
+  expandedKey,
+  accountLabels,
+  getLogKey,
+  onToggle,
+  onRowClick,
+  onRequestIdClick
+}: {
+  row: Extract<GroupRow, { type: 'group' }>
+  expanded: boolean
+  expandedKey: string | null
+  accountLabels: Record<string, string>
+  getLogKey: (log: LogEntry) => string
+  onToggle: () => void
+  onRowClick: (key: string) => void
+  onRequestIdClick: (rid: string) => void
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const accountLabel = row.summary.accountId ? accountLabels[row.summary.accountId] : undefined
+  // Children read oldest-first so the request lifecycle reads top-down.
+  const children = useMemo(() => [...row.entries].sort((a, b) => a.ts - b.ts), [row.entries])
+
+  return (
+    <div
+      className={`border-l-[3px] ${row.summary.hasError ? 'border-l-red' : 'border-l-emerald'} ${expanded ? 'bg-[color-mix(in_srgb,var(--c-slate)_60%,transparent)]' : ''}`}
+    >
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onToggle}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onToggle()
+          }
+        }}
+        className={`flex items-center gap-2 px-3 py-1.5 border-b border-charcoal/30 cursor-pointer ${expanded ? '' : 'hover:bg-[color-mix(in_srgb,var(--c-slate)_30%,transparent)]'}`}
+      >
+        <span
+          className={`shrink-0 text-[10px] text-fog transition-transform duration-100 ${expanded ? 'rotate-90' : ''}`}
+          aria-hidden="true"
+        >
+          ▶
+        </span>
+        <time className="shrink-0 text-[12px] font-mono text-storm w-[60px] tabular-nums">
+          {new Date(row.summary.startTime).toLocaleTimeString('en-GB', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+          })}
+        </time>
+        <p className="text-[12px] text-porcelain/90 truncate flex-1 min-w-0">
+          {row.summary.message}
+        </p>
+        {row.summary.usage &&
+          (typeof row.summary.usage.credits === 'number' && row.summary.usage.credits > 0 ? (
+            <span
+              className="shrink-0 text-[11px] font-mono text-storm tabular-nums"
+              title={`${row.summary.usage.credits.toFixed(4)} credits${row.summary.usage.estimated ? ' (estimated)' : ''}`}
+            >
+              ◆{formatCredits(row.summary.usage.credits)}
+            </span>
+          ) : (
+            <span
+              className="shrink-0 text-[11px] font-mono text-storm tabular-nums"
+              title={`in ${row.summary.usage.inputTokens} / out ${row.summary.usage.outputTokens}${row.summary.usage.cacheReadTokens ? ` / cache read ${row.summary.usage.cacheReadTokens}` : ''}${row.summary.usage.estimated ? ' (estimated)' : ''}`}
+            >
+              ↑
+              {formatTokens(
+                row.summary.usage.inputTokens +
+                  (row.summary.usage.cacheReadTokens ?? 0) +
+                  (row.summary.usage.cacheWrite5mTokens ?? 0) +
+                  (row.summary.usage.cacheWrite1hTokens ?? 0)
+              )}{' '}
+              ↓{formatTokens(row.summary.usage.outputTokens)}
+            </span>
+          ))}
+        {row.summary.cost && row.summary.cost.totalUsd > 0 && (
+          <span className="shrink-0 text-[11px] font-mono text-aether tabular-nums">
+            {formatCostUsd(row.summary.cost.totalUsd)}
+          </span>
+        )}
+        {row.summary.duration > 0 && (
+          <span className="shrink-0 text-[11px] font-mono text-storm tabular-nums">
+            {row.summary.duration}ms
+          </span>
+        )}
+        {row.summary.statusCode !== undefined && (
+          <span
+            className={`shrink-0 text-[11px] font-mono tabular-nums ${statusCodeColor(row.summary.statusCode)}`}
+          >
+            {row.summary.statusCode}
+          </span>
+        )}
+        {row.summary.accountId && (
+          <span
+            className="shrink-0 max-w-[160px] truncate text-[11px] font-mono text-fog tabular-nums"
+            title={
+              accountLabel ? `${accountLabel} (${row.summary.accountId})` : row.summary.accountId
+            }
+          >
+            {accountLabel ?? row.summary.accountId}
+          </span>
+        )}
+        {row.summary.provider && (
+          <span className="shrink-0 tag text-[11px]">{row.summary.provider}</span>
+        )}
+        <span className="shrink-0 text-[10px] font-mono text-fog tabular-nums">
+          ({row.summary.count})
+        </span>
+      </div>
+
+      {expanded && (
+        <div className="animate-slide-down">
+          {children.map((log) => {
+            // Namespace the child key by requestId so two entries that share the
+            // same ts/level/category/message (common for repeated upstream logs
+            // in a stream) don't collide, and so group-child expand state stays
+            // independent of flat-mode expand state.
+            const logKey = `${row.requestId}:${getLogKey(log)}`
+            const isExpanded = expandedKey === logKey
+            return (
+              <LogRow
+                key={logKey}
+                log={log}
+                expanded={isExpanded}
+                accountLabel={log.accountId ? accountLabels[log.accountId] : undefined}
+                onClick={() => onRowClick(logKey)}
+                onRequestIdClick={onRequestIdClick}
+              />
+            )
+          })}
+          {children.length === 0 && (
+            <div className="px-4 py-2 text-[11px] text-fog">{t('logs.noMatch')}</div>
+          )}
         </div>
       )}
     </div>

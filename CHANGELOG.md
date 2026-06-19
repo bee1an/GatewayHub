@@ -2,6 +2,17 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.6.0 - 2026-06-20
+
+Added the Qoder provider and a request-grouped log view, plus a more dramatic theme transition and cleaner status presentation.
+
+- Added Qoder provider: account pool with CLI login, WASM-based request signing, streaming/non-streaming support, model normalization, renderer add-account dialog, and CLI commands
+- Added request-grouped log view: a flat/grouped toggle collapses each HTTP request's lifecycle (start → upstream → completion/error) into a foldable group header with aggregated status, tokens, cost, and duration, plus expand-all/collapse-all and per-child detail expansion
+- Improved theme switching with a circular ink-drop reveal that expands the new theme outward from the toggle click point (respects reduced-motion)
+- Refined status presentation: removed breathing pulse animations and status dots from sidebar gateway items and account rows — status is now conveyed via text badges and border color only
+- Refactored account management behind a shared core abstraction (account pool, state, store, and session derivation) shared across all providers
+- Hardened the Quick Test snippet by replacing the embedded API key with a `YOUR_API_KEY` placeholder so copied snippets and screenshots never leak credentials
+
 ## 0.5.0 - 2026-06-03
 
 Expanded provider reliability, protocol compatibility, and release packaging.

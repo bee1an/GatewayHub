@@ -40,13 +40,13 @@ function hostToMode(host: string | undefined): 'loopback' | 'lan' {
 
 function buildSnippet(status: GatewayStatus, format: SnippetFormat): string {
   const url = `${status.server.url}/v1/chat/completions`
-  const key = status.server.apiKeys[0]?.key ?? ''
+  const placeholder = 'YOUR_API_KEY'
   const body =
     '{"model":"kiro/claude-sonnet-4.5","messages":[{"role":"user","content":"hello"}],"stream":true}'
 
   if (format === 'curl') {
     return `curl ${url} \\
-  -H "Authorization: Bearer ${key}" \\
+  -H "Authorization: Bearer ${placeholder}" \\
   -H "Content-Type: application/json" \\
   -d '${body}'`
   }
@@ -55,7 +55,7 @@ function buildSnippet(status: GatewayStatus, format: SnippetFormat): string {
     return `const res = await fetch("${url}", {
   method: "POST",
   headers: {
-    "Authorization": "Bearer ${key}",
+    "Authorization": "Bearer ${placeholder}",
     "Content-Type": "application/json",
   },
   body: JSON.stringify(${body}),
@@ -69,7 +69,7 @@ body = json.loads(${JSON.stringify(body)})
 
 res = httpx.post(
     "${url}",
-    headers={"Authorization": "Bearer ${key}"},
+    headers={"Authorization": "Bearer ${placeholder}"},
     json=body,
 )
 print(res.json())`

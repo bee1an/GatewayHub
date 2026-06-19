@@ -281,7 +281,7 @@ export default function Dashboard(): React.JSX.Element {
               <span className="text-[13px] text-porcelain font-medium flex-1">{p.name}</span>
               <span className="text-[11px] text-fog tabular-nums">{p.models.length} models</span>
               <span
-                className={`w-[6px] h-[6px] rounded-full ${p.status === 'ready' ? 'bg-emerald animate-pulse-green' : p.status === 'error' ? 'bg-red' : 'bg-fog'}`}
+                className={`w-[6px] h-[6px] rounded-full ${p.status === 'ready' ? 'bg-emerald' : p.status === 'error' ? 'bg-red' : 'bg-fog'}`}
                 aria-hidden="true"
               />
               <span

@@ -34,8 +34,6 @@ export default defineConfig({
     },
     animation: {
       keyframes: {
-        'pulse-green': '{ 0%, 100% { opacity: 1 } 50% { opacity: 0.4 } }',
-        'pulse-red': '{ 0%, 100% { opacity: 1 } 50% { opacity: 0.4 } }',
         'fade-in': '{ from { opacity: 0 } to { opacity: 1 } }',
         'slide-up':
           '{ from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: translateY(0) } }',
@@ -43,23 +41,16 @@ export default defineConfig({
           '{ from { opacity: 0; transform: translateY(-4px) } to { opacity: 1; transform: translateY(0) } }'
       },
       durations: {
-        'pulse-green': '2s',
-        'pulse-red': '2s',
         'fade-in': '200ms',
         'slide-up': '250ms',
         'slide-down': '200ms'
       },
       timingFns: {
-        'pulse-green': 'ease-in-out',
-        'pulse-red': 'ease-in-out',
         'fade-in': 'ease-out',
         'slide-up': 'ease-out',
         'slide-down': 'ease-out'
       },
-      counts: {
-        'pulse-green': 'infinite',
-        'pulse-red': 'infinite'
-      }
+      counts: {}
     }
   },
   shortcuts: {
@@ -107,11 +98,6 @@ export default defineConfig({
       'flex items-center gap-2.5 px-3 py-1.5 rounded-[var(--radius-md)] text-[13px] text-porcelain bg-charcoal',
     'log-row':
       'flex items-center gap-3 px-3 py-1.5 text-[13px] font-mono border-b border-[color-mix(in_srgb,var(--c-charcoal)_50%,transparent)] hover:bg-[color-mix(in_srgb,var(--c-slate)_50%,transparent)] transition-colors duration-75',
-    'pulse-dot': 'w-2 h-2 rounded-full',
-    'pulse-dot-green': 'w-2 h-2 rounded-full bg-emerald animate-pulse-green',
-    'pulse-dot-red': 'w-2 h-2 rounded-full bg-red animate-pulse-red',
-    'pulse-dot-gray': 'w-2 h-2 rounded-full bg-fog',
-    'pulse-dot-warning': 'w-2 h-2 rounded-full bg-warning animate-pulse-red',
     'modal-overlay':
       'fixed inset-0 bg-[color-mix(in_srgb,var(--c-pitch)_55%,transparent)] backdrop-blur-md animate-fade-in',
     'modal-content':

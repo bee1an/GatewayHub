@@ -161,7 +161,6 @@ export default function Sidebar(): React.JSX.Element {
             name={gw.name}
             displayName={gw.displayName}
             providerType={gw.providerType}
-            status={gw.status}
             theme={theme}
           />
         ))}
@@ -298,7 +297,13 @@ export default function Sidebar(): React.JSX.Element {
             </Button>
           </TooltipWrapper>
           <TooltipWrapper content={t('sidebar.toggleTheme')}>
-            <Button variant="ghost" size="xs" iconOnly onClick={toggle} aria-label="Toggle theme">
+            <Button
+              variant="ghost"
+              size="xs"
+              iconOnly
+              onClick={(e) => toggle({ x: e.clientX, y: e.clientY })}
+              aria-label="Toggle theme"
+            >
               {theme === 'dark' ? (
                 <span
                   className="i-ph-sun-dim text-[14px] text-storm hover:text-porcelain"
@@ -331,21 +336,13 @@ function GatewayNavItem({
   name,
   displayName,
   providerType,
-  status,
   theme
 }: {
   name: string
   displayName?: string
   providerType: string
-  status: string
   theme: 'light' | 'dark'
 }): React.JSX.Element {
-  const dotClass =
-    status === 'ready' || status === 'running'
-      ? 'pulse-dot-green'
-      : status === 'error'
-        ? 'pulse-dot-red'
-        : 'pulse-dot-gray'
   const label = getProviderLogoLabel(providerType, displayName)
 
   return (
@@ -355,9 +352,6 @@ function GatewayNavItem({
     >
       <ProviderLogo providerType={providerType} label={label} theme={theme} size="sm" />
       <span className="capitalize ml-0.5">{label}</span>
-      <div className="ml-auto w-4 h-4 flex items-center justify-center shrink-0">
-        <span className={`${dotClass} !w-1.5 !h-1.5`} aria-hidden="true" />
-      </div>
     </NavLink>
   )
 }

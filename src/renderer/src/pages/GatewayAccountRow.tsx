@@ -51,7 +51,6 @@ export function AccountRow({
   const isPaused = status === 'manual_disabled'
   const statusVisual = getStatusVisual(status)
   const now = useNow()
-  const dotClass = !acc.enabled ? 'pulse-dot-gray' : statusVisual.dotClass
   const total = acc.stats?.totalRequests ?? 0
   const success = acc.stats?.successfulRequests ?? 0
   const rate = total > 0 ? Math.round((success / total) * 100) : null
@@ -115,7 +114,6 @@ export function AccountRow({
         }}
         className={`flex items-center gap-2 px-3 py-2 cursor-pointer select-none ${expanded ? '' : 'hover:bg-[color-mix(in_srgb,var(--c-slate)_30%,transparent)]'}`}
       >
-        <span className={dotClass} />
         <span className="text-[13px] font-medium text-porcelain truncate min-w-0 flex-1">
           {accountInfo?.email || acc.label || acc.id}
         </span>
@@ -572,7 +570,6 @@ function RateLimitBar({
 
 function getStatusVisual(status: AccountStatus): {
   i18nKey: string
-  dotClass: string
   badgeClass: string
   rateColorClass: string
 } {
@@ -580,35 +577,30 @@ function getStatusVisual(status: AccountStatus): {
     case 'available':
       return {
         i18nKey: 'statusAvailable',
-        dotClass: 'pulse-dot-green',
         badgeClass: 'badge text-emerald',
         rateColorClass: 'text-emerald'
       }
     case 'cooling':
       return {
         i18nKey: 'statusCooling',
-        dotClass: 'pulse-dot-warning',
         badgeClass: 'badge text-warning',
         rateColorClass: 'text-warning'
       }
     case 'rate_limited':
       return {
         i18nKey: 'statusRateLimited',
-        dotClass: 'pulse-dot-warning',
         badgeClass: 'badge text-warning',
         rateColorClass: 'text-warning'
       }
     case 'quota_exceeded':
       return {
         i18nKey: 'statusQuotaExceeded',
-        dotClass: 'pulse-dot-red',
         badgeClass: 'badge text-red',
         rateColorClass: 'text-red'
       }
     case 'auth_failed':
       return {
         i18nKey: 'statusAuthFailed',
-        dotClass: 'pulse-dot-red',
         badgeClass: 'badge text-red',
         rateColorClass: 'text-red'
       }
@@ -616,7 +608,6 @@ function getStatusVisual(status: AccountStatus): {
     default:
       return {
         i18nKey: 'statusManualDisabled',
-        dotClass: 'pulse-dot-gray',
         badgeClass: 'badge text-fog',
         rateColorClass: 'text-fog'
       }

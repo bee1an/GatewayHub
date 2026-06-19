@@ -77,26 +77,6 @@ pre,
   color: var(--c-porcelain);
 }
 
-@keyframes pulse-green {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
-}
-
-@keyframes pulse-red {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
-}
-
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -320,4 +300,38 @@ textarea:not(:disabled),
   .card-lift:hover { transform: none; }
   .t-icon-swap { transition: none !important; }
   .t-icon-swap-enter { animation: none !important; }
+}
+
+/* Theme switch: the new theme reveals outward as an expanding circle from the
+   click point (ink-drop effect) via the View Transitions API. The NEW page
+   snapshot sits on top and is revealed by an expanding circle, so the new
+   theme "bleeds" outward from where you clicked while the old theme sits
+   underneath and gets covered.
+
+   --theme-x / --theme-y = click coords (px, set by JS).
+   --theme-r = radius large enough to cover the farthest viewport corner from
+   the click point (computed in JS, since CSS can't easily derive it). The
+   circle animates from 0 → full cover, i.e. the new theme expands outward. */
+::view-transition-old(root) {
+  animation: none;
+  z-index: 0;
+}
+
+::view-transition-new(root) {
+  animation: theme-ink-reveal 520ms cubic-bezier(0.4, 0, 0.2, 1) both;
+  z-index: 1;
+}
+
+@keyframes theme-ink-reveal {
+  from {
+    clip-path: circle(0 at var(--theme-x, 50%) var(--theme-y, 50%));
+  }
+  to {
+    clip-path: circle(var(--theme-r, 150vmax) at var(--theme-x, 50%) var(--theme-y, 50%));
+  }
+}
+
+.theme-transitioning,
+.theme-transitioning * {
+  transition: none !important;
 }

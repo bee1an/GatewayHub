@@ -1,22 +1,9 @@
-import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import { NavLink } from 'react-router-dom'
 import { usePolling } from '../hooks/usePolling'
 import { ProviderLogo } from '../components/ProviderLogo'
 import { getProviderLogoLabel } from '../components/providerLogoData'
 import { useTheme } from '../components/useTheme'
-import { formatCostUsd, formatCredits, formatTokens } from '../utils/format'
-
-type GatewayLogEntry = {
-  ts: number
-  level: string
-  message: string
-  provider?: string
-  category?: string
-  statusCode?: number
-  duration?: number
-  streaming?: boolean
-  timeToFirstToken?: number
-}
 
 type ProviderStatus = {
   name: string
@@ -31,129 +18,19 @@ type ProviderStatus = {
 type GatewayStatus = {
   server: { running: boolean; url: string }
   providers: ProviderStatus[]
-  logs: GatewayLogEntry[]
+  logs: Array<{ ts: number; level: string; message: string }>
 }
-
-type UsageDetail = {
-  summary: {
-    todayTokens: number
-    todayCredits: number
-    todayCostUsd: number | null
-    last30DaysTokens: number
-    last30DaysCredits: number
-    last30DaysCostUsd: number | null
-    todayInputTokens: number
-    todayOutputTokens: number
-    todayCacheReadTokens: number
-    todayCacheWriteTokens: number
-    todayRequests: number
-    updatedAt: string
-  }
-  daily: Array<{
-    date: string
-    accountId: string
-    model: string
-    provider?: string
-    inputTokens: number
-    outputTokens: number
-    cacheReadTokens: number
-    cacheWrite5mTokens: number
-    cacheWrite1hTokens: number
-    credits: number
-    requests: number
-    costUsd: number | null
-  }>
-}
-
-const PROVIDER_COLORS = [
-  { bg: 'bg-aether', dot: 'bg-aether' },
-  { bg: 'bg-cyan', dot: 'bg-cyan' },
-  { bg: 'bg-emerald', dot: 'bg-emerald' },
-  { bg: 'bg-violet', dot: 'bg-violet' },
-  { bg: 'bg-warning', dot: 'bg-warning' },
-  { bg: 'bg-amethyst', dot: 'bg-amethyst' }
-]
 
 export default function Dashboard(): React.JSX.Element {
   const { t } = useTranslation()
   const { theme } = useTheme()
-  const { data: status } = usePolling<GatewayStatus>(() => window.api.gateway.status(), 3000)
-  const { data: usage } = usePolling<UsageDetail>(() => window.api.gateway.readUsage(), 5000)
-
-  const logs = useMemo(() => status?.logs ?? [], [status?.logs])
-
-  const metrics = useMemo(() => {
-    const todayStart = new Date().setHours(0, 0, 0, 0)
-    const todayLogs = logs.filter((l) => l.ts >= todayStart)
-    const requestLogs = todayLogs.filter((l) => l.category === 'request')
-
-    const todayErrors = requestLogs.filter(
-      (l) => l.level === 'error' || (l.statusCode && l.statusCode >= 400)
-    )
-    const successRate =
-      requestLogs.length > 0
-        ? Math.round(((requestLogs.length - todayErrors.length) / requestLogs.length) * 100)
-        : 100
-
-    const durationLogs = requestLogs.filter((l) => l.duration !== undefined)
-    const avgDuration =
-      durationLogs.length > 0
-        ? Math.round(durationLogs.reduce((s, l) => s + l.duration!, 0) / durationLogs.length)
-        : null
-
-    const ttftLogs = requestLogs.filter((l) => l.streaming && l.timeToFirstToken !== undefined)
-    const avgTTFT =
-      ttftLogs.length > 0
-        ? Math.round(ttftLogs.reduce((s, l) => s + l.timeToFirstToken!, 0) / ttftLogs.length)
-        : null
-
-    const providerBreakdown = requestLogs.reduce(
-      (acc, l) => {
-        if (l.provider) acc[l.provider] = (acc[l.provider] ?? 0) + 1
-        return acc
-      },
-      {} as Record<string, number>
-    )
-
-    // Token / cost / cache 走 UsageStore（持久化、跨重启）；fallback: store 还没数据时显示 0
-    const summary = usage?.summary
-    const inputTokens = summary?.todayInputTokens ?? 0
-    const outputTokens = summary?.todayOutputTokens ?? 0
-    const cacheReadTokens = summary?.todayCacheReadTokens ?? 0
-    const cacheWriteTokens = summary?.todayCacheWriteTokens ?? 0
-    const totalTokens = inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens
-    const todayCredits = summary?.todayCredits ?? 0
-    const todayRequests = summary?.todayRequests ?? requestLogs.length
-    const costUsd = summary?.todayCostUsd ?? null
-    const hasUsage = totalTokens > 0 || todayCredits > 0
-    const inputSide = inputTokens + cacheReadTokens + cacheWriteTokens
-    const cacheHitRate = inputSide > 0 ? Math.round((cacheReadTokens / inputSide) * 100) : null
-
-    return {
-      todayRequests,
-      successRate,
-      avgDuration,
-      avgTTFT,
-      providerBreakdown,
-      inputTokens,
-      outputTokens,
-      cacheReadTokens,
-      cacheWriteTokens,
-      totalTokens,
-      todayCredits,
-      costUsd,
-      cacheHitRate,
-      hasUsage
-    }
-  }, [logs, usage])
+  const { data: status } = usePolling<GatewayStatus>(() => window.api.gateway.status(), 5000)
 
   if (!status) return <DashboardSkeleton />
 
-  const providers = status.providers?.filter((p) => p.enabled && p.configured) ?? []
-  const allProviders = status.providers?.filter((p) => p.status !== 'placeholder') ?? []
-
-  const successRateAccent =
-    metrics.successRate >= 90 ? 'emerald' : metrics.successRate >= 70 ? 'warning' : 'red'
+  // Show every real provider (enabled or not) so the dashboard is a complete
+  // roster; placeholder slots are hidden. Disabled ones read as a muted row.
+  const providers = status.providers?.filter((p) => p.status !== 'placeholder') ?? []
 
   return (
     <div className="flex flex-col gap-5 animate-fade-in">
@@ -162,241 +39,46 @@ export default function Dashboard(): React.JSX.Element {
         <p className="section-desc">{t('dashboard.desc')}</p>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard
-          icon="i-ph-power"
-          label={t('dashboard.server')}
-          value={status.server.running ? t('sidebar.running') : t('sidebar.stopped')}
-          accent={status.server.running ? 'emerald' : 'fog'}
-        />
-        <StatCard
-          icon="i-ph-plugs-connected"
-          label={t('dashboard.providers')}
-          value={`${providers.length} / ${allProviders.length}`}
-          accent="aether"
-        />
-        <StatCard
-          icon="i-ph-cube"
-          label={t('dashboard.models')}
-          value={String(providers.reduce((sum, p) => sum + p.models.length, 0))}
-          accent="cyan"
-        />
-        <StatCard
-          icon="i-ph-check-circle"
-          label={t('dashboard.successRate')}
-          value={`${metrics.successRate}%`}
-          accent={successRateAccent}
-        />
-      </div>
-
-      <div
-        className={`grid gap-3 ${metrics.hasUsage ? 'grid-cols-2 lg:grid-cols-6' : 'grid-cols-3'}`}
-      >
-        <MetricCard
-          icon="i-ph-timer"
-          label={t('dashboard.avgResponseTime')}
-          value={metrics.avgDuration !== null ? String(metrics.avgDuration) : t('dashboard.noData')}
-          unit={metrics.avgDuration !== null ? 'ms' : ''}
-          accent="cyan"
-        />
-        <MetricCard
-          icon="i-ph-lightning"
-          label={t('dashboard.avgTTFT')}
-          value={metrics.avgTTFT !== null ? String(metrics.avgTTFT) : t('dashboard.noData')}
-          unit={metrics.avgTTFT !== null ? 'ms' : ''}
-          accent="aether"
-        />
-        <MetricCard
-          icon="i-ph-arrow-up-right"
-          label={t('dashboard.todayRequests')}
-          value={String(metrics.todayRequests)}
-          unit=""
-          accent="emerald"
-        />
-        {metrics.hasUsage && (
-          <>
-            {metrics.todayCredits > 0 ? (
-              <MetricCard
-                icon="i-ph-coin-vertical"
-                label={t('dashboard.todayCredits')}
-                value={formatCredits(metrics.todayCredits)}
-                unit=""
-                accent="violet"
-              />
-            ) : (
-              <MetricCard
-                icon="i-ph-stack"
-                label={t('dashboard.todayTokens')}
-                value={formatTokens(metrics.totalTokens)}
-                unit=""
-                accent="violet"
-              />
-            )}
-            <MetricCard
-              icon="i-ph-currency-dollar"
-              label={t('dashboard.todayCost')}
-              value={
-                metrics.costUsd !== null ? formatCostUsd(metrics.costUsd) : t('dashboard.noData')
-              }
-              unit=""
-              accent="aether"
-            />
-            {metrics.todayCredits === 0 && (
-              <MetricCard
-                icon="i-ph-database"
-                label={t('dashboard.cacheHitRate')}
-                value={
-                  metrics.cacheHitRate !== null
-                    ? String(metrics.cacheHitRate)
-                    : t('dashboard.noData')
-                }
-                unit={metrics.cacheHitRate !== null ? '%' : ''}
-                accent="emerald"
-              />
-            )}
-          </>
-        )}
-      </div>
-
-      {Object.keys(metrics.providerBreakdown).length > 0 && (
-        <ProviderBar
-          breakdown={metrics.providerBreakdown}
-          label={t('dashboard.providerBreakdown')}
-        />
-      )}
-
-      {providers.length > 0 && (
+      {providers.length === 0 ? (
+        <div className="card px-3.5 py-4">
+          <p className="text-[12px] text-fog text-center">{t('dashboard.empty')}</p>
+        </div>
+      ) : (
         <div className="card overflow-hidden">
-          {providers.map((p, i) => (
-            <div
-              key={p.name}
-              className={`flex items-center gap-3 px-3 py-2 ${i > 0 ? 'border-t border-charcoal/40' : ''}`}
-            >
-              <ProviderLogo
-                providerType={p.providerType}
-                label={getProviderLogoLabel(p.providerType, p.displayName)}
-                theme={theme}
-                size="sm"
-              />
-              <span className="text-[13px] text-porcelain font-medium flex-1">{p.name}</span>
-              <span className="text-[11px] text-fog tabular-nums">{p.models.length} models</span>
-              <span
-                className={`w-[6px] h-[6px] rounded-full ${p.status === 'ready' ? 'bg-emerald' : p.status === 'error' ? 'bg-red' : 'bg-fog'}`}
-                aria-hidden="true"
-              />
-              <span
-                className={`text-[10px] font-medium uppercase tracking-[0.3px] ${p.status === 'ready' ? 'text-emerald' : p.status === 'error' ? 'text-red' : 'text-fog'}`}
+          {providers.map((p, i) => {
+            const label = getProviderLogoLabel(p.providerType, p.displayName)
+            const ready = p.status === 'ready'
+            const errored = p.status === 'error'
+            const dim = !p.enabled
+            return (
+              <NavLink
+                key={p.name}
+                to={`/gateway/${p.name}`}
+                className={`flex items-center gap-3 px-3 py-2 transition-colors hover:bg-charcoal/40 ${i > 0 ? 'border-t border-charcoal/40' : ''} ${dim ? 'opacity-50' : ''}`}
               >
-                {p.status}
-              </span>
-            </div>
-          ))}
+                <ProviderLogo providerType={p.providerType} label={label} theme={theme} size="sm" />
+                <span className="text-[13px] text-porcelain font-medium flex-1 capitalize">
+                  {label}
+                </span>
+                <span className="text-[11px] text-fog tabular-nums">
+                  {p.configured
+                    ? `${p.models.length} ${t('dashboard.models')}`
+                    : t('dashboard.notConfigured')}
+                </span>
+                <span
+                  className={`w-[6px] h-[6px] rounded-full ${ready ? 'bg-emerald' : errored ? 'bg-red' : 'bg-fog'}`}
+                  aria-hidden="true"
+                />
+                <span
+                  className={`text-[10px] font-medium uppercase tracking-[0.3px] ${ready ? 'text-emerald' : errored ? 'text-red' : 'text-fog'}`}
+                >
+                  {p.status}
+                </span>
+              </NavLink>
+            )
+          })}
         </div>
       )}
-    </div>
-  )
-}
-
-function StatCard({
-  icon,
-  label,
-  value,
-  accent
-}: {
-  icon: string
-  label: string
-  value: string
-  accent: string
-}): React.JSX.Element {
-  return (
-    <div
-      className="card card-lift px-3 py-2.5 flex flex-col gap-1.5 border-l-[2px]"
-      style={{ borderLeftColor: `var(--c-${accent})` }}
-    >
-      <div className="flex items-center gap-1.5">
-        <span className={`${icon} text-[12px] text-${accent}`} aria-hidden="true" />
-        <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
-          {label}
-        </span>
-      </div>
-      <span
-        className={`text-[17px] font-[650] text-${accent} tracking-[-0.3px] tabular-nums leading-none`}
-      >
-        {value}
-      </span>
-    </div>
-  )
-}
-
-function MetricCard({
-  icon,
-  label,
-  value,
-  unit,
-  accent
-}: {
-  icon: string
-  label: string
-  value: string
-  unit: string
-  accent: string
-}): React.JSX.Element {
-  return (
-    <div className="card card-lift px-3 py-2.5 flex flex-col gap-1.5">
-      <div className="flex items-center gap-1.5">
-        <span className={`${icon} text-[12px] text-${accent} opacity-60`} aria-hidden="true" />
-        <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
-          {label}
-        </span>
-      </div>
-      <div className="flex items-baseline gap-1">
-        <span className="text-[17px] font-[600] text-porcelain tracking-[-0.3px] tabular-nums leading-none t-digit-wrap">
-          {value.split('').map((ch, i) => (
-            <span key={`${ch}-${i}`} className="t-digit" style={{ animationDelay: `${i * 50}ms` }}>
-              {ch}
-            </span>
-          ))}
-        </span>
-        {unit && <span className="text-[11px] text-fog font-medium">{unit}</span>}
-      </div>
-    </div>
-  )
-}
-
-function ProviderBar({
-  breakdown,
-  label
-}: {
-  breakdown: Record<string, number>
-  label: string
-}): React.JSX.Element {
-  const total = Object.values(breakdown).reduce((s, v) => s + v, 0)
-  const entries = Object.entries(breakdown).sort((a, b) => b[1] - a[1])
-
-  return (
-    <div className="card px-3 py-2.5 flex flex-col gap-2">
-      <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">{label}</span>
-      <div className="flex h-[6px] rounded-full overflow-hidden bg-pitch gap-[1px]">
-        {entries.map(([name, count], i) => (
-          <div
-            key={name}
-            className={`${PROVIDER_COLORS[i % PROVIDER_COLORS.length].bg} rounded-full transition-all duration-300 first:rounded-l-full last:rounded-r-full`}
-            style={{ width: `${(count / total) * 100}%`, minWidth: '4px' }}
-            title={`${name}: ${count}`}
-          />
-        ))}
-      </div>
-      <div className="flex gap-3 flex-wrap">
-        {entries.map(([name, count], i) => (
-          <span key={name} className="flex items-center gap-1 text-[11px] text-steel">
-            <span
-              className={`w-[6px] h-[6px] rounded-full ${PROVIDER_COLORS[i % PROVIDER_COLORS.length].dot}`}
-            />
-            <span className="font-medium">{name}</span>
-            <span className="text-fog tabular-nums">{count}</span>
-          </span>
-        ))}
-      </div>
     </div>
   )
 }
@@ -408,22 +90,15 @@ function DashboardSkeleton(): React.JSX.Element {
         <div className="h-[16px] w-[100px] rounded bg-charcoal/80 animate-pulse" />
         <div className="h-[13px] w-[160px] rounded bg-charcoal/50 animate-pulse" />
       </div>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {Array.from({ length: 4 }).map((_, i) => (
+      <div className="card overflow-hidden">
+        {Array.from({ length: 5 }).map((_, i) => (
           <div
             key={i}
-            className="card px-3 py-2.5 flex flex-col gap-2 border-l-[2px] border-l-charcoal"
+            className={`flex items-center gap-3 px-3 py-2 ${i > 0 ? 'border-t border-charcoal/40' : ''}`}
           >
-            <div className="h-[12px] w-[60px] rounded bg-charcoal/60 animate-pulse" />
-            <div className="h-[18px] w-[44px] rounded bg-charcoal/80 animate-pulse" />
-          </div>
-        ))}
-      </div>
-      <div className="grid grid-cols-3 gap-3">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="card px-3 py-2.5 flex flex-col gap-2">
-            <div className="h-[12px] w-[70px] rounded bg-charcoal/60 animate-pulse" />
-            <div className="h-[18px] w-[40px] rounded bg-charcoal/80 animate-pulse" />
+            <div className="w-4 h-4 rounded bg-charcoal/80 animate-pulse" />
+            <div className="h-[13px] w-[80px] rounded bg-charcoal/70 animate-pulse flex-1" />
+            <div className="h-[11px] w-[50px] rounded bg-charcoal/50 animate-pulse" />
           </div>
         ))}
       </div>

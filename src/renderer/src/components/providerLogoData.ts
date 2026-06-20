@@ -26,7 +26,8 @@ export const LOCAL_PROVIDER_LOGOS: Record<string, ProviderLogoSet> = {
   openrouter: { light: openRouterIcon, dark: openRouterIcon },
   nvidia: { light: nvidiaIcon, dark: nvidiaIcon },
   qoder: { light: qoderIcon, dark: qoderIcon },
-  gemini: { light: geminiIcon, dark: geminiIcon }
+  gemini: { light: geminiIcon, dark: geminiIcon },
+  geminiWeb: { light: geminiIcon, dark: geminiIcon }
 }
 
 export const LOGO_DEV_DOMAINS: Record<string, string> = {
@@ -39,7 +40,8 @@ export const LOGO_DEV_DOMAINS: Record<string, string> = {
   openrouter: 'openrouter.ai',
   nvidia: 'nvidia.com',
   qoder: 'qoder.com',
-  gemini: 'gemini.google.com'
+  gemini: 'gemini.google.com',
+  geminiWeb: 'gemini.google.com'
 }
 
 export const FALLBACK_CLASSES: Record<string, string> = {
@@ -52,7 +54,8 @@ export const FALLBACK_CLASSES: Record<string, string> = {
   openrouter: 'bg-porcelain text-pitch',
   nvidia: 'bg-[#76B900] text-pitch',
   qoder: 'bg-[#111827] text-[#7DF9D4]',
-  gemini: 'bg-gradient-to-br from-cyan via-aether to-violet text-white'
+  gemini: 'bg-gradient-to-br from-cyan via-aether to-violet text-white',
+  geminiWeb: 'bg-gradient-to-br from-cyan via-aether to-violet text-white'
 }
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -65,7 +68,8 @@ const PROVIDER_LABELS: Record<string, string> = {
   openrouter: 'OpenRouter',
   nvidia: 'NVIDIA',
   qoder: 'Qoder',
-  gemini: 'Gemini'
+  gemini: 'Gemini',
+  geminiWeb: 'Gemini Web'
 }
 
 export function getProviderLogoLabel(providerType: string, displayName?: string): string {

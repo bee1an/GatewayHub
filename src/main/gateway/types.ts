@@ -9,6 +9,7 @@ export type ProviderName =
   | 'grokWeb'
   | 'qoder'
   | 'gemini'
+  | 'geminiWeb'
   | string
 
 export interface GatewayHubConfig {
@@ -26,6 +27,7 @@ export interface GatewayHubConfig {
     grokWeb: GrokWebProviderConfig
     qoder: QoderProviderConfig
     gemini: PlaceholderProviderConfig
+    geminiWeb: GeminiWebProviderConfig
     [name: string]: unknown
   }
   modelMappings: ModelMapping[]
@@ -432,6 +434,39 @@ export interface GrokWebProviderState {
   logs: GatewayLogEntry[]
 }
 
+export interface GeminiWebProviderConfig {
+  enabled: boolean
+  /** When true, this gateway routes upstream requests through the global server.proxyUrl. Defaults to false. */
+  useProxy?: boolean
+  routeName?: string
+  displayName?: string
+  settings: GeminiWebProviderSettings
+}
+
+export interface GeminiWebProviderSettings {
+  /** Gemini Web base URL */
+  baseUrl: string
+  /**
+   * Runtime-injected proxy URL. Not user-configured — resolved from the global
+   * `server.proxyUrl` + this provider's `useProxy` flag by the registry on rebuild.
+   */
+  vpnProxyUrl: string
+  firstTokenTimeoutSeconds: number
+  streamingReadTimeoutSeconds: number
+  maxRetries: number
+}
+
+export interface GeminiWebAccountConfig {
+  id: string
+  label?: string
+  email?: string
+  enabled: boolean
+  path?: string
+  /** Browser Cookie header for gemini.google.com (must include __Secure-1PSID). Do not log or expose this value. */
+  cookieHeader: string
+  planType?: string
+}
+
 export interface QoderProviderConfig {
   enabled: boolean
   /** When true, this gateway routes upstream requests through the global server.proxyUrl. Defaults to false. */
@@ -487,6 +522,12 @@ export interface QoderProviderState {
   logs: GatewayLogEntry[]
 }
 
+export interface GeminiWebProviderState {
+  accounts: Record<string, AccountRuntimeState>
+  currentAccountIndex: number
+  logs: GatewayLogEntry[]
+}
+
 export interface GatewayHubState {
   version: 1
   providers: {
@@ -499,6 +540,7 @@ export interface GatewayHubState {
     gptWeb: GptWebProviderState
     grokWeb: GrokWebProviderState
     qoder: QoderProviderState
+    geminiWeb: GeminiWebProviderState
     [name: string]: unknown
   }
 }

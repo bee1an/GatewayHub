@@ -21,6 +21,7 @@ import { AddOpenRouterAccountDialog } from './AddOpenRouterAccountDialog'
 import { AddNvidiaAccountDialog } from './AddNvidiaAccountDialog'
 import { AddGptWebAccountDialog } from './AddGptWebAccountDialog'
 import { AddGrokWebAccountDialog } from './AddGrokWebAccountDialog'
+import { AddGeminiWebAccountDialog } from './AddGeminiWebAccountDialog'
 import { AddQoderAccountDialog } from './AddQoderAccountDialog'
 import { WindsurfProviderSettings } from './WindsurfProviderSettings'
 import { normalizeAccountModels } from './accountModelUtils'
@@ -79,9 +80,10 @@ export default function GatewayDetail(): React.JSX.Element {
   const isGptWeb = gateway?.providerType === 'gptWeb'
   const isGrokWeb = gateway?.providerType === 'grokWeb'
   const isQoder = gateway?.providerType === 'qoder'
+  const isGeminiWeb = gateway?.providerType === 'geminiWeb'
   const supportsRequestRace = isOpenRouter || isNvidia
   const supportsProxy =
-    isKiro || isCodex || isWindsurf || isTrae || isGptWeb || isGrokWeb || isQoder
+    isKiro || isCodex || isWindsurf || isTrae || isGptWeb || isGrokWeb || isQoder || isGeminiWeb
   const supportsAccounts =
     isKiro ||
     isCodex ||
@@ -91,7 +93,8 @@ export default function GatewayDetail(): React.JSX.Element {
     isNvidia ||
     isGptWeb ||
     isGrokWeb ||
-    isQoder
+    isQoder ||
+    isGeminiWeb
   const accountIdsKey = useMemo(() => accounts.map((a) => a.id).join(','), [accounts])
 
   const filteredAccounts = useMemo(() => {
@@ -136,9 +139,11 @@ export default function GatewayDetail(): React.JSX.Element {
                     ? await window.api.gateway.getGptWebAccountInfo(accountId)
                     : isGrokWeb
                       ? await window.api.gateway.getGrokWebAccountInfo(accountId)
-                      : isQoder
-                        ? await window.api.gateway.getQoderAccountInfo(accountId)
-                        : await window.api.gateway.getAccountInfo(accountId)
+                      : isGeminiWeb
+                        ? await window.api.gateway.getGeminiWebAccountInfo(accountId)
+                        : isQoder
+                          ? await window.api.gateway.getQoderAccountInfo(accountId)
+                          : await window.api.gateway.getAccountInfo(accountId)
         const normalizedInfo = { ...info, models: normalizeAccountModels(info?.models) }
         setAccountInfoMap((prev) => {
           const next = { ...prev, [accountId]: { data: normalizedInfo, loading: false } }
@@ -153,7 +158,7 @@ export default function GatewayDetail(): React.JSX.Element {
         }))
       }
     },
-    [isCodex, isWindsurf, isTrae, isOpenRouter, isNvidia, isGptWeb, isGrokWeb, isQoder]
+    [isCodex, isWindsurf, isTrae, isOpenRouter, isNvidia, isGptWeb, isGrokWeb, isQoder, isGeminiWeb]
   )
 
   const fetchAllUsage = useCallback(() => {
@@ -170,7 +175,8 @@ export default function GatewayDetail(): React.JSX.Element {
         !isNvidia &&
         !isGptWeb &&
         !isGrokWeb &&
-        !isQoder
+        !isQoder &&
+        !isGeminiWeb
       )
         return
       setModelRefreshIds((prev) => new Set(prev).add(accountId))
@@ -187,9 +193,11 @@ export default function GatewayDetail(): React.JSX.Element {
                   ? await window.api.gateway.refreshGptWebAccountModels(accountId)
                   : isGrokWeb
                     ? await window.api.gateway.refreshGrokWebAccountModels(accountId)
-                    : isQoder
-                      ? await window.api.gateway.refreshQoderAccountModels(accountId)
-                      : await window.api.gateway.refreshKiroAccountModels(accountId)
+                    : isGeminiWeb
+                      ? await window.api.gateway.refreshGeminiWebAccountModels(accountId)
+                      : isQoder
+                        ? await window.api.gateway.refreshQoderAccountModels(accountId)
+                        : await window.api.gateway.refreshKiroAccountModels(accountId)
         if (result?.ok === false) throw new Error(result.error || t('gateway.infoError'))
         const models = normalizeAccountModels(result?.models)
         setAccountInfoMap((prev) => {
@@ -233,6 +241,7 @@ export default function GatewayDetail(): React.JSX.Element {
       isGptWeb,
       isGrokWeb,
       isQoder,
+      isGeminiWeb,
       refresh,
       t,
       toast
@@ -694,15 +703,20 @@ export default function GatewayDetail(): React.JSX.Element {
                                           acc.id,
                                           !acc.enabled
                                         )
-                                      : isQoder
-                                        ? window.api.gateway.toggleQoderAccount(
+                                      : isGeminiWeb
+                                        ? window.api.gateway.toggleGeminiWebAccount(
                                             acc.id,
                                             !acc.enabled
                                           )
-                                        : window.api.gateway.toggleKiroAccount(
-                                            acc.id,
-                                            !acc.enabled
-                                          ),
+                                        : isQoder
+                                          ? window.api.gateway.toggleQoderAccount(
+                                              acc.id,
+                                              !acc.enabled
+                                            )
+                                          : window.api.gateway.toggleKiroAccount(
+                                              acc.id,
+                                              !acc.enabled
+                                            ),
                       acc.enabled ? t('gateway.disabled') : t('gateway.enabled')
                     )
                   }
@@ -724,9 +738,11 @@ export default function GatewayDetail(): React.JSX.Element {
                                     ? window.api.gateway.resetGptWebAccount(acc.id)
                                     : isGrokWeb
                                       ? window.api.gateway.resetGrokWebAccount(acc.id)
-                                      : isQoder
-                                        ? window.api.gateway.resetQoderAccount(acc.id)
-                                        : window.api.gateway.resetKiroAccount(acc.id),
+                                      : isGeminiWeb
+                                        ? window.api.gateway.resetGeminiWebAccount(acc.id)
+                                        : isQoder
+                                          ? window.api.gateway.resetQoderAccount(acc.id)
+                                          : window.api.gateway.resetKiroAccount(acc.id),
                       t('gateway.resetDone')
                     )
                   }
@@ -769,15 +785,20 @@ export default function GatewayDetail(): React.JSX.Element {
                                           acc.id,
                                           isPaused ? 'available' : 'manual_disabled'
                                         )
-                                      : isQoder
-                                        ? window.api.gateway.setQoderAccountStatus(
+                                      : isGeminiWeb
+                                        ? window.api.gateway.setGeminiWebAccountStatus(
                                             acc.id,
                                             isPaused ? 'available' : 'manual_disabled'
                                           )
-                                        : window.api.gateway.setKiroAccountStatus(
-                                            acc.id,
-                                            isPaused ? 'available' : 'manual_disabled'
-                                          ),
+                                        : isQoder
+                                          ? window.api.gateway.setQoderAccountStatus(
+                                              acc.id,
+                                              isPaused ? 'available' : 'manual_disabled'
+                                            )
+                                          : window.api.gateway.setKiroAccountStatus(
+                                              acc.id,
+                                              isPaused ? 'available' : 'manual_disabled'
+                                            ),
                       isPaused ? t('gateway.resumed') : t('gateway.paused')
                     )
                   }}
@@ -790,7 +811,8 @@ export default function GatewayDetail(): React.JSX.Element {
                     isNvidia ||
                     isGptWeb ||
                     isGrokWeb ||
-                    isQoder
+                    isQoder ||
+                    isGeminiWeb
                       ? () => refreshAccountModels(acc.id)
                       : undefined
                   }
@@ -864,6 +886,14 @@ export default function GatewayDetail(): React.JSX.Element {
         />
       )}
 
+      {isGeminiWeb && (
+        <AddGeminiWebAccountDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          onImported={refresh}
+        />
+      )}
+
       {isQoder && (
         <AddQoderAccountDialog
           open={dialogOpen}
@@ -901,9 +931,11 @@ export default function GatewayDetail(): React.JSX.Element {
                             ? window.api.gateway.removeGptWebAccount(removeTarget.id)
                             : isGrokWeb
                               ? window.api.gateway.removeGrokWebAccount(removeTarget.id)
-                              : isQoder
-                                ? window.api.gateway.removeQoderAccount(removeTarget.id)
-                                : window.api.gateway.removeKiroAccount(removeTarget.id),
+                              : isGeminiWeb
+                                ? window.api.gateway.removeGeminiWebAccount(removeTarget.id)
+                                : isQoder
+                                  ? window.api.gateway.removeQoderAccount(removeTarget.id)
+                                  : window.api.gateway.removeKiroAccount(removeTarget.id),
               t('gateway.removed')
             ).then(() => setRemoveTarget(null))
           }

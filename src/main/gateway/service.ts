@@ -59,6 +59,7 @@ import {
 } from './providers/openrouter/normalize'
 import { buildNvidiaAccountFromInput, parseNvidiaAuthInput } from './providers/nvidia/normalize'
 import { normalizeGrokWebImportedAccount } from './providers/grokWeb/normalize'
+import { normalizeGeminiWebImportedAccount } from './providers/geminiWeb/normalize'
 import { buildQoderAccountFromInput, parseQoderAuthInput } from './providers/qoder/normalize'
 import {
   cancelQoderCliLogin,
@@ -475,7 +476,8 @@ export class GatewayHubService {
       'trae',
       'gptWeb',
       'grokWeb',
-      'qoder'
+      'qoder',
+      'geminiWeb'
     ])
     if (!proxyCapable.has(providerType)) {
       throw new Error(`Provider "${providerType}" does not support proxy routing`)
@@ -1796,6 +1798,148 @@ export class GatewayHubService {
     return this.getStatus()
   }
 
+  // ============== Gemini Web provider ==============
+
+  async importGeminiWebAuthJson(text: string): Promise<{
+    added: number
+    skipped: number
+    errors: { message: string }[]
+    status: GatewayStatusSnapshot
+  }> {
+    await this.ensureReady()
+    let parsed: any
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      return {
+        added: 0,
+        skipped: 0,
+        errors: [{ message: 'Invalid JSON' }],
+        status: await this.getStatus()
+      }
+    }
+
+    let entries: any[] = Array.isArray(parsed) ? parsed : [parsed]
+    // A browser-extension cookie export is a flat array of cookie objects
+    // (each {name, value, domain, ...}) — that's ONE account, not many.
+    // If every element looks like a cookie object, wrap the whole array.
+    if (
+      Array.isArray(parsed) &&
+      parsed.length > 0 &&
+      parsed.every(
+        (item) =>
+          item &&
+          typeof item === 'object' &&
+          typeof item.name === 'string' &&
+          'value' in item &&
+          !Array.isArray(item.value)
+      )
+    ) {
+      entries = [{ cookies: parsed }]
+    }
+    const existing = await this.store.readGeminiWebAccountFiles()
+    const existingIds = new Set(existing.map((account) => account.id))
+    let added = 0
+    let skipped = 0
+    const errors: { message: string }[] = []
+
+    for (const entry of entries) {
+      try {
+        const account = normalizeGeminiWebImportedAccount(entry)
+        if (!account) {
+          errors.push({
+            message:
+              'Missing Gemini cookie data. Provide a cookieHeader/cookie string, browser-exported cookies[], or a __Secure-1PSID value.'
+          })
+          continue
+        }
+        if (existingIds.has(account.id)) {
+          await this.store.updateGeminiWebAccountFile(account.id, account)
+          skipped++
+        } else {
+          await this.store.writeGeminiWebAccountFile(account)
+          existingIds.add(account.id)
+          added++
+        }
+      } catch (err: any) {
+        errors.push({ message: err?.message || String(err) })
+      }
+    }
+
+    if (added > 0 || skipped > 0) await this.rebuildRuntime(this.server?.running ?? false)
+    return { added, skipped, errors, status: await this.getStatus() }
+  }
+
+  async testGeminiWebAccount(accountId: string): Promise<AccountTestResult> {
+    await this.ensureReady()
+    const result = await this.registry!.testAccount('geminiWeb', accountId)
+    await this.persistStateSoon()
+    return result
+  }
+
+  async toggleGeminiWebAccount(
+    accountId: string,
+    enabled: boolean
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.store.updateGeminiWebAccountFile(accountId, { enabled })
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async removeGeminiWebAccount(accountId: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const deleted = await this.store.deleteGeminiWebAccountFile(accountId)
+    if (!deleted) throw new Error(`Gemini Web account not found: ${accountId}`)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async getGeminiWebAccountInfo(accountId: string) {
+    await this.ensureReady()
+    return this.registry!.getAccountInfo('geminiWeb', accountId)
+  }
+
+  async refreshGeminiWebAccountModels(accountId: string) {
+    await this.ensureReady()
+    const models = await this.registry!.refreshAccountModels('geminiWeb', accountId)
+    await this.persistStateSoon()
+    return models
+  }
+
+  async resetGeminiWebAccount(accountId: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.registry!.resetAccount('geminiWeb', accountId)
+    await this.persistStateSoon()
+    return this.getStatus()
+  }
+
+  async setGeminiWebAccountStatus(
+    accountId: string,
+    status: AccountStatus,
+    reason?: string
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.registry!.setAccountStatus('geminiWeb', accountId, status, reason)
+    await this.persistStateSoon()
+    return this.getStatus()
+  }
+
+  async getGeminiWebSettings() {
+    await this.ensureReady()
+    return this.config!.providers.geminiWeb.settings
+  }
+
+  async updateGeminiWebSettings(
+    settings: Partial<Record<string, any>>
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    Object.assign(this.config!.providers.geminiWeb.settings, settings)
+    await this.store.saveConfig(this.config!)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
   // ============== Qoder provider ==============
 
   private async upsertQoderAccount(account: QoderAccountConfig): Promise<boolean> {
@@ -2030,6 +2174,7 @@ export class GatewayHubService {
     const gptWebFiles = await this.store.readGptWebAccountFiles()
     const grokWebFiles = await this.store.readGrokWebAccountFiles()
     const qoderFiles = await this.store.readQoderAccountFiles()
+    const geminiWebFiles = await this.store.readGeminiWebAccountFiles()
     this.registry = new ProviderRegistry(
       this.config!,
       this.state!,
@@ -2070,6 +2215,15 @@ export class GatewayHubService {
             category: 'system'
           })
         }
+      },
+      async (accountId, updates) => {
+        try {
+          await this.store.updateGeminiWebAccountFile(accountId, updates)
+        } catch (error) {
+          this.logger.warn(`updateGeminiWebAccountFile failed: ${toErrorMessage(error)}`, {
+            category: 'system'
+          })
+        }
       }
     )
     await this.registry.initialize(
@@ -2081,7 +2235,8 @@ export class GatewayHubService {
       nvidiaFiles,
       gptWebFiles,
       grokWebFiles,
-      qoderFiles
+      qoderFiles,
+      geminiWebFiles
     )
     this.server = new GatewayServer(
       this.config!,
@@ -2119,6 +2274,7 @@ export class GatewayHubService {
     this.state.providers.gptWeb ??= { accounts: {}, currentAccountIndex: 0, logs: [] }
     this.state.providers.grokWeb ??= { accounts: {}, currentAccountIndex: 0, logs: [] }
     this.state.providers.qoder ??= { accounts: {}, currentAccountIndex: 0, logs: [] }
+    this.state.providers.geminiWeb ??= { accounts: {}, currentAccountIndex: 0, logs: [] }
   }
 
   /** Mirrors the unified logger entries into every provider's logs slot. */
@@ -2147,7 +2303,8 @@ const LOG_MIRROR_PROVIDERS = [
   'nvidia',
   'gptWeb',
   'grokWeb',
-  'qoder'
+  'qoder',
+  'geminiWeb'
 ] as const
 
 function kiroAccountImportUpdates(account: KiroAccountConfig): Partial<KiroAccountConfig> {

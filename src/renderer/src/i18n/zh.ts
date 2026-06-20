@@ -323,6 +323,7 @@ const zh = {
     nvidiaTitle: '添加 NVIDIA API Key',
     gptWebTitle: '添加 GptWeb 账号',
     grokWebTitle: '添加 Grok Web 账号',
+    geminiWebTitle: '添加 Gemini Web 账号',
     qoderTitle: '添加 Qoder 账号',
     type: '类型',
     label: '标签',
@@ -417,6 +418,10 @@ const zh = {
       '粘贴 grok.com 登录态 Cookie JSON（单对象或数组）。支持 cookieHeader/cookie 字符串，或浏览器导出的 cookies[]；凭据只保存在本机配置目录。',
     grokWebJsonPlaceholder:
       '{ "cookieHeader": "sso=...; sso-rw=...; cf_clearance=...; grok_device_id=...; x-userid=...", "email": "you@example.com" }',
+    geminiWebJsonHint:
+      '粘贴 gemini.google.com 登录态 Cookie JSON（单对象或数组），必须包含 __Secure-1PSID。支持 cookieHeader/cookie 字符串或浏览器导出的 cookies[]；凭据只保存在本机配置目录。',
+    geminiWebJsonPlaceholder:
+      '{ "cookieHeader": "__Secure-1PSID=...; __Secure-3PSID=...; SID=...; HSID=...; ...", "email": "you@example.com" }',
     qoderTokenHint:
       '粘贴 Qoder Personal Access Token。GatewayHub 会直接以 Authorization: Bearer token 请求 Qoder 后端，不会通过 qodercli 代理 API 请求；凭据只保存在本机配置目录。',
     qoderTokenPlaceholder: '粘贴 Qoder Personal Access Token...',

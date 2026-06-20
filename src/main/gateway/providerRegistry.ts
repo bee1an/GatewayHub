@@ -6,6 +6,7 @@ import type {
   GatewayRequestContext,
   GatewayResponse,
   GrokWebAccountConfig,
+  GeminiWebAccountConfig,
   KiroAccountConfig,
   ModelMapping,
   NvidiaAccountConfig,
@@ -27,6 +28,7 @@ import { OpenRouterProvider } from './providers/openrouter/provider'
 import { NvidiaProvider } from './providers/nvidia/provider'
 import { GptWebProvider } from './providers/gptWeb/provider'
 import { GrokWebProvider } from './providers/grokWeb/provider'
+import { GeminiWebProvider } from './providers/geminiWeb/provider'
 import { QoderProvider } from './providers/qoder/provider'
 import type { GatewayHubState } from './types'
 
@@ -93,6 +95,10 @@ export class ProviderRegistry {
     private readonly persistNvidiaAccount?: (
       accountId: string,
       updates: Partial<NvidiaAccountConfig>
+    ) => Promise<void>,
+    private readonly persistGeminiWebAccount?: (
+      accountId: string,
+      updates: Partial<GeminiWebAccountConfig>
     ) => Promise<void>
   ) {
     for (const mapping of config.modelMappings ?? []) {
@@ -111,7 +117,8 @@ export class ProviderRegistry {
     nvidiaAccountFiles: NvidiaAccountConfig[] = [],
     gptWebAccountFiles: GptWebAccountConfig[] = [],
     grokWebAccountFiles: GrokWebAccountConfig[] = [],
-    qoderAccountFiles: QoderAccountConfig[] = []
+    qoderAccountFiles: QoderAccountConfig[] = [],
+    geminiWebAccountFiles: GeminiWebAccountConfig[] = []
   ): Promise<void> {
     const p = this.config.providers
     const s = this.state.providers
@@ -132,6 +139,7 @@ export class ProviderRegistry {
     p.gptWeb.settings.vpnProxyUrl = resolveProxy(p.gptWeb.useProxy)
     p.grokWeb.settings.vpnProxyUrl = resolveProxy(p.grokWeb.useProxy)
     p.qoder.settings.vpnProxyUrl = resolveProxy(p.qoder.useProxy)
+    p.geminiWeb.settings.vpnProxyUrl = resolveProxy(p.geminiWeb.useProxy)
 
     await this.initProvider('kiro', new KiroProvider(p.kiro, s.kiro, log, onChange), accountFiles)
 
@@ -180,6 +188,11 @@ export class ProviderRegistry {
       'qoder',
       new QoderProvider(p.qoder, s.qoder, log, onChange),
       qoderAccountFiles
+    )
+    await this.initProvider(
+      'geminiWeb',
+      new GeminiWebProvider(p.geminiWeb, s.geminiWeb, log, onChange, this.persistGeminiWebAccount),
+      geminiWebAccountFiles
     )
 
     this.registerProvider(
@@ -285,7 +298,8 @@ export class ProviderRegistry {
       'trae',
       'gptWeb',
       'grokWeb',
-      'qoder'
+      'qoder',
+      'geminiWeb'
     ])
     const result: ProviderStatus[] = []
     for (const [name, provider] of this.providers) {

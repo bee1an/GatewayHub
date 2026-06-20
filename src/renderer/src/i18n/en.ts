@@ -329,6 +329,7 @@ const en = {
     nvidiaTitle: 'Add NVIDIA API Key',
     gptWebTitle: 'Add GptWeb Account',
     grokWebTitle: 'Add Grok Web Account',
+    geminiWebTitle: 'Add Gemini Web Account',
     qoderTitle: 'Add Qoder Account',
     type: 'Type',
     label: 'Label',
@@ -428,6 +429,10 @@ const en = {
       'Paste grok.com sign-in cookie JSON (single object or array). Supports a cookieHeader/cookie string or browser-exported cookies[]. Credentials are stored only in the local config directory.',
     grokWebJsonPlaceholder:
       '{ "cookieHeader": "sso=...; sso-rw=...; cf_clearance=...; grok_device_id=...; x-userid=...", "email": "you@example.com" }',
+    geminiWebJsonHint:
+      'Paste gemini.google.com sign-in cookie JSON (single object or array). Must include __Secure-1PSID. Supports a cookieHeader/cookie string or browser-exported cookies[]. Credentials are stored only in the local config directory.',
+    geminiWebJsonPlaceholder:
+      '{ "cookieHeader": "__Secure-1PSID=...; __Secure-3PSID=...; SID=...; HSID=...; ...", "email": "you@example.com" }',
     qoderTokenHint:
       'Paste a Qoder Personal Access Token. GatewayHub calls the Qoder backend directly with Authorization: Bearer token; API requests are not proxied through qodercli. Credentials are stored only in the local config directory.',
     qoderTokenPlaceholder: 'Paste Qoder Personal Access Token...',

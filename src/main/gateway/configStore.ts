@@ -8,6 +8,7 @@ import type {
   GatewayHubConfig,
   GatewayHubState,
   GrokWebAccountConfig,
+  GeminiWebAccountConfig,
   KiroAccountConfig,
   ModelMapping,
   NvidiaAccountConfig,
@@ -34,6 +35,7 @@ import { DEFAULT_OPENROUTER_SETTINGS } from './providers/openrouter/constants'
 import { DEFAULT_NVIDIA_SETTINGS } from './providers/nvidia/constants'
 import { DEFAULT_GPT_WEB_SETTINGS } from './providers/gptWeb/constants'
 import { DEFAULT_GROK_WEB_SETTINGS } from './providers/grokWeb/constants'
+import { DEFAULT_GEMINI_WEB_SETTINGS } from './providers/geminiWeb/constants'
 import { DEFAULT_QODER_SETTINGS, normalizeQoderMaxOutputTokens } from './providers/qoder/constants'
 import { normalizeRequestRaceSettings } from './providers/requestRace'
 import { generateApiKey, readJsonFile, sha256Short, writeJsonFile, atomicWrite } from './core/utils'
@@ -87,6 +89,10 @@ export class GatewayConfigStore {
 
   qoderAccountsDir(): string {
     return join(dirname(this.configPath), 'qoder', 'accounts')
+  }
+
+  geminiWebAccountsDir(): string {
+    return join(dirname(this.configPath), 'geminiWeb', 'accounts')
   }
 
   qoderAuthDir(): string {
@@ -172,6 +178,7 @@ export class GatewayConfigStore {
       !parsed.providers?.gptWeb ||
       !parsed.providers?.grokWeb ||
       !parsed.providers?.qoder ||
+      !parsed.providers?.geminiWeb ||
       parsed.providers?.trae?.settings?.modelListPath === LEGACY_TRAE_MODEL_LIST_PATH ||
       JSON.stringify(parsed.modelMappings ?? []) !== JSON.stringify(config.modelMappings)
 
@@ -194,7 +201,8 @@ export class GatewayConfigStore {
       'trae',
       'gptWeb',
       'grokWeb',
-      'qoder'
+      'qoder',
+      'geminiWeb'
     ] as const) {
       const settings = clone.providers?.[providerKey]?.settings
       if (settings && typeof settings === 'object') delete settings.vpnProxyUrl
@@ -665,6 +673,43 @@ export class GatewayConfigStore {
     return this.grokWebStore.update(accountId, updates)
   }
 
+  // ============== Gemini Web account file management ==============
+
+  private readonly geminiWebStore = new AccountFileStore<GeminiWebAccountConfig>({
+    dir: () => this.geminiWebAccountsDir(),
+    providerLabel: 'geminiWeb',
+    backfillId: (data) => {
+      if (!data.id && data.cookieHeader)
+        data.id = `geminiWeb-${sha256Short(data.cookieHeader.slice(0, 64))}`
+      return data
+    },
+    validate: (data) => (data.cookieHeader ? data : null),
+    fileNameSource: (data) => data.label || data.email || data.id,
+    strip: (data) => {
+      const { path: _path, ...rest } = data
+      return rest
+    }
+  })
+
+  readGeminiWebAccountFiles(): Promise<GeminiWebAccountConfig[]> {
+    return this.geminiWebStore.readAll()
+  }
+
+  writeGeminiWebAccountFile(data: GeminiWebAccountConfig): Promise<string> {
+    return this.geminiWebStore.write(data)
+  }
+
+  deleteGeminiWebAccountFile(accountId: string): Promise<boolean> {
+    return this.geminiWebStore.delete(accountId)
+  }
+
+  updateGeminiWebAccountFile(
+    accountId: string,
+    updates: Partial<GeminiWebAccountConfig>
+  ): Promise<void> {
+    return this.geminiWebStore.update(accountId, updates)
+  }
+
   // ============== Qoder account file management ==============
 
   private readonly qoderStore = new AccountFileStore<QoderAccountConfig>({
@@ -791,6 +836,12 @@ export class GatewayConfigStore {
           routeName: 'grokWeb',
           settings: { ...DEFAULT_GROK_WEB_SETTINGS }
         },
+        geminiWeb: {
+          enabled: true,
+          useProxy: false,
+          routeName: 'geminiWeb',
+          settings: { ...DEFAULT_GEMINI_WEB_SETTINGS }
+        },
         qoder: {
           enabled: true,
           useProxy: false,
@@ -847,6 +898,11 @@ export class GatewayConfigStore {
           logs: []
         },
         grokWeb: {
+          accounts: {},
+          currentAccountIndex: 0,
+          logs: []
+        },
+        geminiWeb: {
           accounts: {},
           currentAccountIndex: 0,
           logs: []
@@ -1091,6 +1147,21 @@ export class GatewayConfigStore {
             ...(input?.providers?.grokWeb?.settings ?? {})
           }
         },
+        geminiWeb: {
+          ...defaults.providers.geminiWeb,
+          ...(input?.providers?.geminiWeb ?? {}),
+          routeName:
+            input?.providers?.geminiWeb?.routeName || defaults.providers.geminiWeb.routeName,
+          enabled:
+            typeof input?.providers?.geminiWeb?.enabled === 'boolean'
+              ? input.providers.geminiWeb.enabled
+              : defaults.providers.geminiWeb.enabled,
+          useProxy: resolveUseProxy('geminiWeb'),
+          settings: {
+            ...defaults.providers.geminiWeb.settings,
+            ...(input?.providers?.geminiWeb?.settings ?? {})
+          }
+        },
         qoder: {
           ...defaults.providers.qoder,
           ...(input?.providers?.qoder ?? {}),
@@ -1192,6 +1263,14 @@ export class GatewayConfigStore {
           accounts: input?.providers?.grokWeb?.accounts ?? {},
           logs: Array.isArray(input?.providers?.grokWeb?.logs)
             ? input.providers.grokWeb.logs.slice(-1000)
+            : []
+        },
+        geminiWeb: {
+          ...defaults.providers.geminiWeb,
+          ...(input?.providers?.geminiWeb ?? {}),
+          accounts: input?.providers?.geminiWeb?.accounts ?? {},
+          logs: Array.isArray(input?.providers?.geminiWeb?.logs)
+            ? input.providers.geminiWeb.logs.slice(-1000)
             : []
         },
         qoder: {

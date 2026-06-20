@@ -42,7 +42,11 @@ export function ProviderLogo({
 
   return (
     <span
-      className={`inline-flex items-center justify-center shrink-0 overflow-hidden border border-charcoal/45 bg-charcoal/40 shadow-[0_0_0_1px_rgba(255,255,255,0.03)_inset] ${sizeClass.wrap} ${className}`}
+      className={`inline-flex items-center justify-center shrink-0 overflow-hidden ${
+        shouldUseImage
+          ? sizeClass.image
+          : `${sizeClass.wrap} border border-charcoal/45 bg-charcoal/40 shadow-[0_0_0_1px_rgba(255,255,255,0.03)_inset]`
+      } ${className}`}
       title={displayLabel}
     >
       {shouldUseImage ? (

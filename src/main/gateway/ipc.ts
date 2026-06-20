@@ -12,6 +12,7 @@ import { DEFAULT_OPENROUTER_SETTINGS } from './providers/openrouter/constants'
 import { DEFAULT_NVIDIA_SETTINGS } from './providers/nvidia/constants'
 import { DEFAULT_GPT_WEB_SETTINGS } from './providers/gptWeb/constants'
 import { DEFAULT_GROK_WEB_SETTINGS } from './providers/grokWeb/constants'
+import { DEFAULT_GEMINI_WEB_SETTINGS } from './providers/geminiWeb/constants'
 import { DEFAULT_QODER_SETTINGS } from './providers/qoder/constants'
 
 const KIRO_KEYS = new Set(Object.keys(DEFAULT_KIRO_SETTINGS))
@@ -22,6 +23,7 @@ const OPENROUTER_KEYS = new Set(Object.keys(DEFAULT_OPENROUTER_SETTINGS))
 const NVIDIA_KEYS = new Set(Object.keys(DEFAULT_NVIDIA_SETTINGS))
 const GPT_WEB_KEYS = new Set(Object.keys(DEFAULT_GPT_WEB_SETTINGS))
 const GROK_WEB_KEYS = new Set(Object.keys(DEFAULT_GROK_WEB_SETTINGS))
+const GEMINI_WEB_KEYS = new Set(Object.keys(DEFAULT_GEMINI_WEB_SETTINGS))
 const QODER_KEYS = new Set(Object.keys(DEFAULT_QODER_SETTINGS))
 
 function safeHandler(fn: (...args: any[]) => any) {
@@ -798,6 +800,70 @@ export function registerGatewayIpc(): void {
     })
   )
 
+  // ============== Gemini Web ==============
+
+  ipcMain.handle(
+    'gateway:importGeminiWebJson',
+    safeHandler((_event, text: string) =>
+      withDaemonReload(() => gatewayHubService.importGeminiWebAuthJson(text))
+    )
+  )
+  ipcMain.handle(
+    'gateway:testGeminiWebAccount',
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.testGeminiWebAccount(accountId))
+    )
+  )
+  ipcMain.handle(
+    'gateway:toggleGeminiWebAccount',
+    safeHandler((_event, accountId: string, enabled: boolean) =>
+      withDaemonReload(() => gatewayHubService.toggleGeminiWebAccount(accountId, enabled))
+    )
+  )
+  ipcMain.handle(
+    'gateway:removeGeminiWebAccount',
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.removeGeminiWebAccount(accountId))
+    )
+  )
+  ipcMain.handle(
+    'gateway:getGeminiWebAccountInfo',
+    safeHandler((_event, accountId: string) => gatewayHubService.getGeminiWebAccountInfo(accountId))
+  )
+  ipcMain.handle(
+    'gateway:refreshGeminiWebAccountModels',
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.refreshGeminiWebAccountModels(accountId))
+    )
+  )
+  ipcMain.handle(
+    'gateway:resetGeminiWebAccount',
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.resetGeminiWebAccount(accountId))
+    )
+  )
+  ipcMain.handle(
+    'gateway:setGeminiWebAccountStatus',
+    safeHandler((_event, accountId: string, status: string, reason?: string) =>
+      withDaemonReload(() =>
+        gatewayHubService.setGeminiWebAccountStatus(accountId, status as AccountStatus, reason)
+      )
+    )
+  )
+  ipcMain.handle(
+    'gateway:getGeminiWebSettings',
+    safeHandler(() => gatewayHubService.getGeminiWebSettings())
+  )
+  ipcMain.handle(
+    'gateway:updateGeminiWebSettings',
+    safeHandler((_event, settings: Record<string, any>) => {
+      const filtered = Object.fromEntries(
+        Object.entries(settings).filter(([k]) => GEMINI_WEB_KEYS.has(k))
+      )
+      return gatewayHubService.updateGeminiWebSettings(filtered)
+    })
+  )
+
   // ============== Qoder ==============
 
   ipcMain.handle(
@@ -887,6 +953,14 @@ export function registerGatewayIpc(): void {
       return withDaemonReload(() => gatewayHubService.updateQoderSettings(filtered))
     })
   )
+  ipcMain.handle(
+    'gateway:testRequest',
+    safeHandler(async (_event, params: TestRequestParams) => {
+      // Issued from the main process to bypass the renderer's browser CORS
+      // (the gateway sends no ACAO when bound to 0.0.0.0 / a public host).
+      return forwardTestRequest(params)
+    })
+  )
 }
 
 async function getGatewayStatusForUi(): Promise<GatewayStatusSnapshot> {
@@ -946,4 +1020,81 @@ function makeCodexLoginEmitter(window: BrowserWindow | null): (event: CodexLogin
       window.webContents.send('gateway:codexLoginEvent', event)
     }
   }
+}
+
+export interface TestRequestParams {
+  url: string
+  apiKey: string
+  model: string
+  prompt: string
+  stream: boolean
+}
+
+export interface TestRequestResult {
+  ok: boolean
+  status: number
+  statusText: string
+  body: string
+}
+
+/**
+ * Forwards a Quick Test request to the gateway from the main process so the
+ * renderer never has to make a cross-origin fetch (the gateway emits no
+ * Access-Control-Allow-Origin when bound to a non-loopback host).
+ *
+ * Streaming responses are reassembled server-side: the SSE `data:` chunks are
+ * parsed and their content deltas concatenated, so the renderer receives the
+ * final text in one shot.
+ */
+async function forwardTestRequest(params: TestRequestParams): Promise<TestRequestResult> {
+  const res = await fetch(`${params.url.replace(/\/$/, '')}/v1/chat/completions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${params.apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: params.model,
+      messages: [{ role: 'user', content: params.prompt }],
+      stream: params.stream
+    })
+  })
+  const ok = res.ok
+  const status = res.status
+  const statusText = res.statusText
+  if (!res.body) {
+    const body = await res.text().catch(() => '')
+    return { ok, status, statusText, body }
+  }
+  if (!params.stream) {
+    const body = await res.text().catch(() => '')
+    return { ok, status, statusText, body }
+  }
+  // Streaming: walk SSE `data:` lines and concatenate content deltas.
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let acc = ''
+  let buffer = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed.startsWith('data:')) continue
+      const payload = trimmed.slice(5).trim()
+      if (payload === '[DONE]') continue
+      try {
+        const json = JSON.parse(payload)
+        const delta =
+          json?.choices?.[0]?.delta?.content ?? json?.choices?.[0]?.message?.content ?? ''
+        if (delta) acc += delta
+      } catch {
+        // ignore non-JSON keepalive / partial lines
+      }
+    }
+  }
+  return { ok, status, statusText, body: acc }
 }

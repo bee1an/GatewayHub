@@ -35,6 +35,13 @@ declare global {
         toggleKiroAccount: (accountId: string, enabled: boolean) => Promise<any>
         removeKiroAccount: (accountId: string) => Promise<any>
         listModels: () => Promise<any>
+        testRequest: (params: {
+          url: string
+          apiKey: string
+          model: string
+          prompt: string
+          stream: boolean
+        }) => Promise<{ ok: boolean; status: number; statusText: string; body: string }>
         getAccountInfo: (accountId: string) => Promise<any>
         refreshKiroAccountModels: (accountId: string) => Promise<any>
         resetKiroAccount: (accountId: string) => Promise<any>
@@ -306,6 +313,23 @@ declare global {
         ) => Promise<any>
         getGrokWebSettings: () => Promise<any>
         updateGrokWebSettings: (settings: Record<string, any>) => Promise<any>
+        // ========== Gemini Web ==========
+        importGeminiWebJson: (
+          text: string
+        ) => Promise<{ added: number; skipped: number; errors: string[]; status: any }>
+        testGeminiWebAccount: (accountId: string) => Promise<any>
+        toggleGeminiWebAccount: (accountId: string, enabled: boolean) => Promise<any>
+        removeGeminiWebAccount: (accountId: string) => Promise<any>
+        getGeminiWebAccountInfo: (accountId: string) => Promise<any>
+        refreshGeminiWebAccountModels: (accountId: string) => Promise<any>
+        resetGeminiWebAccount: (accountId: string) => Promise<any>
+        setGeminiWebAccountStatus: (
+          accountId: string,
+          status: string,
+          reason?: string
+        ) => Promise<any>
+        getGeminiWebSettings: () => Promise<any>
+        updateGeminiWebSettings: (settings: Record<string, any>) => Promise<any>
         // ========== Qoder ==========
         addQoderPersonalAccessToken: (text: string) => Promise<any>
         addQoderCliLogin: (options?: { label?: string; qoderCliPath?: string }) => Promise<any>

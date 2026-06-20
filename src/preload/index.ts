@@ -19,6 +19,13 @@ const api = {
     removeKiroAccount: (accountId: string) =>
       ipcRenderer.invoke('gateway:removeKiroAccount', accountId),
     listModels: () => ipcRenderer.invoke('gateway:listModels'),
+    testRequest: (params: {
+      url: string
+      apiKey: string
+      model: string
+      prompt: string
+      stream: boolean
+    }) => ipcRenderer.invoke('gateway:testRequest', params),
     getAccountInfo: (accountId: string) => ipcRenderer.invoke('gateway:getAccountInfo', accountId),
     refreshKiroAccountModels: (accountId: string) =>
       ipcRenderer.invoke('gateway:refreshKiroAccountModels', accountId),
@@ -241,6 +248,25 @@ const api = {
     getGrokWebSettings: () => ipcRenderer.invoke('gateway:getGrokWebSettings'),
     updateGrokWebSettings: (settings: Record<string, any>) =>
       ipcRenderer.invoke('gateway:updateGrokWebSettings', settings),
+    // ========== Gemini Web ==========
+    importGeminiWebJson: (text: string) => ipcRenderer.invoke('gateway:importGeminiWebJson', text),
+    testGeminiWebAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:testGeminiWebAccount', accountId),
+    toggleGeminiWebAccount: (accountId: string, enabled: boolean) =>
+      ipcRenderer.invoke('gateway:toggleGeminiWebAccount', accountId, enabled),
+    removeGeminiWebAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:removeGeminiWebAccount', accountId),
+    getGeminiWebAccountInfo: (accountId: string) =>
+      ipcRenderer.invoke('gateway:getGeminiWebAccountInfo', accountId),
+    refreshGeminiWebAccountModels: (accountId: string) =>
+      ipcRenderer.invoke('gateway:refreshGeminiWebAccountModels', accountId),
+    resetGeminiWebAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:resetGeminiWebAccount', accountId),
+    setGeminiWebAccountStatus: (accountId: string, status: string, reason?: string) =>
+      ipcRenderer.invoke('gateway:setGeminiWebAccountStatus', accountId, status, reason),
+    getGeminiWebSettings: () => ipcRenderer.invoke('gateway:getGeminiWebSettings'),
+    updateGeminiWebSettings: (settings: Record<string, any>) =>
+      ipcRenderer.invoke('gateway:updateGeminiWebSettings', settings),
     // ========== Qoder ==========
     addQoderPersonalAccessToken: (text: string) =>
       ipcRenderer.invoke('gateway:addQoderPersonalAccessToken', text),

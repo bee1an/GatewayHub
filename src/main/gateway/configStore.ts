@@ -42,6 +42,7 @@ import { generateApiKey, readJsonFile, sha256Short, writeJsonFile, atomicWrite }
 import { getPaths } from './core/paths'
 import { normalizeKiroExpiresAt } from './providers/kiro/normalize'
 import { importNodeSqlite } from './providers/kiro/sqlite'
+import { readLocalKiroProfileArn } from './providers/kiro/profile'
 import { AccountFileStore } from './core/accountStore'
 
 export class GatewayConfigStore {
@@ -298,7 +299,7 @@ export class GatewayConfigStore {
       if (account) candidates.push(account)
     }
 
-    return candidates
+    return dedupeKiroCandidates(candidates, await readLocalKiroProfileArn(home))
   }
 
   async scanKiroAccounts(): Promise<{
@@ -1300,6 +1301,149 @@ function accountIdentityKeys(account: Partial<KiroAccountConfig>): string[] {
   if (account.email) keys.push(`email:${account.email.toLowerCase()}`)
   if (!keys.length && account.accessToken) keys.push(`access:${sha256Short(account.accessToken)}`)
   return keys
+}
+
+type KiroScanCandidate = KiroAccountConfig & { sourceType: string }
+
+/**
+ * Merge candidates that point at the same underlying account. The same SSO
+ * login surfaces as several files (kiro-auth-token.json, kiro-auth-token-cli.json,
+ * account-manager backup, kiro-cli sqlite); their refresh tokens rotate on every
+ * refresh so the per-file identity keys diverge. Backfilling the local profile ARN
+ * (machine-local, stable) lets profileArn-keyed grouping collapse them.
+ *
+ * Within a group, fields are merged preferring the richest source: email/label
+ * from any candidate that has them, tokens from the candidate with the latest
+ * expiresAt, and clientId/clientSecret from whichever carries them.
+ */
+/**
+ * Merge candidates that point at the same underlying account. The same SSO
+ * login surfaces as several files (kiro-auth-token.json, kiro-auth-token-cli.json,
+ * account-manager backup, kiro-cli sqlite); their refresh tokens rotate on every
+ * refresh so the per-file identity keys diverge. Backfilling the local profile ARN
+ * (machine-local, stable) lets profileArn-keyed grouping collapse them.
+ *
+ * Grouping uses a union-find over ALL identity keys a candidate carries (profileArn,
+ * email, refresh token) — so a json source with only a refresh token still merges
+ * with an account-manager source that shares that refresh token but also has an
+ * email. Within a group, fields are merged preferring the richest source.
+ */
+function dedupeKiroCandidates(
+  candidates: KiroScanCandidate[],
+  localProfileArn?: string
+): KiroScanCandidate[] {
+  // Backfill the machine-local profile ARN onto candidates missing one. This is
+  // only safe because profile.json reflects the currently active account; for
+  // multi-account machines, candidates already carrying their own profileArn or
+  // a distinct email keep their own identity.
+  if (localProfileArn) {
+    for (const c of candidates) {
+      if (!c.profileArn) c.profileArn = localProfileArn
+    }
+  }
+
+  // Union-find over identity keys: any shared key (profile / email / refresh)
+  // transitively merges candidates into one group.
+  const parent = new Map<string, string>()
+  const find = (x: string): string => {
+    let root = x
+    while (parent.get(root) !== root) {
+      root = parent.get(root)!
+    }
+    let cur = x
+    while (parent.get(cur) !== root) {
+      const next = parent.get(cur)!
+      parent.set(cur, root)
+      cur = next
+    }
+    return root
+  }
+  const union = (a: string, b: string): void => {
+    const ra = find(a)
+    const rb = find(b)
+    if (ra !== rb) parent.set(ra, rb)
+  }
+  const ensure = (k: string): string => {
+    if (!parent.has(k)) parent.set(k, k)
+    return k
+  }
+
+  const candidateKeys = candidates.map((c) => accountIdentityKeys(c))
+  for (const keys of candidateKeys) {
+    if (keys.length === 0) continue
+    for (const k of keys) ensure(k)
+    for (let i = 1; i < keys.length; i++) union(keys[0], keys[i])
+  }
+  // Candidates sharing any identity key are already connected through that shared
+  // key node (same string → same node), so no explicit cross-candidate pass is needed.
+
+  const groupsByRoot = new Map<string, KiroScanCandidate[]>()
+  const ungrouped: KiroScanCandidate[] = []
+  for (let i = 0; i < candidates.length; i++) {
+    const keys = candidateKeys[i]
+    if (keys.length === 0) {
+      ungrouped.push(candidates[i])
+      continue
+    }
+    const root = find(keys[0])
+    const group = groupsByRoot.get(root)
+    if (group) group.push(candidates[i])
+    else groupsByRoot.set(root, [candidates[i]])
+  }
+
+  const merged: KiroScanCandidate[] = [...ungrouped]
+  for (const group of groupsByRoot.values()) {
+    if (group.length === 1) {
+      merged.push(group[0])
+      continue
+    }
+    merged.push(mergeKiroCandidateGroup(group))
+  }
+  return merged
+}
+
+function mergeKiroCandidateGroup(group: KiroScanCandidate[]): KiroScanCandidate {
+  // Prefer the candidate whose tokens are freshest (latest expiresAt) as the base.
+  const byFreshness = [...group].sort((a, b) => {
+    const ta = a.expiresAt ? Date.parse(a.expiresAt) : 0
+    const tb = b.expiresAt ? Date.parse(b.expiresAt) : 0
+    return tb - ta
+  })
+  const base = { ...byFreshness[0] }
+
+  // Fill gaps and prefer richer fields from any sibling.
+  for (const sibling of group) {
+    if (!base.email && sibling.email) base.email = sibling.email
+    if (!base.label && sibling.label) base.label = sibling.label
+    if (!base.refreshToken && sibling.refreshToken) base.refreshToken = sibling.refreshToken
+    if (!base.accessToken && sibling.accessToken) base.accessToken = sibling.accessToken
+    if (!base.clientId && sibling.clientId) base.clientId = sibling.clientId
+    if (!base.clientSecret && sibling.clientSecret) base.clientSecret = sibling.clientSecret
+    if (!base.region && sibling.region) base.region = sibling.region
+    if (!base.apiRegion && sibling.apiRegion) base.apiRegion = sibling.apiRegion
+    if (!base.profileArn && sibling.profileArn) base.profileArn = sibling.profileArn
+  }
+
+  // Re-derive the id from the merged identity so it is stable regardless of
+  // which source happened to win the base.
+  base.id = makeStableId(base)
+
+  // Prefer email as the label when available.
+  if (base.email && (!base.label || base.label === base.id)) base.label = base.email
+
+  // Record every contributing source for traceability.
+  const sources = group.map((c) => c.sourceType).filter((s): s is string => Boolean(s))
+  const seen = new Set<string>()
+  const ordered: string[] = []
+  for (const s of sources) {
+    if (!seen.has(s)) {
+      seen.add(s)
+      ordered.push(s)
+    }
+  }
+  base.sourceType = ordered.join('+')
+
+  return base
 }
 
 function isKiroAccountCandidateNewer(

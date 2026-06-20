@@ -2,6 +2,15 @@
 
 All notable changes to GatewayHub are documented in this file.
 
+## 0.7.0 - 2026-06-21
+
+Added a Gemini Web provider and a redesigned dashboard with inline gateway controls.
+
+- Added Gemini Web provider: cookie-based auth with auto-rotating session tokens, streaming support for the 3.1 Pro / 3.5 Flash / 3.1 Flash-Lite models, signed-in email capture, and renderer add-account dialog
+- Redesigned the dashboard into a clean provider roster with inline gateway start/stop controls and a Quick Test snippet for ad-hoc requests
+- Added a sidebar gateway visibility toggle in Settings so individual gateways can be hidden from the navigation
+- Improved Kiro account discovery to merge duplicate candidates harvested from multiple local sources (IDE token, CLI sqlite, account-manager backup) into a single account using the machine-local profile ARN
+
 ## 0.6.0 - 2026-06-20
 
 Added the Qoder provider and a request-grouped log view, plus a more dramatic theme transition and cleaner status presentation.

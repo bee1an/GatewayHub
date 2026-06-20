@@ -153,4 +153,185 @@ describe('GatewayConfigStore Kiro account discovery', () => {
       expiresAt: '2026-06-02T12:00:00.000Z'
     })
   })
+
+  it('dedupes same-account candidates from multiple sources into one via local profile ARN', async () => {
+    // profile.json — machine-local, carries the stable profileArn
+    const profilePath = join(
+      home,
+      'Library',
+      'Application Support',
+      'Kiro',
+      'User',
+      'globalStorage',
+      'kiro.kiroagent',
+      'profile.json'
+    )
+    await mkdir(dirname(profilePath), { recursive: true })
+    await writeFile(
+      profilePath,
+      JSON.stringify({ arn: 'arn:aws:codewhisperer:us-east-1:123:profile/shared' })
+    )
+
+    // kiro-auth-token.json — IDE login, no email, refresh A
+    const ssoCache = join(home, '.aws', 'sso', 'cache')
+    await mkdir(ssoCache, { recursive: true })
+    await writeFile(
+      join(ssoCache, 'kiro-auth-token.json'),
+      JSON.stringify({
+        accessToken: 'access-ide',
+        refreshToken: 'refresh-ide',
+        expiresAt: '2026-06-01T00:00:00.000Z',
+        region: 'us-east-1'
+      })
+    )
+
+    // account-manager backup — CLI login, has email, refresh B (different session)
+    const backupPath = join(
+      home,
+      'Library',
+      'Application Support',
+      'kiro-account-manager',
+      'kiro-accounts.backup.json'
+    )
+    await mkdir(dirname(backupPath), { recursive: true })
+    await writeFile(
+      backupPath,
+      JSON.stringify({
+        activeAccountId: 'acct-1',
+        accounts: {
+          'acct-1': {
+            email: 'user@example.com',
+            credentials: {
+              accessToken: 'access-cli',
+              refreshToken: 'refresh-cli',
+              expiresAt: '2026-06-02T00:00:00.000Z',
+              clientId: 'client-id',
+              clientSecret: 'client-secret',
+              region: 'us-east-1'
+            }
+          }
+        }
+      })
+    )
+
+    const store = new GatewayConfigStore()
+    const { candidates } = await store.scanKiroAccounts()
+
+    expect(candidates).toHaveLength(1)
+    const c = candidates[0]
+    // profileArn backfilled from profile.json onto both sources → merged by profile key
+    expect(c.profileArn).toBe('arn:aws:codewhisperer:us-east-1:123:profile/shared')
+    // email came from the account-manager source
+    expect(c.email).toBe('user@example.com')
+    expect(c.label).toBe('user@example.com')
+    // tokens taken from the freshest source (account-manager, expiresAt 06-02 > 06-01)
+    expect(c.refreshToken).toBe('refresh-cli')
+    expect(c.accessToken).toBe('access-cli')
+    expect(c.clientId).toBe('client-id')
+    expect(c.clientSecret).toBe('client-secret')
+    // both sources recorded
+    expect(c.sourceType).toContain('account-manager')
+    expect(c.sourceType).toContain('json')
+    // id derived from the merged profileArn
+    expect(c.id).toMatch(/^kiro-profile-/)
+  })
+
+  it('keeps different accounts separate when they have distinct emails', async () => {
+    const backupPath = join(
+      home,
+      'Library',
+      'Application Support',
+      'kiro-account-manager',
+      'kiro-accounts.backup.json'
+    )
+    await mkdir(dirname(backupPath), { recursive: true })
+    await writeFile(
+      backupPath,
+      JSON.stringify({
+        activeAccountId: 'acct-1',
+        accounts: {
+          'acct-1': {
+            email: 'one@example.com',
+            credentials: {
+              refreshToken: 'refresh-one',
+              accessToken: 'access-one',
+              region: 'us-east-1'
+            }
+          },
+          'acct-2': {
+            email: 'two@example.com',
+            credentials: {
+              refreshToken: 'refresh-two',
+              accessToken: 'access-two',
+              region: 'us-east-1'
+            }
+          }
+        }
+      })
+    )
+
+    const store = new GatewayConfigStore()
+    const candidates = await store.scanExternalAccounts()
+
+    expect(candidates).toHaveLength(2)
+    const emails = candidates.map((c) => c.email).sort()
+    expect(emails).toEqual(['one@example.com', 'two@example.com'])
+  })
+
+  it('merges fields preferring the richest source even without a local profile', async () => {
+    // No profile.json — dedupe falls back to email/refresh key.
+    // Two sources share the same refresh token (e.g. kiro-auth-token-cli.json ≡ sqlite),
+    // one carries email+clientId, the other doesn't.
+    const ssoCache = join(home, '.aws', 'sso', 'cache')
+    await mkdir(ssoCache, { recursive: true })
+    await writeFile(
+      join(ssoCache, 'kiro-auth-token.json'),
+      JSON.stringify({
+        accessToken: 'access-bare',
+        refreshToken: 'shared-refresh',
+        expiresAt: '2026-06-01T00:00:00.000Z',
+        region: 'us-east-1'
+      })
+    )
+
+    const backupPath = join(
+      home,
+      'Library',
+      'Application Support',
+      'kiro-account-manager',
+      'kiro-accounts.backup.json'
+    )
+    await mkdir(dirname(backupPath), { recursive: true })
+    await writeFile(
+      backupPath,
+      JSON.stringify({
+        activeAccountId: 'acct-1',
+        accounts: {
+          'acct-1': {
+            email: 'rich@example.com',
+            credentials: {
+              refreshToken: 'shared-refresh',
+              accessToken: 'access-rich',
+              expiresAt: '2026-06-02T00:00:00.000Z',
+              clientId: 'client-id',
+              clientSecret: 'client-secret',
+              region: 'us-east-1'
+            }
+          }
+        }
+      })
+    )
+
+    const store = new GatewayConfigStore()
+    const candidates = await store.scanExternalAccounts()
+
+    // Same refresh token → merged into one
+    expect(candidates).toHaveLength(1)
+    const c = candidates[0]
+    expect(c.email).toBe('rich@example.com')
+    expect(c.clientId).toBe('client-id')
+    // freshest token wins (06-02)
+    expect(c.accessToken).toBe('access-rich')
+    expect(c.refreshToken).toBe('shared-refresh')
+  })
 })

@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'crypto'
 import { readFile, rename, writeFile } from 'fs/promises'
-import { dirname, join } from 'path'
+import { dirname } from 'path'
 import { mkdir } from 'fs/promises'
 import { ProxyAgent, fetch as undiciFetch } from 'undici'
 import type { KiroAccountConfig, KiroProviderSettings } from '../../types'
@@ -13,6 +13,7 @@ import {
   toErrorMessage
 } from '../../core/utils'
 import { withLock } from '../../core/lockfile'
+import { readLocalKiroProfileArn } from './profile'
 
 export type KiroAuthType = 'kiro_desktop' | 'aws_sso_oidc'
 
@@ -215,38 +216,8 @@ export class KiroAuthManager {
   }
 
   private async loadKiroProfile(): Promise<void> {
-    const candidates = [
-      join(
-        process.env.HOME || process.env.USERPROFILE || '',
-        'Library',
-        'Application Support',
-        'Kiro',
-        'User',
-        'globalStorage',
-        'kiro.kiroagent',
-        'profile.json'
-      ),
-      join(
-        process.env.HOME || process.env.USERPROFILE || '',
-        '.config',
-        'Kiro',
-        'User',
-        'globalStorage',
-        'kiro.kiroagent',
-        'profile.json'
-      )
-    ]
-    for (const path of candidates) {
-      try {
-        const data = await readJsonFile<any>(path)
-        if (data?.arn) {
-          this.profileArnValue = data.arn
-          return
-        }
-      } catch {
-        // Not found, try next.
-      }
-    }
+    const arn = await readLocalKiroProfileArn()
+    if (arn) this.profileArnValue = arn
   }
 
   private isExpiringSoon(): boolean {

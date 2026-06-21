@@ -4,6 +4,7 @@ import { spawn, type ChildProcess } from 'child_process'
 import { existsSync, readFileSync, mkdirSync, appendFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { is } from '@electron-toolkit/utils'
+import { detectUntrustedTap } from './updaterTrust'
 
 autoUpdater.autoDownload = false
 autoUpdater.autoInstallOnAppQuit = false
@@ -59,7 +60,10 @@ function applyLocalUpdateOverride(): void {
 let initialized = false
 let pendingUpdateVersion: string | null = null
 let progressWindow: BrowserWindow | null = null
-let fetchChild: ChildProcess | null = null
+// 当前正在运行的 brew 子进程（update/fetch/upgrade/trust 共用）。
+// 命名成 activeChild 而非 fetchChild 是因为 trust 步骤也复用它，
+// upgrade:cancel IPC 会杀掉它。详见 runBrewUpdate/Fetch/Upgrade/Trust。
+let activeChild: ChildProcess | null = null
 let tailChild: ChildProcess | null = null
 
 // ===== 事件 buffer 时序保证 =====
@@ -156,7 +160,7 @@ function openProgressWindow(): void {
   log('openProgressWindow: creating')
   progressWindow = new BrowserWindow({
     width: 380,
-    height: 360,
+    height: 420,
     resizable: false,
     minimizable: false,
     maximizable: false,
@@ -205,7 +209,7 @@ function runBrewUpdate(brew: string): Promise<{ ok: boolean; stderr: string }> {
     const child = spawn(brew, ['update', '--quiet'], {
       env: { ...process.env, HOMEBREW_NO_ANALYTICS: '1' }
     })
-    fetchChild = child
+    activeChild = child
     let stderrBuf = ''
     child.stdout.on('data', (buf: Buffer) => {
       const text = buf.toString()
@@ -220,12 +224,12 @@ function runBrewUpdate(brew: string): Promise<{ ok: boolean; stderr: string }> {
     })
     child.on('error', (err) => {
       log('brew update error event:', err.message)
-      fetchChild = null
+      activeChild = null
       resolve({ ok: false, stderr: err.message })
     })
     child.on('exit', (code) => {
       log('brew update exit code:', code)
-      fetchChild = null
+      activeChild = null
       resolve({ ok: code === 0, stderr: stderrBuf })
     })
   })
@@ -240,7 +244,7 @@ function runBrewFetch(brew: string): Promise<{ ok: boolean; stderr: string }> {
     const child = spawn(brew, ['fetch', '--cask', 'gatewayhub'], {
       env: { ...process.env, HOMEBREW_NO_ANALYTICS: '1' }
     })
-    fetchChild = child
+    activeChild = child
     let stderrBuf = ''
     child.stdout.on('data', (buf: Buffer) => {
       const text = buf.toString()
@@ -255,12 +259,12 @@ function runBrewFetch(brew: string): Promise<{ ok: boolean; stderr: string }> {
     })
     child.on('error', (err) => {
       log('brew fetch error event:', err.message)
-      fetchChild = null
+      activeChild = null
       resolve({ ok: false, stderr: err.message })
     })
     child.on('exit', (code) => {
       log('brew fetch exit code:', code)
-      fetchChild = null
+      activeChild = null
       resolve({ ok: code === 0, stderr: stderrBuf })
     })
   })
@@ -273,7 +277,7 @@ function runBrewUpgrade(brew: string): Promise<{ ok: boolean; stderr: string }> 
     const child = spawn(brew, ['upgrade', '--cask', 'gatewayhub'], {
       env: { ...process.env, HOMEBREW_NO_ANALYTICS: '1' }
     })
-    fetchChild = child
+    activeChild = child
     let stderrBuf = ''
     child.stdout.on('data', (buf: Buffer) => {
       const text = buf.toString()
@@ -288,15 +292,92 @@ function runBrewUpgrade(brew: string): Promise<{ ok: boolean; stderr: string }> 
     })
     child.on('error', (err) => {
       log('brew upgrade error event:', err.message)
-      fetchChild = null
+      activeChild = null
       resolve({ ok: false, stderr: err.message })
     })
     child.on('exit', (code) => {
       log('brew upgrade exit code:', code)
-      fetchChild = null
+      activeChild = null
       resolve({ ok: code === 0, stderr: stderrBuf })
     })
   })
+}
+
+// Homebrew 4.x 对第三方 tap 默认不信任，首次使用会报：
+//   "Refusing to load cask ... from untrusted tap beelan/gatewayhub.
+//    Run `brew trust ...` to trust it."
+// 这里检测该错误并自动 trust 后重试，省得用户去终端手动跑。
+// 正则本身已抽到 updaterTrust.ts 并带单测覆盖尾点等边界。
+function runBrewTrust(brew: string, tap: string): Promise<{ ok: boolean; stderr: string }> {
+  return new Promise((resolve) => {
+    log('runBrewTrust start', brew, tap)
+    sendProgress({ kind: 'log', text: `$ brew trust ${tap}\n` })
+    // 注意：brew trust 会持久写入 ~/.../homebrew/trust.json（即使后续整体升级失败也不撤销）。
+    // 这是必要副作用——要重试就得信任。这里关掉 analytics；不关 HOMEBREW_NO_AUTO_UPDATE
+    // 是因为 trust 子命令本身不触发 auto-update，留着与其它 brew 调用环境一致更安全。
+    const child = spawn(brew, ['trust', tap], {
+      env: { ...process.env, HOMEBREW_NO_ANALYTICS: '1' }
+    })
+    activeChild = child
+    let stderrBuf = ''
+    child.stdout.on('data', (buf: Buffer) => {
+      const text = buf.toString()
+      log('brew trust stdout:', text.trim())
+      sendProgress({ kind: 'log', text })
+    })
+    child.stderr.on('data', (buf: Buffer) => {
+      const text = buf.toString()
+      stderrBuf += text
+      log('brew trust stderr:', text.trim())
+      sendProgress({ kind: 'log', text })
+    })
+    child.on('error', (err) => {
+      log('brew trust error event:', err.message)
+      activeChild = null
+      resolve({ ok: false, stderr: err.message })
+    })
+    child.on('exit', (code) => {
+      log('brew trust exit code:', code)
+      activeChild = null
+      resolve({ ok: code === 0, stderr: stderrBuf })
+    })
+  })
+}
+
+/**
+ * 若 brew 命令因 tap 未信任失败，自动 trust 后重试一次。
+ *
+ * 设计取舍：
+ * - 只重试一次。多 tap 串联未信任（信任 A 后 rerun 又撞 B）不在处理范围——
+ *   GatewayHub 只依赖 beelan/gatewayhub 单 tap，不会出现该场景；若未来加依赖 tap 需扩展成循环。
+ * - trust 成功会持久写入 trust.json（即使 rerun 因别的原因失败也不撤销），属必要副作用。
+ * - trust 被用户取消（SIGTERM，activeChild 在 cancel IPC 里被 kill）时 stderr 通常为空，
+ *   不能返回空 message 让上层显示误导性的 "brew fetch failed"。
+ */
+async function retryAfterTrustingTap(
+  brew: string,
+  failed: { ok: boolean; stderr: string },
+  rerun: () => Promise<{ ok: boolean; stderr: string }>
+): Promise<{ ok: boolean; stderr: string }> {
+  const tap = detectUntrustedTap(failed.stderr)
+  if (!tap) return failed
+  log('detected untrusted tap, trusting then retrying:', tap)
+  // 持久副作用提示：trust.json 会被改写，排查时知道环境已变更。
+  log('brew trust will persistently modify Homebrew trust list for tap:', tap)
+  const trustResult = await runBrewTrust(brew, tap)
+  if (!trustResult.ok) {
+    // 保留原始 untrusted tap 错误上下文，否则用户只看到 trust 的报错，不知道为何触发 trust。
+    // trust 被取消时 stderr 为空，单独标注，避免上层 fallback 到误导性的 "brew fetch failed"。
+    const trustErr =
+      trustResult.stderr.trim().length > 0
+        ? trustResult.stderr.trim()
+        : 'brew trust was cancelled or produced no output'
+    return {
+      ok: false,
+      stderr: `${failed.stderr.trim()}\n[brew trust ${tap} failed]\n${trustErr}`
+    }
+  }
+  return rerun()
 }
 
 function waitForInstallRendered(): Promise<void> {
@@ -335,11 +416,16 @@ async function startBrewUpgrade(): Promise<void> {
     log('brew update returned non-zero, continuing:', updateResult.stderr.trim())
   }
 
-  const { ok, stderr } = await runBrewFetch(brew)
-  if (!ok) {
-    log('brew fetch failed:', stderr.trim())
+  let fetchResult = await runBrewFetch(brew)
+  if (!fetchResult.ok) {
+    // 新版 Homebrew 对第三方 tap 默认不信任，首次升级会卡在这里。
+    // 检测到 untrusted tap 错误就自动 trust 后重试一次。
+    fetchResult = await retryAfterTrustingTap(brew, fetchResult, () => runBrewFetch(brew))
+  }
+  if (!fetchResult.ok) {
+    log('brew fetch failed:', fetchResult.stderr.trim())
     sendProgress({ kind: 'phase', phase: 'error' })
-    sendProgress({ kind: 'error', message: stderr.trim() || 'brew fetch failed' })
+    sendProgress({ kind: 'error', message: fetchResult.stderr.trim() || 'brew fetch failed' })
     return
   }
 
@@ -357,7 +443,10 @@ async function startBrewUpgrade(): Promise<void> {
   // brew 替换 .app 时不会影响已经在内存里的本进程，所以可以一直保持窗口打开
   // 直到升级完成；新 bundle 要等用户主动点 "Restart" 才生效。
   await waitForInstallRendered()
-  const upgradeResult = await runBrewUpgrade(brew)
+  let upgradeResult = await runBrewUpgrade(brew)
+  if (!upgradeResult.ok) {
+    upgradeResult = await retryAfterTrustingTap(brew, upgradeResult, () => runBrewUpgrade(brew))
+  }
   if (!upgradeResult.ok) {
     log('brew upgrade failed:', upgradeResult.stderr.trim())
     sendProgress({ kind: 'phase', phase: 'error' })
@@ -439,9 +528,9 @@ export function setupUpdater(_win: BrowserWindow): void {
   ipcMain.handle('upgrade:openReleases', () => openReleasePage(pendingUpdateVersion ?? undefined))
   ipcMain.handle('upgrade:cancel', () => {
     log('ipc upgrade:cancel')
-    if (fetchChild) {
-      fetchChild.kill('SIGTERM')
-      fetchChild = null
+    if (activeChild) {
+      activeChild.kill('SIGTERM')
+      activeChild = null
     }
     if (tailChild) {
       tailChild.kill('SIGTERM')

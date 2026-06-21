@@ -61,9 +61,10 @@ export function UpgradeProgress(): React.JSX.Element {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-pitch text-porcelain select-none">
-      <div className="h-8 w-full" style={{ ['WebkitAppRegion' as string]: 'drag' }} />
+      <div className="h-8 w-full shrink-0" style={{ ['WebkitAppRegion' as string]: 'drag' }} />
       <div className="flex-1 min-h-0 flex flex-col gap-3 px-5 pb-5">
-        <div className="flex items-center gap-3">
+        {/* 顶部标题区 */}
+        <div className="flex items-center gap-3 shrink-0">
           <div className="flex items-center justify-center w-9 h-9 rounded-[var(--radius-md)] bg-[color-mix(in_srgb,var(--c-emerald)_15%,transparent)]">
             <span className={iconClass} />
           </div>
@@ -73,9 +74,10 @@ export function UpgradeProgress(): React.JSX.Element {
           </div>
         </div>
 
+        {/* 可滚动日志区 —— flex-1 占据剩余空间，min-h-0 保证可收缩，min-h-[60px] 保底避免被错误框/按钮挤没 */}
         <div
           ref={logRef}
-          className="h-60 shrink-0 overflow-y-auto rounded-[var(--radius-md)] bg-slate border border-charcoal/60 p-2 text-[10px] font-mono text-steel leading-snug whitespace-pre-wrap break-all"
+          className="flex-1 min-h-[60px] overflow-y-auto rounded-[var(--radius-md)] bg-slate border border-charcoal/60 p-2 text-[10px] font-mono text-steel leading-snug whitespace-pre-wrap break-all"
         >
           {logLines.length === 0 ? (
             <span className="text-fog">{t('updater.progress.preparing')}</span>
@@ -84,19 +86,21 @@ export function UpgradeProgress(): React.JSX.Element {
           )}
         </div>
 
+        {/* 错误/成功摘要区 —— 固定高度，不挤压日志 */}
         {isError && errorMessage && (
-          <div className="rounded-[var(--radius-md)] bg-pitch border border-rose/40 p-2 text-[11px] text-rose leading-relaxed max-h-20 overflow-y-auto whitespace-pre-wrap break-all">
+          <div className="shrink-0 rounded-[var(--radius-md)] bg-pitch border border-rose/40 p-2 text-[11px] text-rose leading-relaxed max-h-20 overflow-y-auto whitespace-pre-wrap break-all">
             {errorMessage}
           </div>
         )}
 
         {isSuccess && (
-          <div className="rounded-[var(--radius-md)] bg-pitch border border-emerald/40 p-2 text-[11px] text-emerald leading-relaxed">
+          <div className="shrink-0 rounded-[var(--radius-md)] bg-pitch border border-emerald/40 p-2 text-[11px] text-emerald leading-relaxed">
             {t('updater.progress.successHint')}
           </div>
         )}
 
-        <div className="flex justify-end gap-2">
+        {/* 底部按钮区 */}
+        <div className="flex justify-end gap-2 shrink-0">
           {isError ? (
             <>
               <Button variant="ghost" onClick={() => window.api.upgrade.cancel()}>

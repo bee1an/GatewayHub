@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import { ProxyAgent, fetch as undiciFetch } from 'undici'
 import type { GeminiWebAccountConfig, GeminiWebProviderSettings } from '../../types'
 import {
@@ -39,19 +40,42 @@ function cookieHeader(account: GeminiWebAccountConfig): string {
   return account.cookieHeader
 }
 
+/** 提取 cookie 里的 SAPISID 值;缺失返回 null(不破坏无 SAPISID 的旧场景)。 */
+export function extractSapisid(cookie: string): string | null {
+  const m = cookie.match(/(?:^|;\s*)SAPISID=([^;]+)/)
+  return m?.[1] || null
+}
+
+/**
+ * 构造浏览器对 googleapis/gemini 请求带的 SAPISIDHASH 签名头。
+ * 算法是公开的(Chrome 自带,非逆向):SHA1(timestamp_ms + " " + SAPISID + " " + origin)。
+ * 返回 `Authorization: SAPISIDHASH <ts>_<hash>` 的值。浏览器对 StreamGenerate POST
+ * 带这个头,缺它本身就是一个"非浏览器"风控信号。SAPISIDHASH 只在 X-Same-Domain:1
+ * 的同源 POST 上用,fetchAccessToken 的纯 GET 不带,与浏览器一致。
+ */
+export function buildSapisidHash(sapisid: string, origin: string): string {
+  const ts = Date.now()
+  const hash = createHash('sha1').update(`${ts} ${sapisid} ${origin}`).digest('hex')
+  return `SAPISIDHASH ${ts}_${hash}`
+}
+
 function geminiHeaders(
   account: GeminiWebAccountConfig,
   modelHeader: string
 ): Record<string, string> {
+  const origin = 'https://gemini.google.com'
   const headers: Record<string, string> = {
     'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8',
     Host: 'gemini.google.com',
-    Origin: 'https://gemini.google.com',
+    Origin: origin,
     Referer: 'https://gemini.google.com/',
     'User-Agent': GEMINI_WEB_USER_AGENT,
     'X-Same-Domain': '1',
     Cookie: cookieHeader(account)
   }
+  // 有 SAPISID 就补签名头,减少"非浏览器"风控减分项;没有就跳过,保持向后兼容。
+  const sapisid = extractSapisid(account.cookieHeader)
+  if (sapisid) headers['Authorization'] = buildSapisidHash(sapisid, origin)
   if (modelHeader) headers['x-goog-ext-525001261-jspb'] = modelHeader
   return headers
 }
@@ -302,9 +326,17 @@ function parseStreamLine(line: string): GeminiStreamEvent[] {
     }
 
     // Candidate list at payload[4]; each candidate's text at [1][0].
+    // NOTE: Each frame carries the *cumulative* response so far, not a delta.
+    // (Verified against gemini-3.5-flash: ~17 frames for one short answer,
+    // each containing the running full text.) We pass that cumulative text
+    // through; `parseGeminiBatchEvent` computes the actual prefix-delta.
+    //
+    // We must NOT emit `{ type: 'done' }` after the first text-bearing frame
+    // — doing so used to truncate the response after the first chunk (e.g.
+    // user saw only "我是" instead of the full answer). The stream's natural
+    // EOF (handled by the outer reader loop) is the real terminator.
     const candidates = payload[4]
     if (Array.isArray(candidates)) {
-      let emittedText = false
       for (const candidate of candidates) {
         if (!Array.isArray(candidate)) continue
         const textNode = candidate[1]
@@ -314,15 +346,7 @@ function parseStreamLine(line: string): GeminiStreamEvent[] {
         }
         if (text) {
           events.push({ type: 'text', delta: text })
-          emittedText = true
         }
-      }
-      // StreamGenerate delivers the full text in one shot (not token-by-token),
-      // so a payload carrying a non-empty candidate is the terminal frame.
-      // Thinking models (e.g. 3.1 Pro) emit an empty-candidate placeholder frame
-      // first; only treat the frame as terminal once real text arrives.
-      if (emittedText) {
-        events.push({ type: 'done' })
       }
     }
   }
@@ -330,7 +354,7 @@ function parseStreamLine(line: string): GeminiStreamEvent[] {
 }
 
 /** Replaces the __Secure-1PSIDTS (and -3PSIDTS) value in a cookie header. */
-function patchSidts(cookieHeader: string, newSidts: string): string {
+export function patchSidts(cookieHeader: string, newSidts: string): string {
   let updated = cookieHeader
     .replace(/__Secure-1PSIDTS=[^;]+/g, `__Secure-1PSIDTS=${newSidts}`)
     .replace(/__Secure-3PSIDTS=[^;]+/g, `__Secure-3PSIDTS=${newSidts}`)

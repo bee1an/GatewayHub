@@ -16,8 +16,12 @@ export const DEFAULT_GEMINI_WEB_SETTINGS = {
   maxRetries: 1
 }
 
+// 与 cookie 来源设备对齐的 UA。原来硬编码 Win64 Chrome 120,和从 Mac 浏览器导
+// cookie 的设备指纹不一致,是 Google 风控的减分项。Chrome 在所有 Mac(含 Apple
+// Silicon)上发送的 OS token 固定为 "Intel Mac OS X 10_15_7",这是浏览器一致性
+// 要求,照抄反而最像真浏览器。Chrome 大版本随稳定版升级时同步更新即可。
 export const GEMINI_WEB_USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 
 // Gemini Web exposes no model list endpoint; models are selected via an
 // x-goog-ext-525001261-jspb header carrying a per-model token. UNSPECIFIED

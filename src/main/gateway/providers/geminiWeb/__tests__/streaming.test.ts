@@ -29,6 +29,31 @@ describe('geminiWeb/streaming', () => {
     expect(result.done).toBe(false)
   })
 
+  it('treats successive text events as cumulative — only emits the new suffix', () => {
+    // Gemini StreamGenerate emits the running full text on every frame, not
+    // incremental deltas. parseGeminiBatchEvent must compute the prefix-delta
+    // so OpenAI clients see proper increments and the final reassembled text
+    // is the last frame's content (no duplication).
+    const state = createStreamingState()
+    const r1 = parseGeminiBatchEvent({ type: 'text', delta: '我是' }, state)
+    expect(r1.chunk).toContain('我是')
+    const r2 = parseGeminiBatchEvent({ type: 'text', delta: '我是 Gemini' }, state)
+    expect(r2.chunk).toContain(' Gemini')
+    expect(r2.chunk).not.toContain('我是 Gemini')
+    expect(state.content).toBe('我是 Gemini')
+  })
+
+  it('emits the whole replacement when an upstream frame rewrites earlier text', () => {
+    // Rare but possible: a candidate's text node changes mid-stream rather
+    // than only being extended. We still want a non-empty chunk in that case
+    // (degrade gracefully).
+    const state = createStreamingState()
+    parseGeminiBatchEvent({ type: 'text', delta: '我是 A' }, state)
+    const r = parseGeminiBatchEvent({ type: 'text', delta: 'completely new' }, state)
+    expect(r.chunk).toContain('completely new')
+    expect(state.content).toBe('completely new')
+  })
+
   it('ignores empty text deltas', () => {
     const state = createStreamingState('gemini-3.1-pro')
     const result = parseGeminiBatchEvent({ type: 'text', delta: '' }, state)

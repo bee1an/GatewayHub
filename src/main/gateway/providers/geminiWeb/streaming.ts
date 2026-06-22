@@ -43,6 +43,11 @@ export function convertOpenAIToGeminiPrompt(messages: OpenAIMessage[]): string {
  * Maps a normalized Gemini stream event into an OpenAI-format SSE chunk (or a
  * terminal stop chunk). Mirrors grokWeb's parseGrokGatewayEvent contract so the
  * provider's failover loop is identical.
+ *
+ * IMPORTANT: each `text` event carries the *cumulative* response seen so far
+ * (Gemini's StreamGenerate emits the running full text on every frame, not
+ * incremental deltas). We compute the actual delta against `state.content`
+ * here so downstream consumers receive proper OpenAI-style increments.
  */
 export function parseGeminiBatchEvent(
   event: GeminiStreamEvent,
@@ -50,9 +55,21 @@ export function parseGeminiBatchEvent(
 ): { chunk: string | null; done: boolean } {
   switch (event.type) {
     case 'text': {
-      if (!event.delta) return { chunk: null, done: false }
-      state.content += event.delta
-      return { chunk: buildOpenAIChunk(state, event.delta, null), done: false }
+      const incoming = event.delta
+      if (!incoming) return { chunk: null, done: false }
+      // Compute the prefix-delta against what we've already streamed. If the
+      // upstream replaced (rather than extended) the text — rare but possible
+      // when a candidate is rewritten mid-stream — treat the new value as a
+      // full replacement and only emit the trailing portion that wasn't seen.
+      let delta = ''
+      if (incoming.startsWith(state.content)) {
+        delta = incoming.slice(state.content.length)
+      } else {
+        delta = incoming
+      }
+      state.content = incoming
+      if (!delta) return { chunk: null, done: false }
+      return { chunk: buildOpenAIChunk(state, delta, null), done: false }
     }
     case 'done': {
       state.finished = true

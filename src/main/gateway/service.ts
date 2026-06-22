@@ -1842,6 +1842,7 @@ export class GatewayHubService {
     let added = 0
     let skipped = 0
     const errors: { message: string }[] = []
+    const addedIds: string[] = []
 
     for (const entry of entries) {
       try {
@@ -1859,6 +1860,7 @@ export class GatewayHubService {
         } else {
           await this.store.writeGeminiWebAccountFile(account)
           existingIds.add(account.id)
+          addedIds.push(account.id)
           added++
         }
       } catch (err: any) {
@@ -1867,7 +1869,57 @@ export class GatewayHubService {
     }
 
     if (added > 0 || skipped > 0) await this.rebuildRuntime(this.server?.running ?? false)
+
+    // 反填新账号的 email + 模型列表。Gemini Web 没法从 cookie 里直接读身份,只能
+    // 请求 gemini.google.com/app 抓 WIZ 里的 oPEP7c。这里串行 await 而不是 fire-
+    // and-forget,因为没有"账号更新"的 IPC 推送——前端在 importGeminiWebJson 返回
+    // 后会立刻刷新一次状态,这是它唯一拿到 email 的时机。
+    //
+    // 每个账号 8 秒超时:gemini.google.com 通常 1-3 秒返回,8 秒能覆盖代理慢/抖动;
+    // 探测失败不阻断导入返回,只在 errors 里加一条说明,账号本身已经写盘了。
+    // testAccount 失败时会自动把账号打 auth_failed/cooling,这是预期行为——cookie
+    // 死了应该立刻让用户看到。
+    if (addedIds.length > 0 && this.registry) {
+      for (const accountId of addedIds) {
+        try {
+          await this.runAccountProbeWithTimeout(
+            () => this.registry!.testAccount('geminiWeb', accountId),
+            8_000
+          )
+        } catch (err: any) {
+          errors.push({
+            message: `Account ${accountId} imported but identity probe failed: ${err?.message || String(err)}`
+          })
+        }
+      }
+      await this.persistStateSoon()
+    }
+
     return { added, skipped, errors, status: await this.getStatus() }
+  }
+
+  /**
+   * 给账号身份探测加超时:Gemini/Codex 等 web 类账号反填 email 要请求第三方,
+   * 卡死的话会拖垮整个导入响应。超时只放弃这次探测,账号写盘不受影响。
+   */
+  private async runAccountProbeWithTimeout<T>(
+    action: () => Promise<T>,
+    timeoutMs: number
+  ): Promise<T> {
+    let timer: NodeJS.Timeout | null = null
+    try {
+      return await Promise.race([
+        action(),
+        new Promise<T>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`probe timed out after ${timeoutMs}ms`)),
+            timeoutMs
+          )
+        })
+      ])
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
   }
 
   async testGeminiWebAccount(accountId: string): Promise<AccountTestResult> {

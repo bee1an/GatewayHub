@@ -215,3 +215,98 @@ describe('GatewayHubService Kiro scanned imports', () => {
     expect(result.updated).toBe(1)
   })
 })
+
+describe('GatewayHubService Gemini Web import', () => {
+  function setupGeminiImport(testAccount: ReturnType<typeof vi.fn>): {
+    service: GatewayHubService
+    serviceAny: any
+  } {
+    const service = new GatewayHubService()
+    const serviceAny = service as any
+    serviceAny.initPromise = Promise.resolve()
+    serviceAny.store = {
+      readGeminiWebAccountFiles: vi.fn().mockResolvedValue([]),
+      writeGeminiWebAccountFile: vi.fn().mockResolvedValue('/tmp/geminiWeb.json'),
+      updateGeminiWebAccountFile: vi.fn().mockResolvedValue(undefined)
+    }
+    serviceAny.rebuildRuntime = vi.fn().mockResolvedValue(undefined)
+    serviceAny.persistStateSoon = vi.fn().mockResolvedValue(undefined)
+    serviceAny.getStatus = vi.fn().mockResolvedValue({ providers: [] })
+    serviceAny.registry = { testAccount }
+    serviceAny.server = { running: false }
+    return { service, serviceAny }
+  }
+
+  // normalize.ts 要求 cookie header 里有 __Secure-1PSID,否则直接被丢弃。
+  const validCookie = '__Secure-1PSID=mock-psid-value; HSID=h; SAPISID=s'
+
+  it('triggers testAccount for newly imported Gemini accounts to backfill email', async () => {
+    const testAccount = vi.fn().mockResolvedValue({
+      ok: true,
+      accountId: 'geminiWeb-cookie-x',
+      message: 'ok'
+    })
+    const { service, serviceAny } = setupGeminiImport(testAccount)
+
+    const json = JSON.stringify({ cookieHeader: validCookie })
+    const result = await service.importGeminiWebAuthJson(json)
+
+    expect(result.added).toBe(1)
+    expect(testAccount).toHaveBeenCalledTimes(1)
+    expect(testAccount).toHaveBeenCalledWith(
+      'geminiWeb',
+      expect.stringMatching(/^geminiWeb-cookie-/)
+    )
+    expect(serviceAny.persistStateSoon).toHaveBeenCalled()
+  })
+
+  it('does NOT trigger testAccount when only updating existing accounts', async () => {
+    const testAccount = vi.fn()
+    const existingId = 'geminiWeb-cookie-existing'
+    const { service, serviceAny } = setupGeminiImport(testAccount)
+    serviceAny.store.readGeminiWebAccountFiles.mockResolvedValue([
+      { id: existingId, cookieHeader: 'old', enabled: true }
+    ])
+
+    const json = JSON.stringify({ id: existingId, cookieHeader: validCookie })
+    const result = await service.importGeminiWebAuthJson(json)
+
+    expect(result.skipped).toBe(1)
+    expect(result.added).toBe(0)
+    // 已存在账号只更新文件,不应该再触发 testAccount(用户已经手动测过了)
+    expect(testAccount).not.toHaveBeenCalled()
+  })
+
+  it('does not block import response when the identity probe fails', async () => {
+    const testAccount = vi.fn().mockRejectedValue(new Error('network unreachable'))
+    const { service } = setupGeminiImport(testAccount)
+
+    const json = JSON.stringify({ cookieHeader: validCookie })
+    const result = await service.importGeminiWebAuthJson(json)
+
+    // 探测失败:导入仍然成功,只是在 errors 里有一条提示
+    expect(result.added).toBe(1)
+    expect(testAccount).toHaveBeenCalledTimes(1)
+    expect(result.errors.length).toBeGreaterThan(0)
+    expect(result.errors[0].message).toContain('identity probe failed')
+  })
+
+  it('does not block import response when the identity probe times out', async () => {
+    // testAccount 永不 resolve 模拟卡死的远端
+    const testAccount = vi.fn(() => new Promise(() => {}))
+    const { service } = setupGeminiImport(testAccount as any)
+
+    // 用 fake timers 推进超时
+    vi.useFakeTimers()
+    const json = JSON.stringify({ cookieHeader: validCookie })
+    const importPromise = service.importGeminiWebAuthJson(json)
+    // 推进 9 秒覆盖 8 秒超时
+    await vi.advanceTimersByTimeAsync(9_000)
+    const result = await importPromise
+    vi.useRealTimers()
+
+    expect(result.added).toBe(1)
+    expect(result.errors.length).toBeGreaterThan(0)
+    expect(result.errors[0].message).toMatch(/timed out/)
+  })
+})

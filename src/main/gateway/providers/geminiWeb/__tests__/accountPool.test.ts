@@ -1,15 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { GeminiWebAccountPool, classifyGeminiWebError } from '../accountPool'
 import { GEMINI_WEB_KNOWN_MODELS } from '../constants'
-import { fetchAccessToken, fetchModels } from '../http'
+import { fetchAccessToken, fetchModels, patchSidts, rotateSidts } from '../http'
 
 vi.mock('../http', () => ({
   fetchAccessToken: vi.fn(),
   fetchModels: vi.fn(),
-  rotateSidts: vi.fn()
+  rotateSidts: vi.fn(),
+  patchSidts: vi.fn((cookie: string, newSidts: string) =>
+    cookie.replace(/__Secure-1PSIDTS=[^;]+/g, `__Secure-1PSIDTS=${newSidts}`)
+  )
 }))
 
-function makePool(state: any): GeminiWebAccountPool {
+function makePool(
+  state: any,
+  persistAccount?: (accountId: string, updates: any) => Promise<void>
+): GeminiWebAccountPool {
+  const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as any
   return new GeminiWebAccountPool(
     {
       enabled: true,
@@ -23,8 +30,9 @@ function makePool(state: any): GeminiWebAccountPool {
       }
     },
     state,
-    {} as any,
-    vi.fn()
+    logger,
+    vi.fn(),
+    persistAccount
   )
 }
 
@@ -147,5 +155,97 @@ describe('geminiWeb/accountPool', () => {
 
     const [account] = pool.listAccounts()
     expect(account.config.cookieHeader).toBe('***')
+  })
+})
+
+describe('geminiWeb/accountPool keepalive', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('rotates SIDTS on the keepalive tick and persists the new cookieHeader', async () => {
+    vi.useFakeTimers()
+    vi.mocked(rotateSidts).mockResolvedValue('FRESH_SIDTS')
+    const persisted = vi.fn().mockResolvedValue(undefined)
+    const state: any = { accounts: {}, currentAccountIndex: 0, logs: [] }
+    const pool = makePool(state, persisted)
+    await pool.reload([
+      { id: 'acct', enabled: true, cookieHeader: '__Secure-1PSID=a; __Secure-1PSIDTS=stale' }
+    ])
+
+    // 推进 5 分钟触发一次 keepalive tick
+    await vi.advanceTimersByTimeAsync(5 * 60_000 + 100)
+
+    expect(rotateSidts).toHaveBeenCalledTimes(1)
+    expect(patchSidts).toHaveBeenCalledWith(
+      expect.stringContaining('__Secure-1PSID=a'),
+      'FRESH_SIDTS'
+    )
+    // persistAccount 被以新 cookieHeader 调用,且新值含 FRESH_SIDTS
+    expect(persisted).toHaveBeenCalledTimes(1)
+    const [, updates] = persisted.mock.calls[0]
+    expect(updates.cookieHeader).toContain('__Secure-1PSIDTS=FRESH_SIDTS')
+
+    pool.stopKeepAlive()
+    vi.useRealTimers()
+  })
+
+  it('does NOT mark auth_failed when rotateSidts returns null (keepalive failure is not account death)', async () => {
+    vi.useFakeTimers()
+    vi.mocked(rotateSidts).mockResolvedValue(null)
+    const persisted = vi.fn().mockResolvedValue(undefined)
+    const state: any = { accounts: {}, currentAccountIndex: 0, logs: [] }
+    const pool = makePool(state, persisted)
+    await pool.reload([
+      { id: 'acct', enabled: true, cookieHeader: '__Secure-1PSID=a; __Secure-1PSIDTS=stale' }
+    ])
+
+    await vi.advanceTimersByTimeAsync(5 * 60_000 + 100)
+
+    expect(rotateSidts).toHaveBeenCalledTimes(1)
+    // 没续上 → 不打 auth_failed,也不回写
+    expect(persisted).not.toHaveBeenCalled()
+    expect(state.accounts.acct.status).not.toBe('auth_failed')
+
+    pool.stopKeepAlive()
+    vi.useRealTimers()
+  })
+
+  it('skips auth_failed and disabled accounts on the keepalive tick', async () => {
+    vi.useFakeTimers()
+    vi.mocked(rotateSidts).mockResolvedValue('FRESH')
+    const state: any = { accounts: {}, currentAccountIndex: 0, logs: [] }
+    const pool = makePool(state)
+    await pool.reload([
+      { id: 'dead', enabled: true, cookieHeader: '__Secure-1PSID=dead' },
+      { id: 'off', enabled: false, cookieHeader: '__Secure-1PSID=off' },
+      { id: 'live', enabled: true, cookieHeader: '__Secure-1PSID=live' }
+    ])
+    // 把 dead 标成 auth_failed
+    state.accounts.dead.status = 'auth_failed'
+
+    await vi.advanceTimersByTimeAsync(5 * 60_000 + 100)
+
+    // 只有 live 被轮换;dead(auth_failed) 和 off(disabled) 跳过
+    expect(rotateSidts).toHaveBeenCalledTimes(1)
+
+    pool.stopKeepAlive()
+    vi.useRealTimers()
+  })
+
+  it('stops the keepalive timer on dispose', async () => {
+    vi.useFakeTimers()
+    vi.mocked(rotateSidts).mockResolvedValue('FRESH')
+    const state: any = { accounts: {}, currentAccountIndex: 0, logs: [] }
+    const pool = makePool(state)
+    await pool.reload([{ id: 'acct', enabled: true, cookieHeader: '__Secure-1PSID=a' }])
+
+    await pool.dispose()
+    const callsBefore = vi.mocked(rotateSidts).mock.calls.length
+    await vi.advanceTimersByTimeAsync(5 * 60_000 + 100)
+    // dispose 后定时器已清,不应再触发
+    expect(vi.mocked(rotateSidts).mock.calls.length).toBe(callsBefore)
+
+    vi.useRealTimers()
   })
 })

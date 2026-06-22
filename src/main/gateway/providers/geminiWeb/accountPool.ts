@@ -15,7 +15,7 @@ import {
   type ClassifiedError
 } from '../../core/accountPool'
 import { GEMINI_WEB_KNOWN_MODELS } from './constants'
-import { fetchAccessToken, fetchModels, rotateSidts } from './http'
+import { fetchAccessToken, fetchModels, patchSidts, rotateSidts } from './http'
 import type { GeminiWebRequestContext } from './types'
 
 export type GeminiWebAccountRuntime = AccountWithState<GeminiWebAccountConfig>
@@ -23,9 +23,14 @@ export type GeminiWebAccountRuntime = AccountWithState<GeminiWebAccountConfig>
 export interface GeminiWebClassifiedError extends ClassifiedError {}
 
 const MODELS_CACHE_TTL_MS = 30 * 60_000
+// SIDTS 寿命约 5~15 分钟。5 分钟轮换一次保证下次真实请求拿到的是新鲜 SIDTS,
+// 不必先撞"session tokens not found"再续。纯后台心跳,不依赖请求触发。
+const KEEPALIVE_INTERVAL_MS = 5 * 60_000
 
 export class GeminiWebAccountPool extends BaseAccountPool<GeminiWebAccountConfig> {
   protected providerName = 'geminiWeb'
+
+  private keepAliveTimer: ReturnType<typeof setInterval> | null = null
 
   constructor(
     private readonly config: GeminiWebProviderConfig,
@@ -118,6 +123,78 @@ export class GeminiWebAccountPool extends BaseAccountPool<GeminiWebAccountConfig
       if (!active.has(id)) this.deleteState(id)
     }
     this.onStateChanged()
+    // 账号加载完即启动保活,避免 reload 重复挂表(rebuild 时旧 provider dispose
+    // 已清掉定时器,这里重建是安全的)。
+    this.startKeepAlive()
+  }
+
+  /**
+   * 启动 SIDTS 后台保活:每 5 分钟对所有启用且未 auth_failed 的账号轮换一次 SIDTS,
+   * 新值回写内存 + 磁盘(复用 persistAccount)。保活失败绝不打 auth_failed——
+   * rotateSidts 返回 null 可能只是网络抖动或 SIDTS 还没到续期点,只有真实请求
+   * 拿不到 SNlM0e 才判账号死。避免保活误伤好账号。
+   */
+  startKeepAlive(): void {
+    this.stopKeepAlive()
+    this.keepAliveTimer = setInterval(() => {
+      void this.tickKeepAlive()
+    }, KEEPALIVE_INTERVAL_MS)
+    // setInterval 在 Node 里默认不阻止退出,但 unref 让它在 app 关闭时不卡进程。
+    if (typeof this.keepAliveTimer.unref === 'function') {
+      this.keepAliveTimer.unref()
+    }
+  }
+
+  stopKeepAlive(): void {
+    if (this.keepAliveTimer) {
+      clearInterval(this.keepAliveTimer)
+      this.keepAliveTimer = null
+    }
+  }
+
+  override async dispose(): Promise<void> {
+    this.stopKeepAlive()
+    await super.dispose()
+  }
+
+  private async tickKeepAlive(): Promise<void> {
+    // 串行处理多账号,避免瞬时并发打 Google 触发风控。
+    for (const account of this.accounts) {
+      if (account.config.enabled === false) continue
+      if (account.state.status === 'auth_failed') continue
+      try {
+        const ctx = this.buildRequestContext(account)
+        const newSidts = await rotateSidts(ctx)
+        if (!newSidts) {
+          // 静默跳过:可能主会话已弱化或网络抖动,留给真实请求再判定。
+          this.logger.info('geminiWeb keepalive: rotateSidts returned no new SIDTS, skipping', {
+            accountId: account.config.email || account.config.id
+          })
+          continue
+        }
+        account.config.cookieHeader = patchSidts(account.config.cookieHeader, newSidts)
+        if (this.persistAccount) {
+          try {
+            await this.persistAccount(account.config.id, {
+              cookieHeader: account.config.cookieHeader
+            })
+          } catch (err) {
+            // 持久化失败不影响内存里的新鲜 cookie,下次 tick 再尝试回写。
+            this.logger.warn(`geminiWeb keepalive: persistAccount failed: ${toErrorMessage(err)}`, {
+              accountId: account.config.email || account.config.id
+            })
+          }
+        }
+        this.logger.info('geminiWeb keepalive: rotated SIDTS', {
+          accountId: account.config.email || account.config.id
+        })
+      } catch (err) {
+        // 任何异常只 log,不抛、不影响下一次 tick 或其它账号。
+        this.logger.warn(`geminiWeb keepalive: tick failed: ${toErrorMessage(err)}`, {
+          accountId: account.config.email || account.config.id
+        })
+      }
+    }
   }
 
   listAccounts(): GeminiWebAccountRuntime[] {

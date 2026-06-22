@@ -1,10 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { usePolling } from '../hooks/usePolling'
 import { Button } from '../components/ui/Button'
-import { Select } from '../components/ui/Select'
-import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { useToast } from '../components/ui/ToastContext'
 
 type ApiKeyEntry = {
@@ -42,13 +40,6 @@ type GatewayStatus = {
   logs: LogEntry[]
 }
 
-type ProviderModel = {
-  id: string
-  provider: string
-  ownedBy?: string
-  description?: string
-}
-
 const RECENT_ERROR_LIMIT = 5
 
 export default function Dashboard(): React.JSX.Element {
@@ -58,15 +49,7 @@ export default function Dashboard(): React.JSX.Element {
     () => window.api.gateway.status(),
     5000
   )
-  const [models, setModels] = useState<ProviderModel[]>([])
   const [toggling, setToggling] = useState(false)
-
-  useEffect(() => {
-    window.api.gateway
-      .listModels()
-      .then((m: ProviderModel[]) => setModels(m ?? []))
-      .catch(() => setModels([]))
-  }, [status?.server.running])
 
   const errorLogs = useMemo(
     () =>
@@ -144,15 +127,7 @@ export default function Dashboard(): React.JSX.Element {
         onToggle={handleToggle}
       />
 
-      {/* ② 快速测试 */}
-      <QuickTest
-        running={running}
-        url={status.server.url}
-        apiKeys={status.server.apiKeys ?? []}
-        models={models}
-      />
-
-      {/* ③ 最近异常 */}
+      {/* ② 最近异常 */}
       <RecentErrors errors={errorLogs} />
     </div>
   )
@@ -217,167 +192,6 @@ function GatewayControlBar({
           {running ? t('dashboard.stop') : t('dashboard.start')}
         </Button>
       </div>
-    </div>
-  )
-}
-
-function QuickTest({
-  running,
-  url,
-  apiKeys,
-  models
-}: {
-  running: boolean
-  url: string
-  apiKeys: ApiKeyEntry[]
-  models: ProviderModel[]
-}): React.JSX.Element {
-  const { t } = useTranslation()
-  const { toast } = useToast()
-
-  // eslint-disable-next-line react-hooks/purity
-  const now = useMemo(() => Date.now(), [])
-  const validKeys = apiKeys.filter((k) => !k.expiresAt || k.expiresAt > now)
-  const [modelId, setModelId] = useState('')
-  const [keyId, setKeyId] = useState('')
-  const [prompt, setPrompt] = useState('')
-  const [stream, setStream] = useState(true)
-  const [sending, setSending] = useState(false)
-  const [response, setResponse] = useState('')
-  const [responseError, setResponseError] = useState('')
-
-  // Derive the effective selection: fall back to the first option while the
-  // user hasn't picked one yet. Computed during render (no setState-in-effect).
-  const effectiveKey = validKeys.find((k) => k.id === keyId) ?? validKeys[0]
-  const effectiveModel = models.find((m) => m.id === modelId) ?? models[0]
-
-  const disabledReason: string | null = !running
-    ? t('dashboard.startFirst')
-    : validKeys.length === 0
-      ? t('dashboard.noKey')
-      : models.length === 0
-        ? t('dashboard.noModel')
-        : null
-
-  async function handleSend(): Promise<void> {
-    if (disabledReason || !effectiveKey || !effectiveModel) return
-    setSending(true)
-    setResponse('')
-    setResponseError('')
-    try {
-      // Routed through the main process to bypass the renderer's browser CORS:
-      // the gateway sends no Access-Control-Allow-Origin when bound to a
-      // non-loopback host (0.0.0.0 / public IP), which would make a renderer
-      // fetch fail with "Failed to fetch". The main process has no such limit.
-      const result = await window.api.gateway.testRequest({
-        url,
-        apiKey: effectiveKey.key,
-        model: effectiveModel.id,
-        prompt,
-        stream
-      })
-      if (!result.ok) {
-        throw new Error(
-          `${result.status} ${result.statusText}${result.body ? ` — ${result.body}` : ''}`
-        )
-      }
-      setResponse(result.body || t('dashboard.responseEmpty'))
-    } catch (err) {
-      setResponseError((err as Error)?.message ?? String(err))
-      toast(t('dashboard.quickTestFailed'), 'error')
-    } finally {
-      setSending(false)
-    }
-  }
-
-  const keyOptions = validKeys.map((k) => ({ value: k.id, label: k.name || k.key.slice(0, 12) }))
-  const modelOptions = models.map((m) => ({ value: m.id, label: m.id }))
-
-  return (
-    <div className="card px-4 py-3.5 flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <div className="flex flex-col gap-0.5">
-          <span className="text-[13px] font-[590] text-porcelain">{t('dashboard.quickTest')}</span>
-          <span className="text-[11px] text-fog">{t('dashboard.quickTestDesc')}</span>
-        </div>
-        <SegmentedControl
-          value={stream ? 'on' : 'off'}
-          onValueChange={(v) => setStream(v === 'on')}
-          items={[
-            { value: 'on', label: t('dashboard.stream') },
-            { value: 'off', label: t('dashboard.noStream') }
-          ]}
-        />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
-        <div className="flex flex-col gap-1">
-          <span className="label">{t('dashboard.model')}</span>
-          <Select
-            value={effectiveModel?.id ?? ''}
-            onValueChange={setModelId}
-            options={modelOptions}
-            placeholder={t('dashboard.noModel')}
-            disabled={models.length === 0}
-            mono
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="label">{t('dashboard.apiKey')}</span>
-          <Select
-            value={effectiveKey?.id ?? ''}
-            onValueChange={setKeyId}
-            options={keyOptions}
-            placeholder={t('dashboard.noKey')}
-            disabled={validKeys.length === 0}
-            mono
-          />
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-1">
-        <span className="label">{t('dashboard.prompt')}</span>
-        <textarea
-          className="input-base min-h-[64px] resize-y font-[400]"
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder={t('dashboard.promptPlaceholder')}
-        />
-      </div>
-
-      <div className="flex items-center justify-between gap-3">
-        {disabledReason ? (
-          <span className="text-[11px] text-warning">{disabledReason}</span>
-        ) : (
-          <span className="text-[11px] text-fog font-mono truncate">
-            {effectiveModel?.id ?? '—'} · {stream ? 'stream' : 'non-stream'}
-          </span>
-        )}
-        <Button
-          variant="primary"
-          size="md"
-          loading={sending}
-          disabled={!!disabledReason || !prompt.trim()}
-          onClick={handleSend}
-          icon={<span className="i-ph-paper-plane-tilt text-[13px]" aria-hidden="true" />}
-        >
-          {sending ? t('dashboard.sending') : t('dashboard.send')}
-        </Button>
-      </div>
-
-      {(response || responseError) && (
-        <div className="card-nested min-h-[80px] max-h-[240px] overflow-auto">
-          {responseError ? (
-            <pre className="text-[11px] text-red font-mono whitespace-pre-wrap break-all">
-              {responseError}
-            </pre>
-          ) : (
-            <pre className="text-[11px] text-porcelain/90 font-mono whitespace-pre-wrap break-all">
-              {response}
-            </pre>
-          )}
-        </div>
-      )}
     </div>
   )
 }
@@ -448,15 +262,6 @@ function DashboardSkeleton(): React.JSX.Element {
           </div>
         </div>
         <div className="h-9 w-24 rounded-[var(--radius-md)] bg-charcoal/80 animate-pulse" />
-      </div>
-      <div className="card px-4 py-3.5 flex flex-col gap-3">
-        <div className="h-[13px] w-[100px] rounded bg-charcoal/80 animate-pulse" />
-        <div className="grid grid-cols-2 gap-2.5">
-          {Array.from({ length: 2 }).map((_, i) => (
-            <div key={i} className="h-9 rounded bg-charcoal/60 animate-pulse" />
-          ))}
-        </div>
-        <div className="h-16 rounded bg-charcoal/50 animate-pulse" />
       </div>
       <div className="card px-4 py-3.5 flex flex-col gap-2">
         <div className="h-[13px] w-[90px] rounded bg-charcoal/80 animate-pulse" />

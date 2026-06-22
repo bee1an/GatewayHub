@@ -41,7 +41,9 @@
     "picocolors": "^1.1.1",
     "proper-lockfile": "^4.1.2",
     "react-i18next": "^17.0.8",
+    "react-markdown": "^10.1.0",
     "recharts": "^3.8.1",
+    "remark-gfm": "^4.0.1",
     "undici": "8.3.0"
   },
   "devDependencies": {

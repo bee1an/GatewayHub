@@ -23,7 +23,7 @@ const api = {
       url: string
       apiKey: string
       model: string
-      prompt: string
+      messages: { role: 'user' | 'assistant' | 'system'; content: string }[]
       stream: boolean
     }) => ipcRenderer.invoke('gateway:testRequest', params),
     getAccountInfo: (accountId: string) => ipcRenderer.invoke('gateway:getAccountInfo', accountId),

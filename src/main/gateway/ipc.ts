@@ -1022,11 +1022,16 @@ function makeCodexLoginEmitter(window: BrowserWindow | null): (event: CodexLogin
   }
 }
 
+export interface TestRequestMessage {
+  role: 'user' | 'assistant' | 'system'
+  content: string
+}
+
 export interface TestRequestParams {
   url: string
   apiKey: string
   model: string
-  prompt: string
+  messages: TestRequestMessage[]
   stream: boolean
 }
 
@@ -1038,9 +1043,11 @@ export interface TestRequestResult {
 }
 
 /**
- * Forwards a Quick Test request to the gateway from the main process so the
- * renderer never has to make a cross-origin fetch (the gateway emits no
- * Access-Control-Allow-Origin when bound to a non-loopback host).
+ * Forwards a Playground chat request to the gateway from the main process so
+ * the renderer never has to make a cross-origin fetch (the gateway emits no
+ * Access-Control-Allow-Origin when bound to a non-loopback host). The caller
+ * supplies the full `messages` array (multi-turn history) which is forwarded
+ * verbatim to `/v1/chat/completions`.
  *
  * Streaming responses are reassembled server-side: the SSE `data:` chunks are
  * parsed and their content deltas concatenated, so the renderer receives the
@@ -1055,7 +1062,7 @@ async function forwardTestRequest(params: TestRequestParams): Promise<TestReques
     },
     body: JSON.stringify({
       model: params.model,
-      messages: [{ role: 'user', content: params.prompt }],
+      messages: params.messages,
       stream: params.stream
     })
   })

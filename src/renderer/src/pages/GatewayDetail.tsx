@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { usePolling } from '../hooks/usePolling'
 import { Button } from '../components/ui/Button'
@@ -39,6 +39,7 @@ export default function GatewayDetail(): React.JSX.Element {
   const { toast } = useToast()
   const { theme } = useTheme()
   const { name } = useParams<{ name: string }>()
+  const navigate = useNavigate()
   const { data: status, refresh } = usePolling<GatewayStatus>(
     () => window.api.gateway.status(),
     3000
@@ -414,6 +415,16 @@ export default function GatewayDetail(): React.JSX.Element {
         <h1 className="text-[17px] font-[590] text-porcelain capitalize tracking-[-0.15px]">
           {name}
         </h1>
+        <Button
+          className="ml-auto"
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate(`/playground?provider=${encodeURIComponent(name ?? '')}`)}
+          disabled={!gateway?.enabled || (gateway?.models ?? []).length === 0}
+          icon={<span className="i-ph-paper-plane-tilt text-[13px]" aria-hidden="true" />}
+        >
+          {t('gateway.testInPlayground')}
+        </Button>
         {editingRouteName ? (
           <form
             className="flex items-center gap-1.5"

@@ -180,6 +180,14 @@ export default function Sidebar(): React.JSX.Element {
         </NavLink>
 
         <NavLink
+          to="/playground"
+          className={({ isActive }) => (isActive ? 'sidebar-item-active' : 'sidebar-item')}
+        >
+          <span className="i-ph-chat-circle-dots text-[16px]" />
+          <span>{t('sidebar.playground')}</span>
+        </NavLink>
+
+        <NavLink
           to="/api-keys"
           className={({ isActive }) => (isActive ? 'sidebar-item-active' : 'sidebar-item')}
         >

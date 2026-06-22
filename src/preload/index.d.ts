@@ -39,7 +39,7 @@ declare global {
           url: string
           apiKey: string
           model: string
-          prompt: string
+          messages: { role: 'user' | 'assistant' | 'system'; content: string }[]
           stream: boolean
         }) => Promise<{ ok: boolean; status: number; statusText: string; body: string }>
         getAccountInfo: (accountId: string) => Promise<any>

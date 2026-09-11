@@ -121,7 +121,11 @@ export function sseData(value: unknown): string {
   return `data: ${typeof value === 'string' ? value : JSON.stringify(value)}\n\n`
 }
 
-export function estimateTokens(value: unknown): number {
+export function estimateTokens(value: unknown, model?: string): number {
   const text = typeof value === 'string' ? value : JSON.stringify(value ?? '')
+  if (model && /^(gpt-|chatgpt-|o[134](?:-|$)|codex)/i.test(model)) {
+    return Math.max(1, encode(text).length)
+  }
   return Math.max(1, Math.ceil(text.length / 4))
 }
+import { encode } from 'gpt-tokenizer'

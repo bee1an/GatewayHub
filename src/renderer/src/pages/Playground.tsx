@@ -8,6 +8,13 @@ import { Button } from '../components/ui/Button'
 import { Select } from '../components/ui/Select'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { useToast } from '../components/ui/ToastContext'
+import {
+  type ChatMessage,
+  makeId,
+  prepareHistory,
+  sliceBeforeMessage,
+  flattenMessages
+} from './playgroundUtils'
 
 type ApiKeyEntry = {
   id: string
@@ -41,25 +48,16 @@ type ProviderModel = {
   description?: string
 }
 
-type ChatMessage = {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  pending?: boolean
-  error?: string
-}
-
-function makeId(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-}
-
 export default function Playground(): React.JSX.Element {
   const { t } = useTranslation()
   const { toast } = useToast()
   const [searchParams] = useSearchParams()
   const providerSlug = searchParams.get('provider') ?? null
 
-  const { data: status } = usePolling<GatewayStatus>(() => window.api.gateway.status(), 5000)
+  const { data: status } = usePolling<GatewayStatus>(() => window.api.gateway.status(), 5000, [
+    'gateway',
+    'status'
+  ])
   const [models, setModels] = useState<ProviderModel[]>([])
 
   // Refetch models whenever the gateway running state flips. Same pattern as
@@ -119,7 +117,7 @@ export default function Playground(): React.JSX.Element {
         url: status.server.url,
         apiKey: effectiveKey.key,
         model: effectiveModel.id,
-        messages: history.map((m) => ({ role: m.role, content: m.content })),
+        messages: flattenMessages(history),
         stream
       })
       if (!result.ok) {
@@ -147,18 +145,14 @@ export default function Playground(): React.JSX.Element {
   function handleSend(): void {
     const text = input.trim()
     if (!text || disabledReason || sending) return
-    const next: ChatMessage = { id: makeId(), role: 'user', content: text }
-    const newHistory = [...messages.filter((m) => !m.error), next]
+    const newHistory = prepareHistory(messages, text)
     setInput('')
     void sendMessages(newHistory)
   }
 
   function handleRetry(failedId: string): void {
-    // Drop the failed assistant turn, keep everything up to and including the
-    // last user message, then re-fire.
-    const idx = messages.findIndex((m) => m.id === failedId)
-    if (idx < 0) return
-    const history = messages.slice(0, idx)
+    // 丢弃失败的 assistant 回复及其之后的内容,保留之前的对话历史再重发。
+    const history = sliceBeforeMessage(messages, failedId)
     setMessages(history)
     void sendMessages(history)
   }
@@ -374,12 +368,10 @@ function MarkdownView({ source }: { source: string }): React.JSX.Element {
               {children}
             </blockquote>
           ),
-          code: ({ className, children, ...rest }) => {
-            // ReactMarkdown emits inline code as <code> without a parent <pre>;
-            // fenced blocks come wrapped in <pre>. We style them differently.
-            const isBlock = (rest as { node?: { tagName?: string } }).node?.tagName === 'code'
-            const inline = !className
-            if (inline && !isBlock) {
+          code: ({ className, children }) => {
+            // 行内代码无 className(class 属性里不带 language-xxx),
+            // 围栏代码块有 className(如 "language-ts")。据此区分两者。
+            if (!className) {
               return (
                 <code className="bg-charcoal/70 px-1 py-0.5 rounded text-[12px] font-mono">
                   {children}

@@ -24,7 +24,13 @@ export default defineConfig({
       }
     }
   },
-  preload: {},
+  preload: {
+    build: {
+      // sandbox: true 的 preload 运行时只能 require('electron')；node_modules
+      // 依赖（如 @egoist/tipc）必须内联进产物，否则 require 抛错导致 window.api 未暴露。
+      externalizeDeps: { exclude: ['@egoist/tipc'] }
+    }
+  },
   renderer: {
     resolve: {
       alias: {

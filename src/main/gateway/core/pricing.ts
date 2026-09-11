@@ -197,7 +197,7 @@ export interface PricingTableInit {
 export class PricingTable {
   private prices: Record<string, ModelPrice>
   private credits: CreditPriceMap
-  private resolveCache = new Map<string, ModelPrice | null>()
+  private resolveCache = new LRUCache<string, ModelPrice | false>({ max: 500, ttl: 60 * 60_000 })
 
   constructor(init: Record<string, ModelPrice> | PricingTableInit = {}) {
     // 兼容旧签名：直接传 modelOverrides 对象
@@ -238,7 +238,7 @@ export class PricingTable {
     if (!model) return undefined
     const normalized = normalizeModelKey(model)
     const cached = this.resolveCache.get(normalized)
-    if (cached !== undefined) return cached ?? undefined
+    if (cached !== undefined) return cached || undefined
 
     const tryKey = (key: string): ModelPrice | undefined => this.prices[key]
 
@@ -264,7 +264,7 @@ export class PricingTable {
       }
     }
 
-    this.resolveCache.set(normalized, null)
+    this.resolveCache.set(normalized, false)
     return undefined
   }
 
@@ -393,3 +393,4 @@ function stripTrailingDecimal(key: string): string {
   if (dot === -1) return ''
   return `${key.slice(0, idx + 1)}${last.slice(0, dot)}`
 }
+import { LRUCache } from 'lru-cache'

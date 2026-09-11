@@ -3,6 +3,7 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { gatewayHubService } from './gateway/service'
 import { registerGatewayIpc } from './gateway/ipc'
+import { registerTypedGatewayIpc } from './gateway/typedIpc'
 import { setPathStrategy } from './gateway/core/paths'
 import { setCliLoginSink } from './gateway/events/cliLoginEvents'
 import { setupUpdater } from './updater'
@@ -161,6 +162,7 @@ app.whenReady().then(() => {
   ipcMain.on('ping', () => console.log('pong'))
 
   registerGatewayIpc()
+  registerTypedGatewayIpc()
   gatewayHubService
     .initialize()
     .catch((error) => console.error('GatewayHub initialization failed:', error))

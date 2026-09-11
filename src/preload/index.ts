@@ -1,11 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import { createClient } from '@egoist/tipc/renderer'
+import type { typedGatewayRouter } from '../main/gateway/typedIpc'
 
 const appVersion: string = ipcRenderer.sendSync('app:version')
+const typedGateway = createClient<typeof typedGatewayRouter>({
+  ipcInvoke: ipcRenderer.invoke.bind(ipcRenderer)
+}).typedGateway
 
 const api = {
   appVersion,
   gateway: {
-    status: () => ipcRenderer.invoke('gateway:status'),
+    status: () => typedGateway.status(),
     start: () => ipcRenderer.invoke('gateway:start'),
     stop: () => ipcRenderer.invoke('gateway:stop'),
     autoDiscoverKiro: () => ipcRenderer.invoke('gateway:autoDiscoverKiro'),
@@ -59,7 +64,7 @@ const api = {
     ) => ipcRenderer.invoke('gateway:updateApiKey', id, updates),
     updateProviderDisplayName: (providerType: string, displayName: string) =>
       ipcRenderer.invoke('gateway:updateProviderDisplayName', providerType, displayName),
-    setPort: (port: number) => ipcRenderer.invoke('gateway:setPort', port),
+    setPort: (port: number) => typedGateway.setPort(port),
     setHost: (host: string) => ipcRenderer.invoke('gateway:setHost', host),
     getHost: () => ipcRenderer.invoke('gateway:getHost'),
     getProxyUrl: () => ipcRenderer.invoke('gateway:getProxyUrl'),
@@ -76,7 +81,7 @@ const api = {
       limit?: number
     }) => ipcRenderer.invoke('gateway:getLogs', options),
     exportLogs: (format: 'json' | 'ndjson') => ipcRenderer.invoke('gateway:exportLogs', format),
-    getPricing: () => ipcRenderer.invoke('gateway:getPricing'),
+    getPricing: () => typedGateway.getPricing(),
     readUsage: (options?: {
       sinceKey?: string
       untilKey?: string

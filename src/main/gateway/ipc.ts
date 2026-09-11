@@ -14,17 +14,31 @@ import { DEFAULT_GPT_WEB_SETTINGS } from './providers/gptWeb/constants'
 import { DEFAULT_GROK_WEB_SETTINGS } from './providers/grokWeb/constants'
 import { DEFAULT_GEMINI_WEB_SETTINGS } from './providers/geminiWeb/constants'
 import { DEFAULT_QODER_SETTINGS } from './providers/qoder/constants'
+import {
+  accountStatusSchema,
+  booleanSchema,
+  createApiKeySchema,
+  createSettingsPatchSchema,
+  hostSchema,
+  modelMappingsSchema,
+  nonEmptyStringSchema,
+  optionalStringSchema,
+  portSchema,
+  proxyUrlSchema,
+  stringSchema,
+  updateApiKeySchema
+} from './ipcSchemas'
 
-const KIRO_KEYS = new Set(Object.keys(DEFAULT_KIRO_SETTINGS))
-const CODEX_KEYS = new Set(Object.keys(DEFAULT_CODEX_SETTINGS))
-const WINDSURF_KEYS = new Set(Object.keys(DEFAULT_WINDSURF_SETTINGS))
-const TRAE_KEYS = new Set(Object.keys(DEFAULT_TRAE_SETTINGS))
-const OPENROUTER_KEYS = new Set(Object.keys(DEFAULT_OPENROUTER_SETTINGS))
-const NVIDIA_KEYS = new Set(Object.keys(DEFAULT_NVIDIA_SETTINGS))
-const GPT_WEB_KEYS = new Set(Object.keys(DEFAULT_GPT_WEB_SETTINGS))
-const GROK_WEB_KEYS = new Set(Object.keys(DEFAULT_GROK_WEB_SETTINGS))
-const GEMINI_WEB_KEYS = new Set(Object.keys(DEFAULT_GEMINI_WEB_SETTINGS))
-const QODER_KEYS = new Set(Object.keys(DEFAULT_QODER_SETTINGS))
+const KIRO_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_KIRO_SETTINGS)
+const CODEX_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_CODEX_SETTINGS)
+const WINDSURF_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_WINDSURF_SETTINGS)
+const TRAE_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_TRAE_SETTINGS)
+const OPENROUTER_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_OPENROUTER_SETTINGS)
+const NVIDIA_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_NVIDIA_SETTINGS)
+const GPT_WEB_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_GPT_WEB_SETTINGS)
+const GROK_WEB_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_GROK_WEB_SETTINGS)
+const GEMINI_WEB_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_GEMINI_WEB_SETTINGS)
+const QODER_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_QODER_SETTINGS)
 
 function safeHandler(fn: (...args: any[]) => any) {
   return async (...args: any[]) => {
@@ -108,9 +122,13 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:setKiroAccountStatus',
-    safeHandler((_event, accountId: string, status: string, reason?: string) =>
+    safeHandler((_event, accountId: unknown, status: unknown, reason?: unknown) =>
       withDaemonReload(() =>
-        gatewayHubService.setKiroAccountStatus(accountId, status as AccountStatus, reason)
+        gatewayHubService.setKiroAccountStatus(
+          nonEmptyStringSchema.parse(accountId),
+          accountStatusSchema.parse(status),
+          optionalStringSchema.parse(reason)
+        )
       )
     )
   )
@@ -120,23 +138,28 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:updateKiroSettings',
-    safeHandler((_event, settings: Record<string, any>) => {
-      const filtered = Object.fromEntries(
-        Object.entries(settings).filter(([k]) => KIRO_KEYS.has(k))
-      )
-      return withDaemonReload(() => gatewayHubService.updateKiroSettings(filtered))
+    safeHandler((_event, settings: unknown) => {
+      const parsed = KIRO_SETTINGS_SCHEMA.parse(settings)
+      return withDaemonReload(() => gatewayHubService.updateKiroSettings(parsed))
     })
   )
   ipcMain.handle(
     'gateway:updateKiroRouteName',
-    safeHandler((_event, routeName: string) =>
-      withDaemonReload(() => gatewayHubService.updateKiroRouteName(routeName))
+    safeHandler((_event, routeName: unknown) =>
+      withDaemonReload(() =>
+        gatewayHubService.updateKiroRouteName(nonEmptyStringSchema.parse(routeName))
+      )
     )
   )
   ipcMain.handle(
     'gateway:updateProviderRouteName',
-    safeHandler((_event, providerType: string, routeName: string) =>
-      withDaemonReload(() => gatewayHubService.updateProviderRouteName(providerType, routeName))
+    safeHandler((_event, providerType: unknown, routeName: unknown) =>
+      withDaemonReload(() =>
+        gatewayHubService.updateProviderRouteName(
+          nonEmptyStringSchema.parse(providerType),
+          nonEmptyStringSchema.parse(routeName)
+        )
+      )
     )
   )
   ipcMain.handle(
@@ -177,43 +200,57 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:updateModelMappings',
-    safeHandler((_event, mappings: ModelMapping[]) =>
-      withDaemonReload(() => gatewayHubService.updateModelMappings(mappings))
+    safeHandler((_event, mappings: unknown) =>
+      withDaemonReload(() =>
+        gatewayHubService.updateModelMappings(modelMappingsSchema.parse(mappings))
+      )
     )
   )
   ipcMain.handle(
     'gateway:generateApiKey',
-    safeHandler((_event, options: { name: string; expiresAt?: number; scopes?: string[] }) =>
-      withDaemonReload(() => gatewayHubService.generateNewApiKey(options))
+    safeHandler((_event, options: unknown) =>
+      withDaemonReload(() => gatewayHubService.generateNewApiKey(createApiKeySchema.parse(options)))
     )
   )
   ipcMain.handle(
     'gateway:revokeApiKey',
-    safeHandler((_event, id: string) => withDaemonReload(() => gatewayHubService.revokeApiKey(id)))
+    safeHandler((_event, id: unknown) =>
+      withDaemonReload(() => gatewayHubService.revokeApiKey(nonEmptyStringSchema.parse(id)))
+    )
   )
   ipcMain.handle(
     'gateway:updateApiKey',
-    safeHandler(
-      (
-        _event,
-        id: string,
-        updates: { name?: string; expiresAt?: number | null; scopes?: string[] | null }
-      ) => withDaemonReload(() => gatewayHubService.updateApiKey(id, updates))
+    safeHandler((_event, id: unknown, updates: unknown) =>
+      withDaemonReload(() =>
+        gatewayHubService.updateApiKey(
+          nonEmptyStringSchema.parse(id),
+          updateApiKeySchema.parse(updates)
+        )
+      )
     )
   )
   ipcMain.handle(
     'gateway:updateProviderDisplayName',
-    safeHandler((_event, providerType: string, displayName: string) =>
-      withDaemonReload(() => gatewayHubService.updateProviderDisplayName(providerType, displayName))
+    safeHandler((_event, providerType: unknown, displayName: unknown) =>
+      withDaemonReload(() =>
+        gatewayHubService.updateProviderDisplayName(
+          nonEmptyStringSchema.parse(providerType),
+          stringSchema.parse(displayName)
+        )
+      )
     )
   )
   ipcMain.handle(
     'gateway:setPort',
-    safeHandler((_event, port: number) => withDaemonReload(() => gatewayHubService.setPort(port)))
+    safeHandler((_event, port: unknown) =>
+      withDaemonReload(() => gatewayHubService.setPort(portSchema.parse(port)))
+    )
   )
   ipcMain.handle(
     'gateway:setHost',
-    safeHandler((_event, host: string) => withDaemonReload(() => gatewayHubService.setHost(host)))
+    safeHandler((_event, host: unknown) =>
+      withDaemonReload(() => gatewayHubService.setHost(hostSchema.parse(host)))
+    )
   )
   ipcMain.handle(
     'gateway:getHost',
@@ -225,12 +262,19 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:setProxyUrl',
-    safeHandler((_event, url: string) => withDaemonReload(() => gatewayHubService.setProxyUrl(url)))
+    safeHandler((_event, url: unknown) =>
+      withDaemonReload(() => gatewayHubService.setProxyUrl(proxyUrlSchema.parse(url)))
+    )
   )
   ipcMain.handle(
     'gateway:setProviderUseProxy',
-    safeHandler((_event, providerType: string, enabled: boolean) =>
-      withDaemonReload(() => gatewayHubService.setProviderUseProxy(providerType, enabled))
+    safeHandler((_event, providerType: unknown, enabled: unknown) =>
+      withDaemonReload(() =>
+        gatewayHubService.setProviderUseProxy(
+          nonEmptyStringSchema.parse(providerType),
+          booleanSchema.parse(enabled)
+        )
+      )
     )
   )
   ipcMain.handle(
@@ -239,8 +283,8 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:setAutoStart',
-    safeHandler((_event, enabled: boolean) =>
-      withDaemonReload(() => gatewayHubService.setAutoStart(enabled))
+    safeHandler((_event, enabled: unknown) =>
+      withDaemonReload(() => gatewayHubService.setAutoStart(booleanSchema.parse(enabled)))
     )
   )
   ipcMain.handle(
@@ -326,9 +370,13 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:setCodexAccountStatus',
-    safeHandler((_event, accountId: string, status: string, reason?: string) =>
+    safeHandler((_event, accountId: unknown, status: unknown, reason?: unknown) =>
       withDaemonReload(() =>
-        gatewayHubService.setCodexAccountStatus(accountId, status as AccountStatus, reason)
+        gatewayHubService.setCodexAccountStatus(
+          nonEmptyStringSchema.parse(accountId),
+          accountStatusSchema.parse(status),
+          optionalStringSchema.parse(reason)
+        )
       )
     )
   )
@@ -338,11 +386,9 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:updateCodexSettings',
-    safeHandler((_event, settings: Record<string, any>) => {
-      const filtered = Object.fromEntries(
-        Object.entries(settings).filter(([k]) => CODEX_KEYS.has(k))
-      )
-      return gatewayHubService.updateCodexSettings(filtered)
+    safeHandler((_event, settings: unknown) => {
+      const parsed = CODEX_SETTINGS_SCHEMA.parse(settings)
+      return gatewayHubService.updateCodexSettings(parsed)
     })
   )
   ipcMain.handle(
@@ -432,9 +478,13 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:setWindsurfAccountStatus',
-    safeHandler((_event, accountId: string, status: string, reason?: string) =>
+    safeHandler((_event, accountId: unknown, status: unknown, reason?: unknown) =>
       withDaemonReload(() =>
-        gatewayHubService.setWindsurfAccountStatus(accountId, status as AccountStatus, reason)
+        gatewayHubService.setWindsurfAccountStatus(
+          nonEmptyStringSchema.parse(accountId),
+          accountStatusSchema.parse(status),
+          optionalStringSchema.parse(reason)
+        )
       )
     )
   )
@@ -444,11 +494,9 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:updateWindsurfSettings',
-    safeHandler((_event, settings: Record<string, any>) => {
-      const filtered = Object.fromEntries(
-        Object.entries(settings).filter(([k]) => WINDSURF_KEYS.has(k))
-      )
-      return gatewayHubService.updateWindsurfSettings(filtered)
+    safeHandler((_event, settings: unknown) => {
+      const parsed = WINDSURF_SETTINGS_SCHEMA.parse(settings)
+      return gatewayHubService.updateWindsurfSettings(parsed)
     })
   )
 
@@ -514,9 +562,13 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:setTraeAccountStatus',
-    safeHandler((_event, accountId: string, status: string, reason?: string) =>
+    safeHandler((_event, accountId: unknown, status: unknown, reason?: unknown) =>
       withDaemonReload(() =>
-        gatewayHubService.setTraeAccountStatus(accountId, status as AccountStatus, reason)
+        gatewayHubService.setTraeAccountStatus(
+          nonEmptyStringSchema.parse(accountId),
+          accountStatusSchema.parse(status),
+          optionalStringSchema.parse(reason)
+        )
       )
     )
   )
@@ -584,9 +636,13 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:setOpenRouterAccountStatus',
-    safeHandler((_event, accountId: string, status: string, reason?: string) =>
+    safeHandler((_event, accountId: unknown, status: unknown, reason?: unknown) =>
       withDaemonReload(() =>
-        gatewayHubService.setOpenRouterAccountStatus(accountId, status as AccountStatus, reason)
+        gatewayHubService.setOpenRouterAccountStatus(
+          nonEmptyStringSchema.parse(accountId),
+          accountStatusSchema.parse(status),
+          optionalStringSchema.parse(reason)
+        )
       )
     )
   )
@@ -596,11 +652,9 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:updateOpenRouterSettings',
-    safeHandler((_event, settings: Record<string, any>) => {
-      const filtered = Object.fromEntries(
-        Object.entries(settings).filter(([k]) => OPENROUTER_KEYS.has(k))
-      )
-      return gatewayHubService.updateOpenRouterSettings(filtered)
+    safeHandler((_event, settings: unknown) => {
+      const parsed = OPENROUTER_SETTINGS_SCHEMA.parse(settings)
+      return gatewayHubService.updateOpenRouterSettings(parsed)
     })
   )
 
@@ -652,9 +706,13 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:setNvidiaAccountStatus',
-    safeHandler((_event, accountId: string, status: string, reason?: string) =>
+    safeHandler((_event, accountId: unknown, status: unknown, reason?: unknown) =>
       withDaemonReload(() =>
-        gatewayHubService.setNvidiaAccountStatus(accountId, status as AccountStatus, reason)
+        gatewayHubService.setNvidiaAccountStatus(
+          nonEmptyStringSchema.parse(accountId),
+          accountStatusSchema.parse(status),
+          optionalStringSchema.parse(reason)
+        )
       )
     )
   )
@@ -664,11 +722,9 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:updateNvidiaSettings',
-    safeHandler((_event, settings: Record<string, any>) => {
-      const filtered = Object.fromEntries(
-        Object.entries(settings).filter(([k]) => NVIDIA_KEYS.has(k))
-      )
-      return gatewayHubService.updateNvidiaSettings(filtered)
+    safeHandler((_event, settings: unknown) => {
+      const parsed = NVIDIA_SETTINGS_SCHEMA.parse(settings)
+      return gatewayHubService.updateNvidiaSettings(parsed)
     })
   )
 
@@ -716,9 +772,13 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:setGptWebAccountStatus',
-    safeHandler((_event, accountId: string, status: string, reason?: string) =>
+    safeHandler((_event, accountId: unknown, status: unknown, reason?: unknown) =>
       withDaemonReload(() =>
-        gatewayHubService.setGptWebAccountStatus(accountId, status as AccountStatus, reason)
+        gatewayHubService.setGptWebAccountStatus(
+          nonEmptyStringSchema.parse(accountId),
+          accountStatusSchema.parse(status),
+          optionalStringSchema.parse(reason)
+        )
       )
     )
   )
@@ -728,11 +788,9 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:updateGptWebSettings',
-    safeHandler((_event, settings: Record<string, any>) => {
-      const filtered = Object.fromEntries(
-        Object.entries(settings).filter(([k]) => GPT_WEB_KEYS.has(k))
-      )
-      return gatewayHubService.updateGptWebSettings(filtered)
+    safeHandler((_event, settings: unknown) => {
+      const parsed = GPT_WEB_SETTINGS_SCHEMA.parse(settings)
+      return gatewayHubService.updateGptWebSettings(parsed)
     })
   )
 
@@ -780,9 +838,13 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:setGrokWebAccountStatus',
-    safeHandler((_event, accountId: string, status: string, reason?: string) =>
+    safeHandler((_event, accountId: unknown, status: unknown, reason?: unknown) =>
       withDaemonReload(() =>
-        gatewayHubService.setGrokWebAccountStatus(accountId, status as AccountStatus, reason)
+        gatewayHubService.setGrokWebAccountStatus(
+          nonEmptyStringSchema.parse(accountId),
+          accountStatusSchema.parse(status),
+          optionalStringSchema.parse(reason)
+        )
       )
     )
   )
@@ -792,11 +854,9 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:updateGrokWebSettings',
-    safeHandler((_event, settings: Record<string, any>) => {
-      const filtered = Object.fromEntries(
-        Object.entries(settings).filter(([k]) => GROK_WEB_KEYS.has(k))
-      )
-      return gatewayHubService.updateGrokWebSettings(filtered)
+    safeHandler((_event, settings: unknown) => {
+      const parsed = GROK_WEB_SETTINGS_SCHEMA.parse(settings)
+      return gatewayHubService.updateGrokWebSettings(parsed)
     })
   )
 
@@ -844,9 +904,13 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:setGeminiWebAccountStatus',
-    safeHandler((_event, accountId: string, status: string, reason?: string) =>
+    safeHandler((_event, accountId: unknown, status: unknown, reason?: unknown) =>
       withDaemonReload(() =>
-        gatewayHubService.setGeminiWebAccountStatus(accountId, status as AccountStatus, reason)
+        gatewayHubService.setGeminiWebAccountStatus(
+          nonEmptyStringSchema.parse(accountId),
+          accountStatusSchema.parse(status),
+          optionalStringSchema.parse(reason)
+        )
       )
     )
   )
@@ -856,11 +920,9 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:updateGeminiWebSettings',
-    safeHandler((_event, settings: Record<string, any>) => {
-      const filtered = Object.fromEntries(
-        Object.entries(settings).filter(([k]) => GEMINI_WEB_KEYS.has(k))
-      )
-      return gatewayHubService.updateGeminiWebSettings(filtered)
+    safeHandler((_event, settings: unknown) => {
+      const parsed = GEMINI_WEB_SETTINGS_SCHEMA.parse(settings)
+      return gatewayHubService.updateGeminiWebSettings(parsed)
     })
   )
 
@@ -934,9 +996,13 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:setQoderAccountStatus',
-    safeHandler((_event, accountId: string, status: string, reason?: string) =>
+    safeHandler((_event, accountId: unknown, status: unknown, reason?: unknown) =>
       withDaemonReload(() =>
-        gatewayHubService.setQoderAccountStatus(accountId, status as AccountStatus, reason)
+        gatewayHubService.setQoderAccountStatus(
+          nonEmptyStringSchema.parse(accountId),
+          accountStatusSchema.parse(status),
+          optionalStringSchema.parse(reason)
+        )
       )
     )
   )
@@ -946,11 +1012,9 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:updateQoderSettings',
-    safeHandler((_event, settings: Record<string, any>) => {
-      const filtered = Object.fromEntries(
-        Object.entries(settings).filter(([k]) => QODER_KEYS.has(k))
-      )
-      return withDaemonReload(() => gatewayHubService.updateQoderSettings(filtered))
+    safeHandler((_event, settings: unknown) => {
+      const parsed = QODER_SETTINGS_SCHEMA.parse(settings)
+      return withDaemonReload(() => gatewayHubService.updateQoderSettings(parsed))
     })
   )
   ipcMain.handle(
@@ -963,7 +1027,7 @@ export function registerGatewayIpc(): void {
   )
 }
 
-async function getGatewayStatusForUi(): Promise<GatewayStatusSnapshot> {
+export async function getGatewayStatusForUi(): Promise<GatewayStatusSnapshot> {
   const local = await gatewayHubService.getStatus()
   if (local.server.running) return local
   const daemon = await daemonStatus().catch(() => ({ running: false as const }))

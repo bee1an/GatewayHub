@@ -1,3 +1,4 @@
+import { validateGatewayHubConfig, validateGatewayHubState } from './configSchemas'
 import { dirname, join, resolve, sep } from 'path'
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'fs/promises'
 import { homedir } from 'os'
@@ -171,10 +172,11 @@ export class GatewayConfigStore {
       migratedFromV2 = true
     }
 
-    const config = this.normalizeConfig(parsed)
+    const config = validateGatewayHubConfig(this.normalizeConfig(parsed))
     const shouldSaveNormalizedConfig =
       migratedFromV2 ||
       Boolean(parsed.providers?.kiro?.accounts) ||
+      !parsed.providers?.traework ||
       !parsed.providers?.nvidia ||
       !parsed.providers?.gptWeb ||
       !parsed.providers?.grokWeb ||
@@ -191,7 +193,7 @@ export class GatewayConfigStore {
   }
 
   async saveConfig(config: GatewayHubConfig): Promise<void> {
-    const clone = JSON.parse(JSON.stringify(config))
+    const clone = JSON.parse(JSON.stringify(validateGatewayHubConfig(config)))
     delete (clone.providers?.kiro as any)?.accounts
     // Strip runtime-injected proxy URLs so disk only stores the global server.proxyUrl
     // + each provider's useProxy flag. The registry re-derives settings.vpnProxyUrl on rebuild.
@@ -215,7 +217,7 @@ export class GatewayConfigStore {
   async loadState(): Promise<GatewayHubState> {
     try {
       const raw = await readFile(this.statePath, 'utf8')
-      return this.normalizeState(JSON.parse(raw))
+      return validateGatewayHubState(this.normalizeState(JSON.parse(raw)))
     } catch {
       const state = this.defaultState()
       await this.saveState(state)
@@ -224,8 +226,9 @@ export class GatewayConfigStore {
   }
 
   async saveState(state: GatewayHubState): Promise<void> {
+    const validated = validateGatewayHubState(state)
     await mkdir(dirname(this.statePath), { recursive: true })
-    await atomicWrite(this.statePath, `${JSON.stringify(state, null, 2)}\n`)
+    await atomicWrite(this.statePath, `${JSON.stringify(validated, null, 2)}\n`)
   }
 
   private readonly kiroStore = new AccountFileStore<KiroAccountConfig>({

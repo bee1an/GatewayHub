@@ -4,6 +4,7 @@ import { randomBytes } from 'crypto'
 import type { BaseAccountConfig } from '../types'
 import { readJsonFile, sha256Short } from './utils'
 import { withLock } from './lockfile'
+import { validateAccount } from '../accountSchemas'
 
 /**
  * Generic account-file persistence layer.
@@ -70,6 +71,7 @@ export class AccountFileStore<T extends BaseAccountConfig> {
           normalized = result
         }
         if ((normalized as T).enabled === undefined) (normalized as T).enabled = true
+        normalized = validateAccount(normalized)
         ;(normalized as T).path = filePath
         accounts.push(normalized)
       } catch (err) {
@@ -83,6 +85,7 @@ export class AccountFileStore<T extends BaseAccountConfig> {
   }
 
   async write(data: T): Promise<string> {
+    data = validateAccount(data)
     const dir = this.spec.dir()
     await mkdir(dir, { recursive: true })
     const fileBase = safeFileName(this.spec.fileNameSource(data)) || 'account'

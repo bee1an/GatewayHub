@@ -17,8 +17,14 @@ import Settings from './pages/Settings'
 import { ToastProvider } from './components/ui/Toast'
 import { UpgradeProgress } from './components/UpgradeProgress'
 import ErrorBoundary from './components/ErrorBoundary'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 const root = createRoot(document.getElementById('root')!)
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { staleTime: 1000, refetchOnReconnect: true }
+  }
+})
 const view = new URLSearchParams(window.location.search).get('view')
 
 // Safety net: the splash is normally removed by <Sidebar> once the first
@@ -45,22 +51,24 @@ if (view === 'progress') {
   root.render(
     <StrictMode>
       <ErrorBoundary>
-        <ToastProvider>
-          <HashRouter>
-            <Routes>
-              <Route element={<Layout />}>
-                <Route index element={<Navigate to="/dashboard" replace />} />
-                <Route path="dashboard" element={<Dashboard />} />
-                <Route path="gateway/:name" element={<GatewayDetail />} />
-                <Route path="logs" element={<Logs />} />
-                <Route path="playground" element={<Playground />} />
-                <Route path="api-keys" element={<ApiKeys />} />
-                <Route path="model-mappings" element={<ModelMappings />} />
-                <Route path="settings" element={<Settings />} />
-              </Route>
-            </Routes>
-          </HashRouter>
-        </ToastProvider>
+        <QueryClientProvider client={queryClient}>
+          <ToastProvider>
+            <HashRouter>
+              <Routes>
+                <Route element={<Layout />}>
+                  <Route index element={<Navigate to="/dashboard" replace />} />
+                  <Route path="dashboard" element={<Dashboard />} />
+                  <Route path="gateway/:name" element={<GatewayDetail />} />
+                  <Route path="logs" element={<Logs />} />
+                  <Route path="playground" element={<Playground />} />
+                  <Route path="api-keys" element={<ApiKeys />} />
+                  <Route path="model-mappings" element={<ModelMappings />} />
+                  <Route path="settings" element={<Settings />} />
+                </Route>
+              </Routes>
+            </HashRouter>
+          </ToastProvider>
+        </QueryClientProvider>
       </ErrorBoundary>
     </StrictMode>
   )

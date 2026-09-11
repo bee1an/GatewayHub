@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { usePolling } from '../hooks/usePolling'
@@ -44,7 +44,8 @@ export default function GatewayDetail(): React.JSX.Element {
   const navigate = useNavigate()
   const { data: status, refresh } = usePolling<GatewayStatus>(
     () => window.api.gateway.status(),
-    3000
+    3000,
+    ['gateway', 'status']
   )
   const [busy, setBusy] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -285,12 +286,16 @@ export default function GatewayDetail(): React.JSX.Element {
       .forEach((acc) => fetchAccountInfo(acc.id))
   }, [accountIdsKey, accountInfoMap, accounts, fetchAccountInfo, supportsAccounts])
 
-  const pollRef = useRef<ReturnType<typeof setInterval>>(undefined)
-  useEffect(() => {
-    if (!supportsAccounts || !accounts.length) return
-    pollRef.current = setInterval(fetchAllUsage, 5 * 60_000)
-    return () => clearInterval(pollRef.current)
-  }, [accounts.length, fetchAllUsage, supportsAccounts])
+  useQuery({
+    queryKey: ['gateway', name, 'account-usage', accountIdsKey],
+    queryFn: async () => {
+      await fetchAllUsage()
+      return null
+    },
+    enabled: supportsAccounts && accounts.length > 0,
+    refetchInterval: 5 * 60_000,
+    refetchIntervalInBackground: false
+  })
 
   useEffect(() => {
     if (!supportsRequestRace || !gateway?.providerType) return

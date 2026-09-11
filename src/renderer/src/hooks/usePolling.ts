@@ -1,45 +1,31 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import type { QueryKey } from '@tanstack/react-query'
 
 export function usePolling<T>(
   fetcher: () => Promise<T>,
-  intervalMs = 3000
+  intervalMs = 3000,
+  queryKey?: QueryKey
 ): {
   data: T | null
   loading: boolean
   error: Error | null
-  refresh: () => void
+  refresh: () => Promise<void>
 } {
-  const [data, setData] = useState<T | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<Error | null>(null)
-  const fetcherRef = useRef(fetcher)
+  const query = useQuery({
+    queryKey: queryKey ?? ['polling', intervalMs],
+    queryFn: fetcher,
+    refetchInterval: intervalMs > 0 ? intervalMs : false,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+    retry: 1
+  })
 
-  useEffect(() => {
-    fetcherRef.current = fetcher
-  }, [fetcher])
-
-  const refresh = useCallback(() => {
-    fetcherRef
-      .current()
-      .then((result) => {
-        setData(result)
-        setError(null)
-      })
-      .catch((err: unknown) => {
-        const e = err instanceof Error ? err : new Error(String(err))
-        console.error('[usePolling] fetch failed:', e)
-        setError(e)
-      })
-      .finally(() => {
-        setLoading(false)
-      })
-  }, [])
-
-  useEffect(() => {
-    refresh()
-    const id = setInterval(refresh, intervalMs)
-    return () => clearInterval(id)
-  }, [intervalMs, refresh])
-
-  return { data, loading, error, refresh }
+  return {
+    data: query.data ?? null,
+    loading: query.isPending,
+    error: query.error,
+    refresh: async () => {
+      await query.refetch()
+    }
+  }
 }

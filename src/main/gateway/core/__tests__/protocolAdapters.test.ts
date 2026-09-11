@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import fc from 'fast-check'
 import {
   anthropicMessagesToOpenAIChatCompletions,
   openAIChatCompletionSseToAnthropicMessageSse,
@@ -131,6 +132,51 @@ describe('protocolAdapters', () => {
     expect(output).toContain('"input_tokens":2')
     expect(output).toContain('"output_tokens":3')
     expect(output).toContain('event: message_stop')
+  })
+
+  it('parses CRLF, multi-line data, comments, and UTF-8 split across chunks', async () => {
+    const encoder = new TextEncoder()
+    const frame =
+      ': keepalive\r\ndata: {"choices":[{"delta":{"content":"你"},\r\ndata: "finish_reason":null}]}\r\n\r\ndata: [DONE]\r\n\r\n'
+    const bytes = encoder.encode(frame)
+    const splitAt = bytes.indexOf(0xe4) + 1
+
+    async function* source(): AsyncGenerator<Uint8Array> {
+      yield bytes.slice(0, splitAt)
+      yield bytes.slice(splitAt)
+    }
+
+    const output = (
+      await collect(openAIChatCompletionSseToAnthropicMessageSse(source(), 'm'))
+    ).join('')
+
+    expect(output).toContain('"text":"你"')
+    expect(output).toContain('event: message_stop')
+  })
+
+  it('produces the same result for arbitrary byte chunking', async () => {
+    const bytes = new TextEncoder().encode(
+      'data: {"choices":[{"delta":{"content":"你好 SSE"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'
+    )
+    await fc.assert(
+      fc.asyncProperty(
+        fc.uniqueArray(fc.integer({ min: 1, max: bytes.length - 1 })),
+        async (cuts) => {
+          const boundaries = [0, ...cuts.sort((a, b) => a - b), bytes.length]
+          async function* source(): AsyncGenerator<Uint8Array> {
+            for (let index = 1; index < boundaries.length; index++) {
+              yield bytes.slice(boundaries[index - 1], boundaries[index])
+            }
+          }
+          const output = (
+            await collect(openAIChatCompletionSseToAnthropicMessageSse(source(), 'm'))
+          ).join('')
+          expect(output).toContain('"text":"你好 SSE"')
+          expect(output).toContain('event: message_stop')
+        }
+      ),
+      { numRuns: 50 }
+    )
   })
 })
 

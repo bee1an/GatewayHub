@@ -1,6 +1,7 @@
 import { ipcMain, BrowserWindow } from 'electron'
+import { createParser } from 'eventsource-parser'
 import { gatewayHubService } from './service'
-import type { AccountStatus, LogCategory, ModelMapping } from './types'
+import type { LogCategory } from './types'
 import type { GatewayStatusSnapshot } from './types'
 import { daemonStatus, daemonStop, notifyDaemonReload } from '../../cli/daemon/controller'
 import type { CodexLoginEvent } from './providers/codex/types'
@@ -1118,12 +1119,16 @@ export interface TestRequestResult {
  * final text in one shot.
  */
 async function forwardTestRequest(params: TestRequestParams): Promise<TestRequestResult> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${params.apiKey}`,
+    'Content-Type': 'application/json'
+  }
+  // 部分 OpenAI 兼容服务需要 SSE 头才开启流式响应,不加会导致 stream 请求被当作
+  // 非流式处理 (Azure OpenAI、某些网关代理层尤其严格)。
+  if (params.stream) headers.Accept = 'text/event-stream'
   const res = await fetch(`${params.url.replace(/\/$/, '')}/v1/chat/completions`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${params.apiKey}`,
-      'Content-Type': 'application/json'
-    },
+    headers,
     body: JSON.stringify({
       model: params.model,
       messages: params.messages,
@@ -1141,31 +1146,31 @@ async function forwardTestRequest(params: TestRequestParams): Promise<TestReques
     const body = await res.text().catch(() => '')
     return { ok, status, statusText, body }
   }
-  // Streaming: walk SSE `data:` lines and concatenate content deltas.
+  // Streaming: parse SSE events and concatenate content deltas.
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let acc = ''
-  let buffer = ''
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? ''
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (!trimmed.startsWith('data:')) continue
-      const payload = trimmed.slice(5).trim()
-      if (payload === '[DONE]') continue
+  const parser = createParser({
+    maxBufferSize: 1024 * 1024,
+    onEvent: ({ data }) => {
+      if (data === '[DONE]') return
       try {
-        const json = JSON.parse(payload)
+        const json = JSON.parse(data)
         const delta =
           json?.choices?.[0]?.delta?.content ?? json?.choices?.[0]?.message?.content ?? ''
         if (delta) acc += delta
       } catch {
-        // ignore non-JSON keepalive / partial lines
+        // Ignore non-JSON keepalive events.
       }
     }
+  })
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    parser.feed(decoder.decode(value, { stream: true }))
   }
+  const tail = decoder.decode()
+  if (tail) parser.feed(tail)
+  parser.reset({ consume: true })
   return { ok, status, statusText, body: acc }
 }

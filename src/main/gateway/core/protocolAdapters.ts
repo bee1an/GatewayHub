@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { createParser } from 'eventsource-parser'
 
 type AnthropicContentBlock = {
   type?: string
@@ -378,25 +379,20 @@ async function* parseOpenAISseEvents(
   source: AsyncIterable<string | Uint8Array>
 ): AsyncGenerator<string> {
   const decoder = new TextDecoder()
-  let buffer = ''
+  const pending: string[] = []
+  const parser = createParser({
+    maxBufferSize: 1024 * 1024,
+    onEvent: (event) => pending.push(event.data)
+  })
+
   for await (const chunk of source) {
-    buffer += typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true })
-    buffer = buffer.replace(/\r\n/g, '\n')
-    while (true) {
-      const index = buffer.indexOf('\n\n')
-      if (index === -1) break
-      const raw = buffer.slice(0, index)
-      buffer = buffer.slice(index + 2)
-      const data = raw
-        .split('\n')
-        .filter((line) => line.startsWith('data:'))
-        .map((line) => line.slice(5).trimStart())
-        .join('\n')
-      if (data) yield data
-    }
+    parser.feed(typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true }))
+    while (pending.length) yield pending.shift()!
   }
-  const tail = buffer.trim()
-  if (tail.startsWith('data:')) yield tail.slice(5).trimStart()
+  const tail = decoder.decode()
+  if (tail) parser.feed(tail)
+  parser.reset({ consume: true })
+  while (pending.length) yield pending.shift()!
 }
 
 function openAIUsageToAnthropic(usage: any): { input_tokens: number; output_tokens: number } {

@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { createParser } from 'eventsource-parser'
 import type { UsageStats } from '../../types'
 import { sseData } from '../../core/utils'
 
@@ -25,24 +26,9 @@ export type CodexEvent =
   | { type: 'done' }
   | { type: 'error'; error: any }
 
-/** SSE 块边界（\n\n 或 \r\n\r\n） */
-const SSE_BOUNDARY = /\r?\n\r?\n/
-
 interface ParsedBlock {
   event?: string
   data: string
-}
-
-function parseSseBlock(block: string): ParsedBlock | undefined {
-  const lines = block.split(/\r?\n/)
-  let event: string | undefined
-  const dataLines: string[] = []
-  for (const line of lines) {
-    if (line.startsWith('event:')) event = line.slice(6).trim()
-    else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim())
-  }
-  if (!dataLines.length) return undefined
-  return { event, data: dataLines.join('\n') }
 }
 
 /**
@@ -64,7 +50,11 @@ export async function* parseCodexStream(
 ): AsyncGenerator<CodexEvent> {
   const reader = body.getReader()
   const decoder = new TextDecoder('utf-8')
-  let buffer = ''
+  const pending: ParsedBlock[] = []
+  const parser = createParser({
+    maxBufferSize: 1024 * 1024,
+    onEvent: (event) => pending.push({ event: event.event, data: event.data })
+  })
   let cancelled = false
 
   try {
@@ -74,7 +64,7 @@ export async function* parseCodexStream(
       () => new FirstTokenTimeoutError(`No Codex token within ${firstTokenTimeoutSeconds}s`)
     )
     if (first.done) return
-    buffer += decoder.decode(first.value, { stream: true })
+    parser.feed(decoder.decode(first.value, { stream: true }))
     yield* drainBuffer()
 
     while (true) {
@@ -84,17 +74,13 @@ export async function* parseCodexStream(
         () => new CodexStreamIdleTimeoutError(idleTimeoutSeconds)
       )
       if (next.done) break
-      buffer += decoder.decode(next.value, { stream: true })
+      parser.feed(decoder.decode(next.value, { stream: true }))
       yield* drainBuffer()
     }
-    if (buffer.trim()) {
-      const block = parseSseBlock(buffer.trim())
-      if (block) {
-        const event = blockToEvent(block)
-        if (event) yield event
-      }
-      buffer = ''
-    }
+    const tail = decoder.decode()
+    if (tail) parser.feed(tail)
+    parser.reset({ consume: true })
+    yield* drainBuffer()
   } catch (error) {
     cancelled = true
     try {
@@ -119,13 +105,8 @@ export async function* parseCodexStream(
   }
 
   function* drainBuffer(): Generator<CodexEvent> {
-    while (true) {
-      const match = SSE_BOUNDARY.exec(buffer)
-      if (!match) break
-      const raw = buffer.slice(0, match.index)
-      buffer = buffer.slice(match.index + match[0].length)
-      const block = parseSseBlock(raw)
-      if (!block) continue
+    while (pending.length) {
+      const block = pending.shift()!
       const event = blockToEvent(block)
       if (event) yield event
     }

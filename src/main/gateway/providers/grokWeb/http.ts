@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
-import { ProxyAgent, WebSocket, fetch as undiciFetch } from 'undici'
+import { WebSocket, fetch as undiciFetch } from 'undici'
 import type { GrokWebAccountConfig, GrokWebProviderSettings } from '../../types'
+import { createProxyAgentCache } from '../../core/proxyAgentCache'
 import {
   DEFAULT_GROK_WEB_BASE_URL,
   DEFAULT_GROK_WEB_WS_URL,
@@ -14,16 +15,10 @@ import type {
   GrokWebUser
 } from './types'
 
-const proxyAgentCache = new Map<string, InstanceType<typeof ProxyAgent>>()
+const proxyAgentCache = createProxyAgentCache()
 
-function getProxyAgent(proxyUrl: string): InstanceType<typeof ProxyAgent> {
-  const normalized = proxyUrl.includes('://') ? proxyUrl : `http://${proxyUrl}`
-  let agent = proxyAgentCache.get(normalized)
-  if (!agent) {
-    agent = new ProxyAgent(normalized)
-    proxyAgentCache.set(normalized, agent)
-  }
-  return agent
+function getProxyAgent(proxyUrl: string) {
+  return proxyAgentCache.get(proxyUrl)
 }
 
 async function proxyFetch(url: string, init: RequestInit, proxyUrl?: string): Promise<Response> {

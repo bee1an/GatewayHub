@@ -1,5 +1,6 @@
 import type { GrokWebAccountConfig } from '../../types'
 import { sha256Short } from '../../core/utils'
+import { getCookieValue, normalizeCookieHeader, serializeCookiePairs } from '../../core/cookies'
 
 const GROK_COOKIE_NAMES = new Set([
   'sso',
@@ -57,42 +58,23 @@ export function normalizeGrokWebImportedAccount(input: unknown): GrokWebAccountC
   }
 }
 
-export function normalizeCookieHeader(value: unknown): string {
-  if (typeof value !== 'string') return ''
-  const seen = new Set<string>()
-  const parts: string[] = []
-  for (const rawPart of value.split(';')) {
-    const part = rawPart.trim()
-    const eq = part.indexOf('=')
-    if (eq <= 0) continue
-    const name = part.slice(0, eq).trim()
-    const cookieValue = part.slice(eq + 1).trim()
-    if (!name || !cookieValue) continue
-    const lower = name.toLowerCase()
-    if (seen.has(lower)) continue
-    seen.add(lower)
-    parts.push(`${name}=${cookieValue}`)
-  }
-  return parts.join('; ')
-}
-
 function buildCookieHeaderFromCookieArray(cookies: unknown): string {
   if (!Array.isArray(cookies)) return ''
-  const parts: string[] = []
-  for (const cookie of cookies) {
-    if (!cookie || typeof cookie !== 'object') continue
-    const item = cookie as Record<string, unknown>
-    const name = pickString(item.name)
-    const value = pickString(item.value)
-    if (!name || !value) continue
-    const domain = pickString(item.domain) || ''
-    const lowerDomain = domain.toLowerCase()
-    const isGrokCookie = !domain || lowerDomain.includes('grok.com') || lowerDomain.includes('x.ai')
-    if (!isGrokCookie && !GROK_COOKIE_NAMES.has(name)) continue
-    if (!GROK_COOKIE_NAMES.has(name) && !lowerDomain.includes('grok.com')) continue
-    parts.push(`${name}=${value}`)
-  }
-  return parts.join('; ')
+  return serializeCookiePairs(
+    cookies.flatMap((cookie): Array<[string, unknown]> => {
+      if (!cookie || typeof cookie !== 'object') return []
+      const item = cookie as Record<string, unknown>
+      const name = pickString(item.name)
+      const domain = pickString(item.domain) || ''
+      if (!name) return []
+      const lowerDomain = domain.toLowerCase()
+      const isGrokCookie =
+        !domain || lowerDomain.includes('grok.com') || lowerDomain.includes('x.ai')
+      if (!isGrokCookie && !GROK_COOKIE_NAMES.has(name)) return []
+      if (!GROK_COOKIE_NAMES.has(name) && !lowerDomain.includes('grok.com')) return []
+      return [[name, item.value]]
+    })
+  )
 }
 
 function buildCookieHeaderFromNamedFields(raw: Record<string, any>): string {
@@ -106,17 +88,6 @@ function buildCookieHeaderFromNamedFields(raw: Record<string, any>): string {
   return pairs.join('; ')
 }
 
-function getCookieValue(cookieHeader: string, name: string): string | undefined {
-  const lower = name.toLowerCase()
-  for (const part of cookieHeader.split(';')) {
-    const trimmed = part.trim()
-    const eq = trimmed.indexOf('=')
-    if (eq <= 0) continue
-    if (trimmed.slice(0, eq).trim().toLowerCase() === lower) return trimmed.slice(eq + 1).trim()
-  }
-  return undefined
-}
-
 function pickString(...values: unknown[]): string | undefined {
   for (const value of values) {
     if (typeof value !== 'string') continue
@@ -125,3 +96,5 @@ function pickString(...values: unknown[]): string | undefined {
   }
   return undefined
 }
+
+export { normalizeCookieHeader } from '../../core/cookies'

@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'crypto'
 import { readFile, rename, writeFile } from 'fs/promises'
 import { dirname } from 'path'
 import { mkdir } from 'fs/promises'
-import { ProxyAgent, fetch as undiciFetch } from 'undici'
+import { fetch as undiciFetch } from 'undici'
 import type { KiroAccountConfig, KiroProviderSettings } from '../../types'
 import { apiUrl, awsSsoOidcUrl, kiroRefreshUrl, runtimeUrl } from './constants'
 import {
@@ -14,6 +14,7 @@ import {
 } from '../../core/utils'
 import { withLock } from '../../core/lockfile'
 import { readLocalKiroProfileArn } from './profile'
+import { createProxyAgentCache } from '../../core/proxyAgentCache'
 
 export type KiroAuthType = 'kiro_desktop' | 'aws_sso_oidc'
 
@@ -317,16 +318,10 @@ export class KiroAuthManager {
 }
 
 /** 模块级 ProxyAgent 缓存：相同 proxy URL 复用同一个 dispatcher */
-const proxyAgents = new Map<string, ProxyAgent>()
+const proxyAgents = createProxyAgentCache()
 
-function getProxyAgent(proxyUrl: string): ProxyAgent {
-  const normalized = proxyUrl.includes('://') ? proxyUrl : `http://${proxyUrl}`
-  let agent = proxyAgents.get(normalized)
-  if (!agent) {
-    agent = new ProxyAgent(normalized)
-    proxyAgents.set(normalized, agent)
-  }
-  return agent
+function getProxyAgent(proxyUrl: string) {
+  return proxyAgents.get(proxyUrl)
 }
 
 export async function kiroFetch(

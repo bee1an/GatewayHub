@@ -7,6 +7,7 @@ import type {
   KiroProviderConfig,
   KiroProviderState
 } from '../../types'
+import { LRUCache } from 'lru-cache'
 import type { AccountInfo, AvailableModelsResponse, UsageLimitsResponse } from './types'
 import { GatewayLogger } from '../../core/logger'
 import { toErrorMessage } from '../../core/utils'
@@ -260,7 +261,10 @@ export class KiroAccountPool extends BaseAccountPool<KiroAccountConfig> {
     })
   }
 
-  private modelsCache = new Map<string, { data: AvailableModelsResponse; cachedAt: number }>()
+  private modelsCache = new LRUCache<string, { data: AvailableModelsResponse; cachedAt: number }>({
+    max: 100,
+    ttl: 15 * 60_000
+  })
 
   async listAvailableModels(
     accountId: string,

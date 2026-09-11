@@ -15,7 +15,13 @@ import {
   type ClassifiedError
 } from '../../core/accountPool'
 import { GEMINI_WEB_KNOWN_MODELS } from './constants'
-import { fetchAccessToken, fetchModels, patchSidts, rotateSidts } from './http'
+import {
+  clearProxyAgentCache,
+  fetchAccessToken,
+  fetchModels,
+  patchSidts,
+  rotateSidts
+} from './http'
 import type { GeminiWebRequestContext } from './types'
 
 export type GeminiWebAccountRuntime = AccountWithState<GeminiWebAccountConfig>
@@ -106,26 +112,35 @@ export class GeminiWebAccountPool extends BaseAccountPool<GeminiWebAccountConfig
   // --- reload: seed known models when an account has no cached list ---
 
   async reload(accountFiles: GeminiWebAccountConfig[]): Promise<void> {
-    this.accounts = accountFiles.map((account) => {
-      const state = this.lookupState(account.id) ?? this.defaultAccountState()
-      if (!Array.isArray(state.modelIds) || !state.modelIds.length) {
-        state.modelIds = [...GEMINI_WEB_KNOWN_MODELS]
-        state.modelsCachedAt = Date.now()
+    // 先停旧定时器，防止 reload 中途抛异常时旧定时器还在跑（僵尸 tick 引用已释放的
+    // this.accounts）。startKeepAlive 在 finally 里重建新定时器。
+    this.stopKeepAlive()
+    try {
+      this.accounts = accountFiles.map((account) => {
+        const state = this.lookupState(account.id) ?? this.defaultAccountState()
+        if (!Array.isArray(state.modelIds) || !state.modelIds.length) {
+          state.modelIds = [...GEMINI_WEB_KNOWN_MODELS]
+          state.modelsCachedAt = Date.now()
+        }
+        state.modelsCachedAt = Number(state.modelsCachedAt || 0)
+        state.status ??= 'available'
+        state.statusUpdatedAt ??= 0
+        this.storeState(account.id, state)
+        return { config: account, state }
+      })
+      const active = new Set(accountFiles.map((a) => a.id))
+      for (const id of this.stateIds()) {
+        if (!active.has(id)) this.deleteState(id)
       }
-      state.modelsCachedAt = Number(state.modelsCachedAt || 0)
-      state.status ??= 'available'
-      state.statusUpdatedAt ??= 0
-      this.storeState(account.id, state)
-      return { config: account, state }
-    })
-    const active = new Set(accountFiles.map((a) => a.id))
-    for (const id of this.stateIds()) {
-      if (!active.has(id)) this.deleteState(id)
+      this.onStateChanged()
+      // 账号加载完即启动保活,避免 reload 重复挂表(rebuild 时旧 provider dispose
+      // 已清掉定时器,这里重建是安全的)。
+      this.startKeepAlive()
+    } catch (e) {
+      // reload 失败时不重启定时器，此时 this.accounts 可能处于中间状态。
+      this.stopKeepAlive()
+      throw e
     }
-    this.onStateChanged()
-    // 账号加载完即启动保活,避免 reload 重复挂表(rebuild 时旧 provider dispose
-    // 已清掉定时器,这里重建是安全的)。
-    this.startKeepAlive()
   }
 
   /**
@@ -154,6 +169,7 @@ export class GeminiWebAccountPool extends BaseAccountPool<GeminiWebAccountConfig
 
   override async dispose(): Promise<void> {
     this.stopKeepAlive()
+    clearProxyAgentCache()
     await super.dispose()
   }
 

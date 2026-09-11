@@ -1,6 +1,7 @@
 import { createHash } from 'crypto'
-import { ProxyAgent, fetch as undiciFetch } from 'undici'
+import { fetch as undiciFetch } from 'undici'
 import type { GeminiWebAccountConfig, GeminiWebProviderSettings } from '../../types'
+import { createProxyAgentCache } from '../../core/proxyAgentCache'
 import {
   DEFAULT_GEMINI_WEB_BASE_URL,
   GEMINI_APP_PATH,
@@ -18,16 +19,15 @@ import type {
   GeminiWebSession
 } from './types'
 
-const proxyAgentCache = new Map<string, InstanceType<typeof ProxyAgent>>()
+const proxyAgentCache = createProxyAgentCache()
 
-function getProxyAgent(proxyUrl: string): InstanceType<typeof ProxyAgent> {
-  const normalized = proxyUrl.includes('://') ? proxyUrl : `http://${proxyUrl}`
-  let agent = proxyAgentCache.get(normalized)
-  if (!agent) {
-    agent = new ProxyAgent(normalized)
-    proxyAgentCache.set(normalized, agent)
-  }
-  return agent
+function getProxyAgent(proxyUrl: string) {
+  return proxyAgentCache.get(proxyUrl)
+}
+
+/** 清空代理缓存，provider dispose 时调用，释放不再使用的 ProxyAgent 实例。 */
+export function clearProxyAgentCache(): void {
+  proxyAgentCache.clear()
 }
 
 async function proxyFetch(url: string, init: RequestInit, proxyUrl?: string): Promise<Response> {

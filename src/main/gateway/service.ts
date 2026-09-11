@@ -1,4 +1,5 @@
 import { dirname, join } from 'path'
+import PQueue from 'p-queue'
 import type {
   AccountStatus,
   AccountTestResult,
@@ -1871,16 +1872,69 @@ export class GatewayHubService {
     if (added > 0 || skipped > 0) await this.rebuildRuntime(this.server?.running ?? false)
 
     // 反填新账号的 email + 模型列表。Gemini Web 没法从 cookie 里直接读身份,只能
-    // 请求 gemini.google.com/app 抓 WIZ 里的 oPEP7c。这里串行 await 而不是 fire-
-    // and-forget,因为没有"账号更新"的 IPC 推送——前端在 importGeminiWebJson 返回
-    // 后会立刻刷新一次状态,这是它唯一拿到 email 的时机。
+    // 请求 gemini.google.com/app 抓 WIZ 里的 oPEP7c。这里并发 3 个通道而非串行;
+    // 每个账号 8 秒超时,批量导入 10 个 cookie 最坏 ~27 秒而非 ~80 秒。
     //
-    // 每个账号 8 秒超时:gemini.google.com 通常 1-3 秒返回,8 秒能覆盖代理慢/抖动;
+    // 没有"账号更新"的 IPC 推送——前端在 importGeminiWebJson 返回后会立刻刷新
+    // 一次状态,这是它唯一拿到 email 的时机。
+    //
     // 探测失败不阻断导入返回,只在 errors 里加一条说明,账号本身已经写盘了。
-    // testAccount 失败时会自动把账号打 auth_failed/cooling,这是预期行为——cookie
-    // 死了应该立刻让用户看到。
+    // testAccount 失败时会自动把账号打 auth_failed/cooling,这是预期行为。
     if (addedIds.length > 0 && this.registry) {
-      for (const accountId of addedIds) {
+      await this.probeBatchWithConcurrency(addedIds, errors)
+      await this.persistStateSoon()
+    }
+
+    return { added, skipped, errors, status: await this.getStatus() }
+  }
+
+  /**
+   * 给账号身份探测加超时:Gemini/Codex 等 web 类账号反填 email 要请求第三方,
+   * 卡死的话会拖垮整个导入响应。超时只放弃这次探测,账号写盘不受影响。
+   *
+   * 注意:action() 在超时后可能仍在执行(HTTP 请求未取消),如果它后续 reject,
+   * 必须用 catch 兜住,否则 Node 会打出 UnhandledPromiseRejectionWarning。
+   * 这里先把 actionPromise 抽出,race 结束后再加 catch,避免干扰 race 阶段的
+   * 正常错误传播(超时前的 rejection 必须正确上抛)。
+   */
+  private async runAccountProbeWithTimeout<T>(
+    action: () => Promise<T>,
+    timeoutMs: number
+  ): Promise<T> {
+    let timer: NodeJS.Timeout | null = null
+    const actionPromise = action()
+    try {
+      return await Promise.race([
+        actionPromise,
+        new Promise<T>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`probe timed out after ${timeoutMs}ms`)),
+            timeoutMs
+          )
+        })
+      ])
+    } finally {
+      if (timer) clearTimeout(timer)
+      // 兜住超时后 action 可能产生的 rejection:如果 actionPromise 在超时前
+      // 已经 settle,这个 catch 是空操作;如果超时比 action 先到,action 的
+      // 后续 rejection 会被安静吞掉,不影响已返回的调用方。
+      actionPromise.catch(() => {})
+    }
+  }
+
+  /**
+   * 并发探测一批新导入的账号，最多 3 个通道同时运行。串行 10 个账号×8 秒约 80 秒,
+   * 并发 N=3 则降为 ~27 秒。结果收集到 errors 数组(每个账号的失败只追加一条日志,
+   * 不阻断其他账号)。
+   */
+  private async probeBatchWithConcurrency(
+    accountIds: string[],
+    errors: { message: string }[]
+  ): Promise<void> {
+    const CONCURRENCY = 3
+    const queue = new PQueue({ concurrency: CONCURRENCY })
+    for (const accountId of accountIds) {
+      void queue.add(async () => {
         try {
           await this.runAccountProbeWithTimeout(
             () => this.registry!.testAccount('geminiWeb', accountId),
@@ -1891,35 +1945,9 @@ export class GatewayHubService {
             message: `Account ${accountId} imported but identity probe failed: ${err?.message || String(err)}`
           })
         }
-      }
-      await this.persistStateSoon()
+      })
     }
-
-    return { added, skipped, errors, status: await this.getStatus() }
-  }
-
-  /**
-   * 给账号身份探测加超时:Gemini/Codex 等 web 类账号反填 email 要请求第三方,
-   * 卡死的话会拖垮整个导入响应。超时只放弃这次探测,账号写盘不受影响。
-   */
-  private async runAccountProbeWithTimeout<T>(
-    action: () => Promise<T>,
-    timeoutMs: number
-  ): Promise<T> {
-    let timer: NodeJS.Timeout | null = null
-    try {
-      return await Promise.race([
-        action(),
-        new Promise<T>((_, reject) => {
-          timer = setTimeout(
-            () => reject(new Error(`probe timed out after ${timeoutMs}ms`)),
-            timeoutMs
-          )
-        })
-      ])
-    } finally {
-      if (timer) clearTimeout(timer)
-    }
+    await queue.onIdle()
   }
 
   async testGeminiWebAccount(accountId: string): Promise<AccountTestResult> {

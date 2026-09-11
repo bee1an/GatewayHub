@@ -1,5 +1,6 @@
 import type { GeminiWebAccountConfig } from '../../types'
 import { sha256Short } from '../../core/utils'
+import { getCookieValue, normalizeCookieHeader, serializeCookiePairs } from '../../core/cookies'
 
 // Gemini web auth relies on Google sign-in cookies. __Secure-1PSID is the
 // load-bearing session cookie; the others improve resilience (SIDTS rotation,
@@ -52,41 +53,16 @@ export function normalizeGeminiWebImportedAccount(
   }
 }
 
-export function normalizeCookieHeader(value: unknown): string {
-  if (typeof value !== 'string') return ''
-  const seen = new Set<string>()
-  const parts: string[] = []
-  for (const rawPart of value.split(';')) {
-    const part = rawPart.trim()
-    const eq = part.indexOf('=')
-    if (eq <= 0) continue
-    const name = part.slice(0, eq).trim()
-    const cookieValue = part.slice(eq + 1).trim()
-    if (!name || !cookieValue) continue
-    const lower = name.toLowerCase()
-    if (seen.has(lower)) continue
-    seen.add(lower)
-    parts.push(`${name}=${cookieValue}`)
-  }
-  return parts.join('; ')
-}
-
 function buildCookieHeaderFromCookieArray(cookies: unknown): string {
   if (!Array.isArray(cookies)) return ''
-  // A full browser cookie export contains more than just the bare-minimum
-  // session cookies (SIDCC, *PSIDCC, COMPASS, NID all improve resilience).
-  // Keep them all rather than filtering to a subset — Gemini validates the
-  // whole cookie jar, so dropping cookies risks auth failures.
-  const parts: string[] = []
-  for (const cookie of cookies) {
-    if (!cookie || typeof cookie !== 'object') continue
-    const item = cookie as Record<string, unknown>
-    const name = pickString(item.name)
-    const value = item.value === null || item.value === undefined ? '' : String(item.value)
-    if (!name || !value) continue
-    parts.push(`${name}=${value}`)
-  }
-  return parts.join('; ')
+  return serializeCookiePairs(
+    cookies.flatMap((cookie): Array<[string, unknown]> => {
+      if (!cookie || typeof cookie !== 'object') return []
+      const item = cookie as Record<string, unknown>
+      const name = pickString(item.name)
+      return name ? [[name, item.value]] : []
+    })
+  )
 }
 
 function buildCookieHeaderFromNamedFields(raw: Record<string, any>): string {
@@ -108,18 +84,7 @@ function buildCookieHeaderFromNamedFields(raw: Record<string, any>): string {
   return pairs.join('; ')
 }
 
-export function getCookieValue(cookieHeader: string, name: string): string | undefined {
-  const lower = name.toLowerCase()
-  for (const part of cookieHeader.split(';')) {
-    const trimmed = part.trim()
-    const eq = trimmed.indexOf('=')
-    if (eq <= 0) continue
-    if (trimmed.slice(0, eq).trim().toLowerCase() === lower) return trimmed.slice(eq + 1).trim()
-  }
-  return undefined
-}
-
-function pickString(...values: unknown[]): string | undefined {
+export function pickString(...values: unknown[]): string | undefined {
   for (const value of values) {
     if (typeof value !== 'string') continue
     const trimmed = value.trim()
@@ -127,3 +92,5 @@ function pickString(...values: unknown[]): string | undefined {
   }
   return undefined
 }
+
+export { getCookieValue, normalizeCookieHeader } from '../../core/cookies'

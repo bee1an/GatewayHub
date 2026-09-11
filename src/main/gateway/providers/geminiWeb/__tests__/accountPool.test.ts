@@ -9,7 +9,8 @@ vi.mock('../http', () => ({
   rotateSidts: vi.fn(),
   patchSidts: vi.fn((cookie: string, newSidts: string) =>
     cookie.replace(/__Secure-1PSIDTS=[^;]+/g, `__Secure-1PSIDTS=${newSidts}`)
-  )
+  ),
+  clearProxyAgentCache: vi.fn()
 }))
 
 function makePool(

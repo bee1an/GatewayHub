@@ -13,7 +13,7 @@ import type {
   UsageStats
 } from '../../types'
 import { GatewayLogger } from '../../core/logger'
-import { jsonResponse, sseData, sleep, toErrorMessage } from '../../core/utils'
+import { estimateTokens, jsonResponse, sseData, sleep, toErrorMessage } from '../../core/utils'
 import {
   anthropicMessagesToOpenAIChatCompletions,
   openAIChatCompletionSseToAnthropicMessageSse,
@@ -98,7 +98,7 @@ export class GptWebProvider implements ProviderAdapter {
 
   async countTokens(body: any): Promise<GatewayResponse> {
     return jsonResponse(200, {
-      input_tokens: Math.max(1, Math.ceil(JSON.stringify(body).length / 4))
+      input_tokens: estimateTokens(body, body?.model)
     })
   }
 
@@ -178,7 +178,7 @@ export class GptWebProvider implements ProviderAdapter {
         const result = buildNonStreamResponse(text, model)
         if (onUsage) {
           onUsage(
-            { inputTokens: 0, outputTokens: Math.ceil(text.length / 4), estimated: true },
+            { inputTokens: 0, outputTokens: estimateTokens(text, model), estimated: true },
             { accountId: account.config.id, model, provider: 'gptWeb' }
           )
         }
@@ -241,7 +241,7 @@ export class GptWebProvider implements ProviderAdapter {
         })
         if (onUsage) {
           onUsage(
-            { inputTokens: 0, outputTokens: Math.ceil(state.content.length / 4), estimated: true },
+            { inputTokens: 0, outputTokens: estimateTokens(state.content, model), estimated: true },
             { accountId: account.config.id, model, provider: 'gptWeb' }
           )
         }
@@ -319,8 +319,8 @@ function buildNonStreamResponse(text: string, model: string): any {
     ],
     usage: {
       prompt_tokens: 0,
-      completion_tokens: Math.ceil(text.length / 4),
-      total_tokens: Math.ceil(text.length / 4)
+      completion_tokens: estimateTokens(text, model),
+      total_tokens: estimateTokens(text, model)
     }
   }
 }

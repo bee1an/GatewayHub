@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { ProxyAgent, fetch as undiciFetch } from 'undici'
+import { fetch as undiciFetch } from 'undici'
 import {
   GPT_WEB_USER_AGENT,
   GPT_WEB_CLIENT_BUILD_NUMBER,
@@ -14,19 +14,14 @@ import type {
 } from './types'
 import { buildRequirementsToken, solveProofOfWork } from './sentinel'
 import type { GptWebProviderSettings, GptWebAccountConfig } from '../../types'
+import { createProxyAgentCache } from '../../core/proxyAgentCache'
 import { fetchModelsViaNodeBridge, shouldUseNodeBridge } from './nodeBridge'
 
 /** Module-level ProxyAgent cache: reuse same dispatcher for same proxy URL */
-const proxyAgentCache = new Map<string, InstanceType<typeof ProxyAgent>>()
+const proxyAgentCache = createProxyAgentCache()
 
-function getProxyAgent(proxyUrl: string): InstanceType<typeof ProxyAgent> {
-  const normalized = proxyUrl.includes('://') ? proxyUrl : `http://${proxyUrl}`
-  let agent = proxyAgentCache.get(normalized)
-  if (!agent) {
-    agent = new ProxyAgent(normalized)
-    proxyAgentCache.set(normalized, agent)
-  }
-  return agent
+function getProxyAgent(proxyUrl: string) {
+  return proxyAgentCache.get(proxyUrl)
 }
 
 async function proxyFetch(url: string, init: RequestInit, proxyUrl?: string): Promise<Response> {

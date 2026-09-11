@@ -174,6 +174,31 @@ const api = {
     getTraeSettings: () => ipcRenderer.invoke('gateway:getTraeSettings'),
     updateTraeSettings: (settings: Record<string, any>) =>
       ipcRenderer.invoke('gateway:updateTraeSettings', settings),
+    // ========== TraeWork ==========
+    scanTraeWorkAccounts: () => ipcRenderer.invoke('gateway:scanTraeWorkAccounts'),
+    importScannedTraeWorkAccounts: (ids: string[]) =>
+      ipcRenderer.invoke('gateway:importScannedTraeWorkAccounts', ids),
+    importTraeWorkJson: (text: string) => ipcRenderer.invoke('gateway:importTraeWorkJson', text),
+    addTraeWorkJwtToken: (text: string) => ipcRenderer.invoke('gateway:addTraeWorkJwtToken', text),
+    addTraeWorkRefreshToken: (text: string) =>
+      ipcRenderer.invoke('gateway:addTraeWorkRefreshToken', text),
+    testTraeWorkAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:testTraeWorkAccount', accountId),
+    toggleTraeWorkAccount: (accountId: string, enabled: boolean) =>
+      ipcRenderer.invoke('gateway:toggleTraeWorkAccount', accountId, enabled),
+    removeTraeWorkAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:removeTraeWorkAccount', accountId),
+    getTraeWorkAccountInfo: (accountId: string) =>
+      ipcRenderer.invoke('gateway:getTraeWorkAccountInfo', accountId),
+    refreshTraeWorkAccountModels: (accountId: string) =>
+      ipcRenderer.invoke('gateway:refreshTraeWorkAccountModels', accountId),
+    resetTraeWorkAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:resetTraeWorkAccount', accountId),
+    setTraeWorkAccountStatus: (accountId: string, status: string, reason?: string) =>
+      ipcRenderer.invoke('gateway:setTraeWorkAccountStatus', accountId, status, reason),
+    getTraeWorkSettings: () => ipcRenderer.invoke('gateway:getTraeWorkSettings'),
+    updateTraeWorkSettings: (settings: Record<string, any>) =>
+      ipcRenderer.invoke('gateway:updateTraeWorkSettings', settings),
     // ========== OpenRouter ==========
     importOpenRouterJson: (text: string) =>
       ipcRenderer.invoke('gateway:importOpenRouterJson', text),

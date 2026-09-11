@@ -251,6 +251,36 @@ declare global {
         setTraeAccountStatus: (accountId: string, status: string, reason?: string) => Promise<any>
         getTraeSettings: () => Promise<any>
         updateTraeSettings: (settings: Record<string, any>) => Promise<any>
+        // ========== TraeWork ==========
+        scanTraeWorkAccounts: () => Promise<{
+          candidates: Array<{
+            id: string
+            email?: string
+            label?: string
+            countryCode?: string
+            existing?: boolean
+            sourceType?: string
+          }>
+        }>
+        importScannedTraeWorkAccounts: (ids: string[]) => Promise<{ added: any[]; status: any }>
+        importTraeWorkJson: (
+          text: string
+        ) => Promise<{ added: number; skipped: number; errors: string[]; status: any }>
+        addTraeWorkJwtToken: (text: string) => Promise<any>
+        addTraeWorkRefreshToken: (text: string) => Promise<any>
+        testTraeWorkAccount: (accountId: string) => Promise<any>
+        toggleTraeWorkAccount: (accountId: string, enabled: boolean) => Promise<any>
+        removeTraeWorkAccount: (accountId: string) => Promise<any>
+        getTraeWorkAccountInfo: (accountId: string) => Promise<any>
+        refreshTraeWorkAccountModels: (accountId: string) => Promise<any>
+        resetTraeWorkAccount: (accountId: string) => Promise<any>
+        setTraeWorkAccountStatus: (
+          accountId: string,
+          status: string,
+          reason?: string
+        ) => Promise<any>
+        getTraeWorkSettings: () => Promise<any>
+        updateTraeWorkSettings: (settings: Record<string, any>) => Promise<any>
         // ========== OpenRouter ==========
         importOpenRouterJson: (
           text: string

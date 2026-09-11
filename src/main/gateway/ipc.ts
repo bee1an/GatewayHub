@@ -9,6 +9,7 @@ import { DEFAULT_KIRO_SETTINGS } from './providers/kiro/constants'
 import { DEFAULT_CODEX_SETTINGS } from './providers/codex/constants'
 import { DEFAULT_WINDSURF_SETTINGS } from './providers/windsurf/constants'
 import { DEFAULT_TRAE_SETTINGS } from './providers/trae/constants'
+import { DEFAULT_TRAEWORK_SETTINGS } from './providers/traework/constants'
 import { DEFAULT_OPENROUTER_SETTINGS } from './providers/openrouter/constants'
 import { DEFAULT_NVIDIA_SETTINGS } from './providers/nvidia/constants'
 import { DEFAULT_GPT_WEB_SETTINGS } from './providers/gptWeb/constants'
@@ -34,6 +35,7 @@ const KIRO_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_KIRO_SETTINGS)
 const CODEX_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_CODEX_SETTINGS)
 const WINDSURF_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_WINDSURF_SETTINGS)
 const TRAE_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_TRAE_SETTINGS)
+const TRAEWORK_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_TRAEWORK_SETTINGS)
 const OPENROUTER_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_OPENROUTER_SETTINGS)
 const NVIDIA_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_NVIDIA_SETTINGS)
 const GPT_WEB_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_GPT_WEB_SETTINGS)
@@ -579,11 +581,93 @@ export function registerGatewayIpc(): void {
   )
   ipcMain.handle(
     'gateway:updateTraeSettings',
-    safeHandler((_event, settings: Record<string, any>) => {
-      const filtered = Object.fromEntries(
-        Object.entries(settings).filter(([k]) => TRAE_KEYS.has(k))
+    safeHandler((_event, settings: unknown) => {
+      const parsed = TRAE_SETTINGS_SCHEMA.parse(settings)
+      return gatewayHubService.updateTraeSettings(parsed)
+    })
+  )
+
+  // ============== TraeWork ==============
+
+  ipcMain.handle(
+    'gateway:scanTraeWorkAccounts',
+    safeHandler(() => gatewayHubService.scanTraeWorkAccounts())
+  )
+  ipcMain.handle(
+    'gateway:importScannedTraeWorkAccounts',
+    safeHandler((_event, ids: string[]) =>
+      withDaemonReload(() => gatewayHubService.importScannedTraeWorkAccounts(ids))
+    )
+  )
+  ipcMain.handle(
+    'gateway:importTraeWorkJson',
+    safeHandler((_event, text: string) =>
+      withDaemonReload(() => gatewayHubService.importTraeWorkAuthJson(text))
+    )
+  )
+  ipcMain.handle(
+    'gateway:addTraeWorkJwtToken',
+    safeHandler((_event, text: string) => gatewayHubService.addTraeWorkJwtToken(text))
+  )
+  ipcMain.handle(
+    'gateway:addTraeWorkRefreshToken',
+    safeHandler((_event, text: string) => gatewayHubService.addTraeWorkRefreshToken(text))
+  )
+  ipcMain.handle(
+    'gateway:testTraeWorkAccount',
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.testTraeWorkAccount(accountId))
+    )
+  )
+  ipcMain.handle(
+    'gateway:toggleTraeWorkAccount',
+    safeHandler((_event, accountId: string, enabled: boolean) =>
+      withDaemonReload(() => gatewayHubService.toggleTraeWorkAccount(accountId, enabled))
+    )
+  )
+  ipcMain.handle(
+    'gateway:removeTraeWorkAccount',
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.removeTraeWorkAccount(accountId))
+    )
+  )
+  ipcMain.handle(
+    'gateway:getTraeWorkAccountInfo',
+    safeHandler((_event, accountId: string) => gatewayHubService.getTraeWorkAccountInfo(accountId))
+  )
+  ipcMain.handle(
+    'gateway:refreshTraeWorkAccountModels',
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.refreshTraeWorkAccountModels(accountId))
+    )
+  )
+  ipcMain.handle(
+    'gateway:resetTraeWorkAccount',
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.resetTraeWorkAccount(accountId))
+    )
+  )
+  ipcMain.handle(
+    'gateway:setTraeWorkAccountStatus',
+    safeHandler((_event, accountId: unknown, status: unknown, reason?: unknown) =>
+      withDaemonReload(() =>
+        gatewayHubService.setTraeWorkAccountStatus(
+          nonEmptyStringSchema.parse(accountId),
+          accountStatusSchema.parse(status),
+          optionalStringSchema.parse(reason)
+        )
       )
-      return gatewayHubService.updateTraeSettings(filtered)
+    )
+  )
+  ipcMain.handle(
+    'gateway:getTraeWorkSettings',
+    safeHandler(() => gatewayHubService.getTraeWorkSettings())
+  )
+  ipcMain.handle(
+    'gateway:updateTraeWorkSettings',
+    safeHandler((_event, settings: unknown) => {
+      const parsed = TRAEWORK_SETTINGS_SCHEMA.parse(settings)
+      return gatewayHubService.updateTraeWorkSettings(parsed)
     })
   )
 

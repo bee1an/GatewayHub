@@ -338,6 +338,7 @@ const en = {
     codexTitle: 'Add Codex Account',
     windsurfTitle: 'Add Windsurf Account',
     traeTitle: 'Add Trae Account',
+    traeWorkTitle: 'Add Trae CN Account',
     openrouterTitle: 'Add OpenRouter Key',
     nvidiaTitle: 'Add NVIDIA API Key',
     gptWebTitle: 'Add GptWeb Account',
@@ -422,6 +423,17 @@ const en = {
     traeJsonHint:
       'Paste JSON with refreshToken or jwtToken/cloudIdeJwt (single object or array), optionally with label/email/countryCode.',
     traeJsonPlaceholder: '{ "refreshToken": "...", "label": "Trae" }',
+    traeWorkDiscoverDesc:
+      'Scan the local Trae Solo CN sign-in state (storage.json) and import Cloud-IDE-JWT/refresh token.',
+    traeWorkRefreshHint:
+      'Paste a Trae Solo CN refresh token. GatewayHub exchanges it for Cloud-IDE-JWT locally and stores it in the local config directory.',
+    traeWorkRefreshPlaceholder: 'Paste Trae CN refresh token...',
+    traeWorkJwtHint:
+      'Paste the Cloud-IDE-JWT used by Trae Solo CN requests. JWT-only accounts need manual updates after expiration; refresh token is recommended.',
+    traeWorkJwtPlaceholder: 'Paste Trae CN Cloud-IDE-JWT...',
+    traeWorkJsonHint:
+      'Paste JSON with refreshToken or jwtToken/cloudIdeJwt (single object or array), optionally with label/email.',
+    traeWorkJsonPlaceholder: '{ "refreshToken": "...", "label": "Trae CN" }',
     openrouterKeyHint:
       'Paste an OpenRouter API key (sk-or-v1-*). GatewayHub checks /key locally, detects free vs paid tier, and filters available models accordingly.',
     openrouterKeyPlaceholder: 'Paste OpenRouter API key...',

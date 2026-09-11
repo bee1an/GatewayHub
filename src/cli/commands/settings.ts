@@ -6,6 +6,7 @@ import { notifyDaemonReload } from '../daemon/controller'
 import { DEFAULT_KIRO_SETTINGS } from '../../main/gateway/providers/kiro/constants'
 import { DEFAULT_WINDSURF_SETTINGS } from '../../main/gateway/providers/windsurf/constants'
 import { DEFAULT_TRAE_SETTINGS } from '../../main/gateway/providers/trae/constants'
+import { DEFAULT_TRAEWORK_SETTINGS } from '../../main/gateway/providers/traework/constants'
 import { DEFAULT_OPENROUTER_SETTINGS } from '../../main/gateway/providers/openrouter/constants'
 import { DEFAULT_NVIDIA_SETTINGS } from '../../main/gateway/providers/nvidia/constants'
 import { DEFAULT_GPT_WEB_SETTINGS } from '../../main/gateway/providers/gptWeb/constants'
@@ -16,6 +17,7 @@ const PROVIDER_SETTING_KEYS = {
   kiro: new Set(Object.keys(DEFAULT_KIRO_SETTINGS)),
   windsurf: new Set(Object.keys(DEFAULT_WINDSURF_SETTINGS)),
   trae: new Set(Object.keys(DEFAULT_TRAE_SETTINGS)),
+  traework: new Set(Object.keys(DEFAULT_TRAEWORK_SETTINGS)),
   openrouter: new Set(Object.keys(DEFAULT_OPENROUTER_SETTINGS)),
   nvidia: new Set(Object.keys(DEFAULT_NVIDIA_SETTINGS)),
   gptWeb: new Set(Object.keys(DEFAULT_GPT_WEB_SETTINGS)),
@@ -33,7 +35,7 @@ export function registerSettingsCommands(cli: CAC): void {
   cli
     .command(
       'settings <group> <action> [...kvs]',
-      'Settings management (kiro|windsurf|trae|openrouter|nvidia|gptWeb|grokWeb|qoder show/set, auto-start show/on/off, host show/set, proxy show/set, use-proxy <provider> on|off)'
+      'Settings management (kiro|windsurf|trae|traework|openrouter|nvidia|gptWeb|grokWeb|qoder show/set, auto-start show/on/off, host show/set, proxy show/set, use-proxy <provider> on|off)'
     )
     .action(async (group: string, action: string, kvs: string[] = []) => {
       const service = await ensureServiceInitialized()
@@ -172,6 +174,7 @@ function isProviderSettingsGroup(group: string): group is ProviderSettingsGroup 
     group === 'kiro' ||
     group === 'windsurf' ||
     group === 'trae' ||
+    group === 'traework' ||
     group === 'openrouter' ||
     group === 'nvidia' ||
     group === 'gptWeb' ||
@@ -183,6 +186,7 @@ function isProviderSettingsGroup(group: string): group is ProviderSettingsGroup 
 function getProviderSettings(service: Service, group: ProviderSettingsGroup): Promise<any> {
   if (group === 'windsurf') return service.getWindsurfSettings()
   if (group === 'trae') return service.getTraeSettings()
+  if (group === 'traework') return service.getTraeWorkSettings()
   if (group === 'openrouter') return service.getOpenRouterSettings()
   if (group === 'nvidia') return service.getNvidiaSettings()
   if (group === 'gptWeb') return service.getGptWebSettings()
@@ -198,6 +202,7 @@ function updateProviderSettings(
 ): Promise<any> {
   if (group === 'windsurf') return service.updateWindsurfSettings(updates)
   if (group === 'trae') return service.updateTraeSettings(updates)
+  if (group === 'traework') return service.updateTraeWorkSettings(updates)
   if (group === 'openrouter') return service.updateOpenRouterSettings(updates)
   if (group === 'nvidia') return service.updateNvidiaSettings(updates)
   if (group === 'gptWeb') return service.updateGptWebSettings(updates)

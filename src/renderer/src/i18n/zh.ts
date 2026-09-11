@@ -332,6 +332,7 @@ const zh = {
     codexTitle: '添加 Codex 账号',
     windsurfTitle: '添加 Windsurf 账号',
     traeTitle: '添加 Trae 账号',
+    traeWorkTitle: '添加 Trae CN 账号',
     openrouterTitle: '添加 OpenRouter Key',
     nvidiaTitle: '添加 NVIDIA API Key',
     gptWebTitle: '添加 GptWeb 账号',
@@ -412,6 +413,17 @@ const zh = {
     traeJsonHint:
       '粘贴包含 refreshToken 或 jwtToken/cloudIdeJwt 的 JSON（单对象或数组），可选包含 label/email/countryCode。',
     traeJsonPlaceholder: '{ "refreshToken": "...", "label": "Trae" }',
+    traeWorkDiscoverDesc:
+      '扫描本机 Trae Solo CN（TraeWork 国内版）登录状态（storage.json），自动导入 Cloud-IDE-JWT/refresh token。',
+    traeWorkRefreshHint:
+      '粘贴 Trae Solo CN 的 refresh token；GatewayHub 会在本地换取 Cloud-IDE-JWT 并保存到本机配置目录。',
+    traeWorkRefreshPlaceholder: '粘贴 Trae CN refresh token...',
+    traeWorkJwtHint:
+      '粘贴 Trae Solo CN 请求里使用的 Cloud-IDE-JWT。JWT 过期后需要手动更新，建议优先使用 refresh token。',
+    traeWorkJwtPlaceholder: '粘贴 Trae CN Cloud-IDE-JWT...',
+    traeWorkJsonHint:
+      '粘贴包含 refreshToken 或 jwtToken/cloudIdeJwt 的 JSON（单对象或数组），可选包含 label/email。',
+    traeWorkJsonPlaceholder: '{ "refreshToken": "...", "label": "Trae CN" }',
     openrouterKeyHint:
       '粘贴 OpenRouter API Key（sk-or-v1-*）。GatewayHub 会在本地调用 /key 判断免费/付费层级，并按层级过滤可用模型。',
     openrouterKeyPlaceholder: '粘贴 OpenRouter API Key...',

@@ -17,6 +17,7 @@ import type {
   ProviderStatus,
   QoderAccountConfig,
   TraeAccountConfig,
+  TraeWorkAccountConfig,
   WindsurfAccountConfig
 } from './types'
 import { GatewayConfigStore, sanitizeModelMappings } from './configStore'
@@ -54,6 +55,10 @@ import {
   parseWindsurfAuthInput
 } from './providers/windsurf/normalize'
 import { buildTraeAccountFromInput, parseTraeAuthInput } from './providers/trae/normalize'
+import {
+  buildTraeWorkAccountFromInput,
+  parseTraeWorkAuthInput
+} from './providers/traework/normalize'
 import {
   buildOpenRouterAccountFromInput,
   parseOpenRouterAuthInput
@@ -475,6 +480,7 @@ export class GatewayHubService {
       'codex',
       'windsurf',
       'trae',
+      'traework',
       'gptWeb',
       'grokWeb',
       'qoder',
@@ -1237,6 +1243,173 @@ export class GatewayHubService {
   async updateTraeSettings(settings: Partial<Record<string, any>>): Promise<GatewayStatusSnapshot> {
     await this.ensureReady()
     Object.assign(this.config!.providers.trae.settings, settings)
+    await this.store.saveConfig(this.config!)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  // ============== TraeWork ==============
+
+  async scanTraeWorkAccounts(): Promise<{ candidates: any[] }> {
+    await this.ensureReady()
+    const dataDir = this.config?.providers?.traework?.settings?.dataDir
+    return this.store.scanTraeWorkAccounts(typeof dataDir === 'string' ? dataDir : undefined)
+  }
+
+  async importScannedTraeWorkAccounts(
+    ids: string[]
+  ): Promise<{ added: TraeWorkAccountConfig[]; status: GatewayStatusSnapshot }> {
+    await this.ensureReady()
+    const dataDir = this.config?.providers?.traework?.settings?.dataDir
+    const { candidates } = await this.store.scanTraeWorkAccounts(
+      typeof dataDir === 'string' ? dataDir : undefined
+    )
+    const selected = candidates.filter((c) => ids.includes(c.id) && !c.existing)
+    const added: TraeWorkAccountConfig[] = []
+    for (const candidate of selected) {
+      try {
+        await this.store.writeTraeWorkAccountFile(candidate)
+        added.push(candidate)
+      } catch {
+        // skip
+      }
+    }
+    if (added.length) await this.rebuildRuntime(this.server?.running ?? false)
+    return { added, status: await this.getStatus() }
+  }
+
+  async importTraeWorkAuthJson(
+    text: string
+  ): Promise<{ added: number; skipped: number; errors: string[]; status: GatewayStatusSnapshot }> {
+    await this.ensureReady()
+    const trimmed = text.trim()
+    if (!trimmed) throw new Error('Empty TraeWork credential input')
+    const payloads = parseTraeWorkAuthInput(trimmed)
+    if (!payloads.length) {
+      throw new Error(
+        'No TraeWork credentials found. Expected jwtToken/cloudIdeJwt/accessToken or refreshToken.'
+      )
+    }
+    let added = 0,
+      updated = 0
+    const errors: string[] = []
+    const existing = await this.store.readTraeWorkAccountFiles()
+    const existingIds = new Set(existing.map((a) => a.id))
+    for (const account of payloads) {
+      try {
+        if (existingIds.has(account.id)) {
+          await this.store.updateTraeWorkAccountFile(account.id, {
+            jwtToken: account.jwtToken,
+            refreshToken: account.refreshToken,
+            tokenExpiresAt: account.tokenExpiresAt,
+            refreshExpiresAt: account.refreshExpiresAt,
+            email: account.email,
+            label: account.label,
+            userId: account.userId,
+            countryCode: account.countryCode,
+            authType: account.authType,
+            authBaseUrl: account.authBaseUrl,
+            coreBaseUrl: account.coreBaseUrl,
+            deviceId: account.deviceId,
+            machineId: account.machineId,
+            devDeviceId: account.devDeviceId,
+            deviceBrand: account.deviceBrand,
+            osVersion: account.osVersion
+          })
+          updated++
+        } else {
+          await this.store.writeTraeWorkAccountFile(account)
+          existingIds.add(account.id)
+          added++
+        }
+      } catch (error) {
+        errors.push(toErrorMessage(error))
+      }
+    }
+    if (added > 0 || updated > 0) await this.rebuildRuntime(this.server?.running ?? false)
+    return { added, skipped: updated, errors, status: await this.getStatus() }
+  }
+
+  async addTraeWorkJwtToken(text: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const account = buildTraeWorkAccountFromInput({ jwtToken: text.trim() })
+    if (!account) throw new Error('Invalid TraeWork JWT token')
+    await this.store.writeTraeWorkAccountFile(account)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async addTraeWorkRefreshToken(text: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const account = buildTraeWorkAccountFromInput({ refreshToken: text.trim() })
+    if (!account) throw new Error('Invalid TraeWork refresh token')
+    await this.store.writeTraeWorkAccountFile(account)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async testTraeWorkAccount(accountId: string): Promise<AccountTestResult> {
+    await this.ensureReady()
+    const result = await this.registry!.testAccount('traework', accountId)
+    await this.persistStateSoon()
+    return result
+  }
+
+  async toggleTraeWorkAccount(accountId: string, enabled: boolean): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.store.updateTraeWorkAccountFile(accountId, { enabled })
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async removeTraeWorkAccount(accountId: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const deleted = await this.store.deleteTraeWorkAccountFile(accountId)
+    if (!deleted) throw new Error(`TraeWork account not found: ${accountId}`)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async getTraeWorkAccountInfo(accountId: string) {
+    await this.ensureReady()
+    return this.registry!.getAccountInfo('traework', accountId)
+  }
+
+  async refreshTraeWorkAccountModels(accountId: string) {
+    await this.ensureReady()
+    const models = await this.registry!.refreshAccountModels('traework', accountId)
+    await this.persistStateSoon()
+    return models
+  }
+
+  async resetTraeWorkAccount(accountId: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.registry!.resetAccount('traework', accountId)
+    await this.persistStateSoon()
+    return this.getStatus()
+  }
+
+  async setTraeWorkAccountStatus(
+    accountId: string,
+    status: AccountStatus,
+    reason?: string
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.registry!.setAccountStatus('traework', accountId, status, reason)
+    await this.persistStateSoon()
+    return this.getStatus()
+  }
+
+  async getTraeWorkSettings() {
+    await this.ensureReady()
+    return this.config!.providers.traework.settings
+  }
+
+  async updateTraeWorkSettings(
+    settings: Partial<Record<string, any>>
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    Object.assign(this.config!.providers.traework.settings, settings)
     await this.store.saveConfig(this.config!)
     await this.rebuildRuntime(this.server?.running ?? false)
     return this.getStatus()
@@ -2249,6 +2422,7 @@ export class GatewayHubService {
     const codexFiles = await this.store.readCodexAccountFiles()
     const windsurfFiles = await this.store.readWindsurfAccountFiles()
     const traeFiles = await this.store.readTraeAccountFiles()
+    const traeworkFiles = await this.store.readTraeWorkAccountFiles()
     const openrouterFiles = await this.store.readOpenRouterAccountFiles()
     const nvidiaFiles = await this.store.readNvidiaAccountFiles()
     const gptWebFiles = await this.store.readGptWebAccountFiles()
@@ -2304,6 +2478,15 @@ export class GatewayHubService {
             category: 'system'
           })
         }
+      },
+      async (accountId, updates) => {
+        try {
+          await this.store.updateTraeWorkAccountFile(accountId, updates)
+        } catch (error) {
+          this.logger.warn(`updateTraeWorkAccountFile failed: ${toErrorMessage(error)}`, {
+            category: 'system'
+          })
+        }
       }
     )
     await this.registry.initialize(
@@ -2316,7 +2499,8 @@ export class GatewayHubService {
       gptWebFiles,
       grokWebFiles,
       qoderFiles,
-      geminiWebFiles
+      geminiWebFiles,
+      traeworkFiles
     )
     this.server = new GatewayServer(
       this.config!,
@@ -2350,6 +2534,7 @@ export class GatewayHubService {
   /** Ensures provider state slots that were added in later versions exist on legacy state. */
   private ensureLazyProviderState(): void {
     if (!this.state) return
+    this.state.providers.traework ??= { accounts: {}, currentAccountIndex: 0, logs: [] }
     this.state.providers.nvidia ??= { accounts: {}, currentAccountIndex: 0, logs: [] }
     this.state.providers.gptWeb ??= { accounts: {}, currentAccountIndex: 0, logs: [] }
     this.state.providers.grokWeb ??= { accounts: {}, currentAccountIndex: 0, logs: [] }
@@ -2379,6 +2564,7 @@ const LOG_MIRROR_PROVIDERS = [
   'codex',
   'windsurf',
   'trae',
+  'traework',
   'openrouter',
   'nvidia',
   'gptWeb',

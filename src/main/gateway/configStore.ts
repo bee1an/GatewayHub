@@ -16,6 +16,7 @@ import type {
   OpenRouterAccountConfig,
   QoderAccountConfig,
   TraeAccountConfig,
+  TraeWorkAccountConfig,
   WindsurfAccountConfig
 } from './types'
 import {
@@ -32,6 +33,8 @@ import { DEFAULT_WINDSURF_SETTINGS } from './providers/windsurf/constants'
 import { scanExternalWindsurfAccounts } from './providers/windsurf/localState'
 import { DEFAULT_TRAE_SETTINGS, LEGACY_TRAE_MODEL_LIST_PATH } from './providers/trae/constants'
 import { scanExternalTraeAccounts } from './providers/trae/localState'
+import { DEFAULT_TRAEWORK_SETTINGS } from './providers/traework/constants'
+import { scanExternalTraeWorkAccounts } from './providers/traework/localState'
 import { DEFAULT_OPENROUTER_SETTINGS } from './providers/openrouter/constants'
 import { DEFAULT_NVIDIA_SETTINGS } from './providers/nvidia/constants'
 import { DEFAULT_GPT_WEB_SETTINGS } from './providers/gptWeb/constants'
@@ -71,6 +74,10 @@ export class GatewayConfigStore {
 
   traeAccountsDir(): string {
     return join(dirname(this.configPath), 'trae', 'accounts')
+  }
+
+  traeworkAccountsDir(): string {
+    return join(dirname(this.configPath), 'traework', 'accounts')
   }
 
   openrouterAccountsDir(): string {
@@ -202,6 +209,7 @@ export class GatewayConfigStore {
       'codex',
       'windsurf',
       'trae',
+      'traework',
       'gptWeb',
       'grokWeb',
       'qoder',
@@ -537,6 +545,65 @@ export class GatewayConfigStore {
     return scanExternalTraeAccounts()
   }
 
+  // ============== TraeWork account file management ==============
+
+  private readonly traeworkStore = new AccountFileStore<TraeWorkAccountConfig>({
+    dir: () => this.traeworkAccountsDir(),
+    providerLabel: 'traework',
+    backfillId: (data) => {
+      if (!data.id) data.id = makeTraeWorkStableId(data)
+      return data
+    },
+    fileNameSource: (data) => data.email || data.label || data.id,
+    strip: (data) => {
+      const {
+        path: _path,
+        sourceType: _sourceType,
+        existing: _existing,
+        ...rest
+      } = data as TraeWorkAccountConfig & { sourceType?: string; existing?: boolean }
+      return rest
+    },
+    renameOnEmailChange: true
+  })
+
+  readTraeWorkAccountFiles(): Promise<TraeWorkAccountConfig[]> {
+    return this.traeworkStore.readAll()
+  }
+
+  writeTraeWorkAccountFile(data: TraeWorkAccountConfig): Promise<string> {
+    return this.traeworkStore.write(data)
+  }
+
+  deleteTraeWorkAccountFile(accountId: string): Promise<boolean> {
+    return this.traeworkStore.delete(accountId)
+  }
+
+  updateTraeWorkAccountFile(
+    accountId: string,
+    updates: Partial<TraeWorkAccountConfig>
+  ): Promise<void> {
+    return this.traeworkStore.update(accountId, updates)
+  }
+
+  async scanTraeWorkAccounts(dataDir?: string): Promise<{
+    candidates: Array<TraeWorkAccountConfig & { existing?: boolean; sourceType?: string }>
+  }> {
+    const external = await scanExternalTraeWorkAccounts(dataDir)
+    const existing = await this.readTraeWorkAccountFiles()
+    const existingKeys = new Set<string>()
+    for (const acc of existing) {
+      for (const key of traeworkIdentityKeys(acc)) existingKeys.add(key)
+    }
+    const result: Array<TraeWorkAccountConfig & { existing?: boolean; sourceType?: string }> = []
+    for (const candidate of external) {
+      const keys = traeworkIdentityKeys(candidate)
+      const isExisting = keys.some((key) => existingKeys.has(key))
+      result.push({ ...candidate, existing: isExisting || undefined })
+    }
+    return { candidates: result }
+  }
+
   // ============== OpenRouter account file management ==============
 
   private readonly openrouterStore = new AccountFileStore<OpenRouterAccountConfig>({
@@ -818,6 +885,12 @@ export class GatewayConfigStore {
           routeName: 'trae',
           settings: { ...DEFAULT_TRAE_SETTINGS }
         },
+        traework: {
+          enabled: true,
+          useProxy: false,
+          routeName: 'traework',
+          settings: { ...DEFAULT_TRAEWORK_SETTINGS }
+        },
         openrouter: {
           enabled: true,
           routeName: 'openrouter',
@@ -882,6 +955,11 @@ export class GatewayConfigStore {
           logs: []
         },
         trae: {
+          accounts: {},
+          currentAccountIndex: 0,
+          logs: []
+        },
+        traework: {
           accounts: {},
           currentAccountIndex: 0,
           logs: []
@@ -1096,6 +1174,20 @@ export class GatewayConfigStore {
           useProxy: resolveUseProxy('trae'),
           settings: traeSettings
         },
+        traework: {
+          ...defaults.providers.traework,
+          ...(input?.providers?.traework ?? {}),
+          routeName: input?.providers?.traework?.routeName || defaults.providers.traework.routeName,
+          enabled:
+            typeof input?.providers?.traework?.enabled === 'boolean'
+              ? input.providers.traework.enabled
+              : defaults.providers.traework.enabled,
+          useProxy: resolveUseProxy('traework'),
+          settings: {
+            ...defaults.providers.traework.settings,
+            ...(input?.providers?.traework?.settings ?? {})
+          }
+        },
         openrouter: {
           ...defaults.providers.openrouter,
           ...(input?.providers?.openrouter ?? {}),
@@ -1235,6 +1327,14 @@ export class GatewayConfigStore {
           accounts: input?.providers?.trae?.accounts ?? {},
           logs: Array.isArray(input?.providers?.trae?.logs)
             ? input.providers.trae.logs.slice(-1000)
+            : []
+        },
+        traework: {
+          ...defaults.providers.traework,
+          ...(input?.providers?.traework ?? {}),
+          accounts: input?.providers?.traework?.accounts ?? {},
+          logs: Array.isArray(input?.providers?.traework?.logs)
+            ? input.providers.traework.logs.slice(-1000)
             : []
         },
         openrouter: {
@@ -1507,6 +1607,23 @@ function makeTraeStableId(account: Partial<TraeAccountConfig>): string {
   return `trae-${sha256Short(Math.random().toString(), 12)}`
 }
 
+function makeTraeWorkStableId(account: Partial<TraeWorkAccountConfig>): string {
+  if (account.userId) return `traework-user-${sha256Short(account.userId, 12)}`
+  if (account.refreshToken) return `traework-refresh-${sha256Short(account.refreshToken, 12)}`
+  if (account.jwtToken) return `traework-jwt-${sha256Short(account.jwtToken, 12)}`
+  return `traework-${sha256Short(Math.random().toString(), 12)}`
+}
+
+function traeworkIdentityKeys(account: Partial<TraeWorkAccountConfig>): string[] {
+  const keys: string[] = []
+  if (account.userId) keys.push(`traework-user:${account.userId}`)
+  if (account.email) keys.push(`traework-email:${account.email.toLowerCase()}`)
+  if (account.refreshToken) keys.push(`traework-refresh:${sha256Short(account.refreshToken)}`)
+  if (!keys.length && account.jwtToken) keys.push(`traework-jwt:${sha256Short(account.jwtToken)}`)
+  if (!keys.length && account.id) keys.push(`traework-id:${account.id}`)
+  return keys
+}
+
 function codexIdentityKeys(account: Partial<CodexAccountConfig>): string[] {
   const keys: string[] = []
   if (account.gptWebAccountId) keys.push(`codex-acct:${account.gptWebAccountId}`)
@@ -1719,8 +1836,7 @@ async function extractAccountFromSqlite(
 
       for (const key of SQLITE_TOKEN_KEYS) {
         const row = db.prepare('SELECT value FROM auth_kv WHERE key = ?').get(key) as
-          | { value?: string }
-          | undefined
+          { value?: string } | undefined
         if (!row?.value) continue
         const tokenJson = JSON.parse(row.value)
         accessToken = tokenJson.access_token || tokenJson.accessToken || ''
@@ -1733,8 +1849,7 @@ async function extractAccountFromSqlite(
 
       for (const key of SQLITE_REGISTRATION_KEYS) {
         const row = db.prepare('SELECT value FROM auth_kv WHERE key = ?').get(key) as
-          | { value?: string }
-          | undefined
+          { value?: string } | undefined
         if (!row?.value) continue
         const reg = JSON.parse(row.value)
         clientId = reg.client_id || reg.clientId || ''

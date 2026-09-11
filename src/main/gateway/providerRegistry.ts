@@ -17,6 +17,7 @@ import type {
   ProviderStatus,
   QoderAccountConfig,
   TraeAccountConfig,
+  TraeWorkAccountConfig,
   WindsurfAccountConfig
 } from './types'
 import { GatewayLogger } from './core/logger'
@@ -24,6 +25,7 @@ import { KiroProvider } from './providers/kiro/provider'
 import { CodexProvider } from './providers/codex/provider'
 import { WindsurfProvider } from './providers/windsurf/provider'
 import { TraeProvider } from './providers/trae/provider'
+import { TraeWorkProvider } from './providers/traework/provider'
 import { OpenRouterProvider } from './providers/openrouter/provider'
 import { NvidiaProvider } from './providers/nvidia/provider'
 import { GptWebProvider } from './providers/gptWeb/provider'
@@ -99,6 +101,10 @@ export class ProviderRegistry {
     private readonly persistGeminiWebAccount?: (
       accountId: string,
       updates: Partial<GeminiWebAccountConfig>
+    ) => Promise<void>,
+    private readonly persistTraeWorkAccount?: (
+      accountId: string,
+      updates: Partial<TraeWorkAccountConfig>
     ) => Promise<void>
   ) {
     for (const mapping of config.modelMappings ?? []) {
@@ -118,7 +124,8 @@ export class ProviderRegistry {
     gptWebAccountFiles: GptWebAccountConfig[] = [],
     grokWebAccountFiles: GrokWebAccountConfig[] = [],
     qoderAccountFiles: QoderAccountConfig[] = [],
-    geminiWebAccountFiles: GeminiWebAccountConfig[] = []
+    geminiWebAccountFiles: GeminiWebAccountConfig[] = [],
+    traeworkAccountFiles: TraeWorkAccountConfig[] = []
   ): Promise<void> {
     const p = this.config.providers
     const s = this.state.providers
@@ -136,6 +143,7 @@ export class ProviderRegistry {
     p.codex.settings.vpnProxyUrl = resolveProxy(p.codex.useProxy)
     p.windsurf.settings.vpnProxyUrl = resolveProxy(p.windsurf.useProxy)
     p.trae.settings.vpnProxyUrl = resolveProxy(p.trae.useProxy)
+    p.traework.settings.vpnProxyUrl = resolveProxy(p.traework.useProxy)
     p.gptWeb.settings.vpnProxyUrl = resolveProxy(p.gptWeb.useProxy)
     p.grokWeb.settings.vpnProxyUrl = resolveProxy(p.grokWeb.useProxy)
     p.qoder.settings.vpnProxyUrl = resolveProxy(p.qoder.useProxy)
@@ -157,6 +165,11 @@ export class ProviderRegistry {
       'trae',
       new TraeProvider(p.trae, s.trae, log, onChange, this.persistTraeAccount),
       traeAccountFiles
+    )
+    await this.initProvider(
+      'traework',
+      new TraeWorkProvider(p.traework, s.traework, log, onChange, this.persistTraeWorkAccount),
+      traeworkAccountFiles
     )
     await this.initProvider(
       'openrouter',
@@ -296,6 +309,7 @@ export class ProviderRegistry {
       'codex',
       'windsurf',
       'trae',
+      'traework',
       'gptWeb',
       'grokWeb',
       'qoder',

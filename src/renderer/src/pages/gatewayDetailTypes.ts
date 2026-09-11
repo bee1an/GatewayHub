@@ -15,12 +15,7 @@ export type Provider = {
 }
 
 export type AccountStatus =
-  | 'available'
-  | 'cooling'
-  | 'rate_limited'
-  | 'quota_exceeded'
-  | 'auth_failed'
-  | 'manual_disabled'
+  'available' | 'cooling' | 'rate_limited' | 'quota_exceeded' | 'auth_failed' | 'manual_disabled'
 
 export type Account = {
   id: string

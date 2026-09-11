@@ -3,6 +3,7 @@ export type ProviderName =
   | 'codex'
   | 'windsurf'
   | 'trae'
+  | 'traework'
   | 'openrouter'
   | 'nvidia'
   | 'gptWeb'
@@ -21,6 +22,7 @@ export interface GatewayHubConfig {
     codex: CodexProviderConfig
     windsurf: WindsurfProviderConfig
     trae: TraeProviderConfig
+    traework: TraeWorkProviderConfig
     openrouter: OpenRouterProviderConfig
     nvidia: NvidiaProviderConfig
     gptWeb: GptWebProviderConfig
@@ -269,6 +271,77 @@ export interface TraeAccountConfig {
   userId?: string
   countryCode?: string
   authType?: string
+  authBaseUrl?: string
+  coreBaseUrl?: string
+}
+
+export interface TraeWorkProviderConfig {
+  enabled: boolean
+  /** When true, this gateway routes upstream requests through the global server.proxyUrl. Defaults to false. */
+  useProxy?: boolean
+  routeName?: string
+  displayName?: string
+  settings: TraeWorkProviderSettings
+}
+
+export interface TraeWorkProviderSettings {
+  /** TraeWork agent gateway base URL, defaults to https://api5-normal.mchost.guru */
+  coreBaseUrl: string
+  /** Trae CN auth base URL used by ExchangeToken, defaults to https://api.trae.cn */
+  authBaseUrl: string
+  /** OAuth client id shared with Trae CN builds */
+  clientId: string
+  /** Raw LLM chat endpoint; llm_utils_chat bypasses the encrypted agent-task pipeline */
+  rawChatPath: string
+  /** Model catalog endpoint (batch detail params) */
+  detailParamPath: string
+  /** Trae app id observed in official TraeWork requests */
+  appId: string
+  /** TraeWork IDE version reported in headers, e.g. 0.1.64 */
+  ideVersion: string
+  /** x-ide-version-code / x-app-version-code reported by TraeWork, e.g. 20260901 */
+  versionCode: string
+  /** package-type header value, e.g. stable_cn */
+  packageType: string
+  /** function field for llm_utils_chat payloads, e.g. chat_v3 */
+  function: string
+  /** TRAE SOLO CN data directory used for local account scanning */
+  dataDir: string
+  /**
+   * Runtime-injected proxy URL. Not user-configured — resolved from the global
+   * `server.proxyUrl` + this provider's `useProxy` flag by the registry on rebuild.
+   */
+  vpnProxyUrl: string
+  firstTokenTimeoutSeconds: number
+  streamingReadTimeoutSeconds: number
+  maxRetries: number
+}
+
+export interface TraeWorkAccountConfig {
+  id: string
+  label?: string
+  email?: string
+  enabled: boolean
+  path?: string
+  /** Cloud-IDE-JWT token used by TraeWork requests */
+  jwtToken?: string
+  /** Trae CN refresh token accepted by /cloudide/api/v3/trae/oauth/ExchangeToken */
+  refreshToken?: string
+  tokenExpiresAt?: number
+  refreshExpiresAt?: number
+  userId?: string
+  countryCode?: string
+  authType?: string
+  /** Numeric device id reported in x-device-id (embedded in the icube-dc storage key) */
+  deviceId?: string
+  /** telemetry.machineId from the TraeWork storage.json */
+  machineId?: string
+  /** telemetry.devDeviceId (uuid) */
+  devDeviceId?: string
+  /** x-device-brand, e.g. Mac16,1 */
+  deviceBrand?: string
+  /** x-os-version, e.g. macOS 15.7.7 */
+  osVersion?: string
   authBaseUrl?: string
   coreBaseUrl?: string
 }
@@ -535,6 +608,7 @@ export interface GatewayHubState {
     codex: CodexProviderState
     windsurf: WindsurfProviderState
     trae: TraeProviderState
+    traework: TraeWorkProviderState
     openrouter: OpenRouterProviderState
     nvidia: NvidiaProviderState
     gptWeb: GptWebProviderState
@@ -569,13 +643,14 @@ export interface TraeProviderState {
   logs: GatewayLogEntry[]
 }
 
+export interface TraeWorkProviderState {
+  accounts: Record<string, AccountRuntimeState>
+  currentAccountIndex: number
+  logs: GatewayLogEntry[]
+}
+
 export type AccountStatus =
-  | 'available'
-  | 'cooling'
-  | 'rate_limited'
-  | 'quota_exceeded'
-  | 'auth_failed'
-  | 'manual_disabled'
+  'available' | 'cooling' | 'rate_limited' | 'quota_exceeded' | 'auth_failed' | 'manual_disabled'
 
 /**
  * Common core of every per-provider account config. Every `XxxAccountConfig`

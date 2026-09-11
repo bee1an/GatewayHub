@@ -1,7 +1,9 @@
 import { createCipheriv, createDecipheriv, createHash, randomUUID } from 'crypto'
+import { createParser } from 'eventsource-parser'
+import { LRUCache } from 'lru-cache'
 import { readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
-import { ProxyAgent, fetch as undiciFetch } from 'undici'
+import { fetch as undiciFetch } from 'undici'
 import type { GatewayRequestContext, QoderAccountConfig, QoderProviderSettings } from '../../types'
 import { estimateTokens, toErrorMessage } from '../../core/utils'
 import {
@@ -17,6 +19,7 @@ import {
   type QoderLegacyModelId
 } from './constants'
 import { getQoderAuthWasm } from './wasm'
+import { createProxyAgentCache } from '../../core/proxyAgentCache'
 
 export type QoderChatStreamEvent = {
   raw?: any
@@ -88,8 +91,11 @@ const USER_PLAN_PATH = '/api/v2/user/plan'
 const USER_STATUS_PATH = '/api/v3/user/status'
 const TOKEN_REFRESH_SKEW_MS = 5 * 60_000
 
-const proxyAgents = new Map<string, ProxyAgent>()
-const exchangedPersonalTokens = new Map<string, CachedQoderToken>()
+const proxyAgents = createProxyAgentCache()
+const exchangedPersonalTokens = new LRUCache<string, CachedQoderToken>({
+  max: 100,
+  ttl: 60 * 60_000
+})
 
 interface CachedQoderToken {
   accessToken: string
@@ -1137,7 +1143,11 @@ async function* parseQoderSse(
 ): AsyncGenerator<QoderChatStreamEvent> {
   const reader = body.getReader()
   const decoder = new TextDecoder('utf-8')
-  let buffer = ''
+  const pending: Array<{ event?: string; data: string }> = []
+  const parser = createParser({
+    maxBufferSize: 1024 * 1024,
+    onEvent: (event) => pending.push({ event: event.event, data: event.data })
+  })
   let sawFrame = false
   try {
     while (true) {
@@ -1148,23 +1158,17 @@ async function* parseQoderSse(
         signal
       )
       if (next.done) break
-      buffer += decoder.decode(next.value, { stream: true })
-      while (true) {
-        const separator = findSseSeparator(buffer)
-        if (!separator) break
-        const frame = buffer.slice(0, separator.index)
-        buffer = buffer.slice(separator.index + separator.length)
-        const event = parseSseFrame(frame)
-        if (!event) continue
+      parser.feed(decoder.decode(next.value, { stream: true }))
+      while (pending.length) {
+        const event = pending.shift()!
         sawFrame = true
         yield normalizeSseEvent(event)
       }
     }
-    buffer += decoder.decode()
-    if (buffer.trim()) {
-      const event = parseSseFrame(buffer)
-      if (event) yield normalizeSseEvent(event)
-    }
+    const tail = decoder.decode()
+    if (tail) parser.feed(tail)
+    parser.reset({ consume: true })
+    while (pending.length) yield normalizeSseEvent(pending.shift()!)
   } finally {
     try {
       reader.releaseLock()
@@ -1409,30 +1413,6 @@ function extractFirstJsonValue(value: string): string | undefined {
   return undefined
 }
 
-function parseSseFrame(frame: string): { event?: string; data: string } | undefined {
-  const data: string[] = []
-  let event: string | undefined
-  for (const line of frame.split(/\r?\n/)) {
-    if (!line || line.startsWith(':')) continue
-    const index = line.indexOf(':')
-    const field = index === -1 ? line : line.slice(0, index)
-    const value = index === -1 ? '' : line.slice(index + 1).replace(/^ /, '')
-    if (field === 'event') event = value
-    else if (field === 'data') data.push(value)
-  }
-  if (!data.length) return undefined
-  return { event, data: data.join('\n') }
-}
-
-function findSseSeparator(value: string): { index: number; length: number } | undefined {
-  const lf = value.indexOf('\n\n')
-  const crlf = value.indexOf('\r\n\r\n')
-  if (lf === -1 && crlf === -1) return undefined
-  if (lf === -1) return { index: crlf, length: 4 }
-  if (crlf === -1) return { index: lf, length: 2 }
-  return lf < crlf ? { index: lf, length: 2 } : { index: crlf, length: 4 }
-}
-
 async function readWithTimeout(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   timeoutMs: number,
@@ -1477,14 +1457,8 @@ async function qoderFetch(url: string, init: RequestInit, proxyUrl?: string): Pr
   }
 }
 
-function getProxyAgent(proxyUrl: string): ProxyAgent {
-  const normalized = proxyUrl.includes('://') ? proxyUrl : `http://${proxyUrl}`
-  let agent = proxyAgents.get(normalized)
-  if (!agent) {
-    agent = new ProxyAgent(normalized)
-    proxyAgents.set(normalized, agent)
-  }
-  return agent
+function getProxyAgent(proxyUrl: string) {
+  return proxyAgents.get(proxyUrl)
 }
 
 function resolveQoderApiBaseUrl(settings: QoderProviderSettings): string {

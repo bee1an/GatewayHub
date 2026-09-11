@@ -25,6 +25,8 @@ const zh = {
     soon: '即将',
     toggleLang: '切换语言',
     toggleTheme: '切换主题',
+    collapse: '收起侧边栏',
+    expand: '展开侧边栏',
     startFailed: '网关启动失败',
     stopFailed: '网关停止失败',
     serverError: {

@@ -25,6 +25,8 @@ const en = {
     soon: 'soon',
     toggleLang: 'Toggle language',
     toggleTheme: 'Toggle theme',
+    collapse: 'Collapse sidebar',
+    expand: 'Expand sidebar',
     startFailed: 'Failed to start gateway',
     stopFailed: 'Failed to stop gateway',
     serverError: {

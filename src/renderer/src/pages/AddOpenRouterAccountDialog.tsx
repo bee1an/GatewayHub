@@ -1,8 +1,14 @@
 import { useState } from 'react'
+import { useForm, useWatch } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
 import { useTranslation } from 'react-i18next'
 import { Button } from '../components/ui/Button'
 import { Modal } from '../components/ui/Modal'
 import { TabGroup } from '../components/ui/TabGroup'
+
+const apiKeyFormSchema = z.object({ apiKey: z.string().trim().min(1) })
+type ApiKeyForm = z.infer<typeof apiKeyFormSchema>
 
 export function AddOpenRouterAccountDialog({
   open,
@@ -15,9 +21,18 @@ export function AddOpenRouterAccountDialog({
 }): React.JSX.Element {
   const { t } = useTranslation()
   const [tab, setTab] = useState('key')
-  const [keyText, setKeyText] = useState('')
-  const [keyLoading, setKeyLoading] = useState(false)
   const [keyMsg, setKeyMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const {
+    register,
+    handleSubmit,
+    reset,
+    control,
+    formState: { isSubmitting: keyLoading }
+  } = useForm<ApiKeyForm>({
+    resolver: zodResolver(apiKeyFormSchema),
+    defaultValues: { apiKey: '' }
+  })
+  const keyText = useWatch({ control, name: 'apiKey' })
   const [jsonText, setJsonText] = useState('')
   const [jsonLoading, setJsonLoading] = useState(false)
   const [jsonResult, setJsonResult] = useState<{
@@ -26,22 +41,18 @@ export function AddOpenRouterAccountDialog({
     errors: string[]
   } | null>(null)
 
-  async function handleKey(): Promise<void> {
-    if (!keyText.trim()) return
-    setKeyLoading(true)
+  const handleKey = handleSubmit(async ({ apiKey }) => {
     setKeyMsg(null)
     try {
-      await window.api.gateway.addOpenRouterApiKey(keyText.trim())
+      await window.api.gateway.addOpenRouterApiKey(apiKey)
       setKeyMsg({ ok: true, text: t('addAccount.tokenValid') })
-      setKeyText('')
+      reset()
       onImported()
       onOpenChange(false)
     } catch (err: any) {
       setKeyMsg({ ok: false, text: err?.message || t('addAccount.tokenInvalid') })
-    } finally {
-      setKeyLoading(false)
     }
-  }
+  })
 
   async function handleJson(): Promise<void> {
     if (!jsonText.trim()) return
@@ -74,15 +85,14 @@ export function AddOpenRouterAccountDialog({
               <div className="space-y-3">
                 <p className="text-[12px] text-fog">{t('addAccount.openrouterKeyHint')}</p>
                 <textarea
-                  value={keyText}
-                  onChange={(e) => setKeyText(e.target.value)}
+                  {...register('apiKey')}
                   placeholder={t('addAccount.openrouterKeyPlaceholder')}
                   className="input-base font-mono text-[12px] min-h-20 resize-y w-full"
                 />
                 <div className="flex items-center gap-3">
                   <Button
                     variant="primary"
-                    onClick={handleKey}
+                    onClick={() => void handleKey()}
                     disabled={keyLoading || !keyText.trim()}
                   >
                     {keyLoading ? t('addAccount.tokenValidating') : t('common.add')}

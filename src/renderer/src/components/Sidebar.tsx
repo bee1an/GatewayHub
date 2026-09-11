@@ -1,15 +1,13 @@
-import { NavLink } from 'react-router-dom'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useTheme } from './useTheme'
-import { useSidebarVisibility } from './useSidebarVisibility'
-import { changeLanguage } from '../i18n'
-import { Button } from './ui/Button'
-import { TooltipWrapper } from './ui/Tooltip'
-import { useToast } from './ui/ToastContext'
-import { UpdateModal } from './UpdateModal'
+import { NavLink } from 'react-router-dom'
 import { ProviderLogo } from './ProviderLogo'
 import { getProviderLogoLabel } from './providerLogoData'
+import { TooltipWrapper } from './ui/Tooltip'
+import { useSidebarVisibility } from './useSidebarVisibility'
+import { useTheme } from './useTheme'
+import { changeLanguage } from '../i18n'
+import gatewayHubMark from '../assets/gatewayhub-mark.png'
 
 type ProviderStatus = {
   name: string
@@ -18,111 +16,96 @@ type ProviderStatus = {
   enabled: boolean
   configured: boolean
   status: string
-  message?: string
-  models: string[]
 }
 
-type ServerInfo = {
-  running: boolean
+const COLLAPSED_KEY = 'gatewayhub-sidebar-collapsed'
+
+function navItemClass(active: boolean, collapsed: boolean): string {
+  const base = collapsed
+    ? 'flex items-center justify-center w-10 h-8 rounded-[var(--radius-sm)]'
+    : 'flex items-center gap-2 px-2 py-1.5 rounded-[var(--radius-sm)]'
+  const state = active
+    ? 'text-porcelain bg-charcoal/60'
+    : 'text-storm hover:text-porcelain hover:bg-charcoal/40'
+  return `${base} text-[12px] transition-colors duration-100 ${state}`
+}
+
+function SideNavLink({
+  to,
+  end,
+  icon,
+  title,
+  collapsed,
+  children
+}: {
+  to: string
+  end?: boolean
+  icon: string
+  title: string
+  collapsed: boolean
+  children: React.ReactNode
+}): React.JSX.Element {
+  const link = (
+    <NavLink
+      to={to}
+      end={end}
+      title={title}
+      aria-label={title}
+      className={({ isActive }) => navItemClass(isActive, collapsed)}
+    >
+      <span className={`${icon} text-[15px] shrink-0`} aria-hidden="true" />
+      {!collapsed && <span className="truncate">{children}</span>}
+    </NavLink>
+  )
+  return collapsed ? (
+    <TooltipWrapper content={title} side="right">
+      {link}
+    </TooltipWrapper>
+  ) : (
+    link
+  )
 }
 
 export default function Sidebar(): React.JSX.Element {
   const { t, i18n } = useTranslation()
-  const { theme, toggle } = useTheme()
+  const { theme, toggle: toggleTheme } = useTheme()
   const { isVisible } = useSidebarVisibility()
-  const { toast } = useToast()
   const [gateways, setGateways] = useState<ProviderStatus[]>([])
-  const [server, setServer] = useState<ServerInfo>({ running: false })
-  const [updateInfo, setUpdateInfo] = useState<{
-    version: string
-    releaseNotes: string | null
-    releaseDate: string
-    installMethod?: 'brew' | 'manual'
-  } | null>(null)
-  const [updateModalOpen, setUpdateModalOpen] = useState(false)
-  const splashRemovedRef = useRef(false)
+  const [running, setRunning] = useState(false)
+  const [updateInfo, setUpdateInfo] = useState<any>(null)
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSED_KEY) === '1')
 
-  const dismissSplashWhenReady = useCallback(() => {
-    if (splashRemovedRef.current) return
-    // The splash in index.html stays visible until the renderer is actually
-    // styled. The IPC round-trip alone is not a reliable signal: in dev,
-    // UnoCSS streams `virtual:uno.css` into the page asynchronously after the
-    // module graph runs, so by the time `gateway.status()` resolves the atomic
-    // classes (flex / bg-graphite / borders) may still be unstyled — that is
-    // exactly the "few seconds of broken UI" we were seeing.
-    //
-    // The previous probe checked `--c-pitch`, but that variable lives in the
-    // hand-written theme.css and is set before the IPC call ever fires, so it
-    // gave a false-positive immediately. Instead we mount an off-screen probe
-    // element that uses a UnoCSS atomic (`bg-graphite`) and wait for its
-    // resolved background to become non-transparent — that only happens once
-    // UnoCSS has injected its stylesheet.
-    const probe = document.createElement('div')
-    probe.className = 'bg-graphite'
-    probe.style.cssText =
-      'position:fixed;inset:auto;width:1px;height:1px;pointer-events:none;opacity:0;'
-    document.body.appendChild(probe)
-    const isStyleReady = (): boolean => {
-      const bg = getComputedStyle(probe).backgroundColor
-      // `bg-graphite` resolves to a non-transparent color once UnoCSS atomics
-      // are live. Default `<div>` background is `rgba(0, 0, 0, 0)`.
-      return !!bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent'
-    }
-    const dismiss = (): void => {
-      if (splashRemovedRef.current) return
-      splashRemovedRef.current = true
-      probe.remove()
-      const el = document.getElementById('splash')
-      if (!el) return
-      // Mark the splash as "dismiss in progress" so the main.tsx safety-net
-      // timer doesn't yank it out from under the cross-fade if they happen to
-      // race around the 8s mark.
-      el.dataset.splashDismissing = '1'
-      el.style.transition = 'opacity 200ms ease-out'
-      el.style.opacity = '0'
-      window.setTimeout(() => el.remove(), 220)
-    }
-    const fontsReady: Promise<unknown> =
-      (document as Document & { fonts?: { ready?: Promise<unknown> } }).fonts?.ready ??
-      Promise.resolve()
-    const fontsWithTimeout = Promise.race([
-      fontsReady,
-      new Promise((resolve) => window.setTimeout(resolve, 1500))
-    ])
-    const finish = (): void => {
-      // After UnoCSS + fonts are settled, wait two frames so the painter has a
-      // chance to flush before we cross-fade the splash out.
-      void fontsWithTimeout.then(() => {
-        requestAnimationFrame(() => requestAnimationFrame(dismiss))
-      })
-    }
-    const tick = (deadline: number): void => {
-      if (isStyleReady() || Date.now() > deadline) {
-        finish()
-        return
-      }
-      window.setTimeout(() => tick(deadline), 32)
-    }
-    tick(Date.now() + 5000)
+  // The splash overlay is removed once the first gateway status lands; the
+  // cross-fade marks `data-splash-dismissing` so the safety net in main.tsx
+  // never races the transition.
+  const dismissSplash = useCallback((): void => {
+    const el = document.getElementById('splash')
+    if (!el || el.dataset.splashDismissing === '1') return
+    el.dataset.splashDismissing = '1'
+    el.classList.add('is-done')
+    setTimeout(() => el.remove(), 400)
   }, [])
 
-  const refresh = useCallback(() => {
-    window.api.gateway
-      .status()
-      .then((s: any) => {
-        setGateways(s.providers ?? [])
-        setServer({ running: s.server?.running ?? false })
-      })
-      .finally(() => {
-        dismissSplashWhenReady()
-      })
-  }, [dismissSplashWhenReady])
-
   useEffect(() => {
+    let mounted = true
+    const refresh = (): void => {
+      window.api.gateway
+        .status()
+        .then((s: any) => {
+          if (!mounted) return
+          setGateways(s.providers ?? [])
+          setRunning(s.server?.running ?? false)
+          dismissSplash()
+        })
+        .catch(() => {})
+    }
     refresh()
     const interval = setInterval(refresh, 5000)
-    return () => clearInterval(interval)
-  }, [refresh])
+    return () => {
+      mounted = false
+      clearInterval(interval)
+    }
+  }, [dismissSplash])
 
   useEffect(() => {
     const unsubs = [
@@ -132,236 +115,226 @@ export default function Sidebar(): React.JSX.Element {
     return () => unsubs.forEach((fn) => fn())
   }, [])
 
-  const configuredGateways = gateways.filter((p) => p.enabled && isVisible(p.name))
-
-  function toggleLang(): void {
-    changeLanguage(i18n.language === 'zh' ? 'en' : 'zh')
+  function toggleCollapsed(): void {
+    setCollapsed((c) => {
+      localStorage.setItem(COLLAPSED_KEY, c ? '0' : '1')
+      return !c
+    })
   }
 
+  const providers = gateways.filter((p) => p.enabled && isVisible(p.name))
+
+  async function toggleServer(): Promise<void> {
+    try {
+      const result: any = running
+        ? await window.api.gateway.stop()
+        : await window.api.gateway.start()
+      if (result?.ok === false) {
+        console.error(result.error || t('sidebar.startFailed'))
+      }
+      const s: any = await window.api.gateway.status()
+      setRunning(s.server?.running ?? false)
+    } catch (e) {
+      console.error('Failed to toggle server', e)
+    }
+  }
+
+  const footerBtn =
+    'flex items-center justify-center w-7 h-7 rounded-[var(--radius-sm)] text-storm transition-colors duration-100 hover:bg-charcoal/50 hover:text-porcelain outline-none focus-visible:ring-1 focus-visible:ring-accent/60'
+
   return (
-    <aside className="w-[200px] shrink-0 flex flex-col border-r border-charcoal bg-graphite overflow-y-auto select-none">
-      <div className="h-10 flex items-center pl-[78px] pr-4 shrink-0 [-webkit-app-region:drag]">
-        <span className="text-[13px] font-[590] text-porcelain tracking-[-0.15px]">GatewayHub</span>
+    <aside
+      className={`${collapsed ? 'w-[72px]' : 'w-[148px]'} shrink-0 flex flex-col border-r border-charcoal bg-graphite overflow-y-auto select-none transition-[width] duration-150`}
+    >
+      {/* macOS traffic lights sit at top-left ~70px; when collapsed the rail
+          header grows so the mark drops below them instead of overlapping. */}
+      <div
+        className={`flex shrink-0 [-webkit-app-region:drag] ${
+          collapsed ? 'h-[64px] items-end justify-center pb-2' : 'h-10 items-center pl-[74px] pr-2'
+        }`}
+      >
+        <img
+          src={gatewayHubMark}
+          alt="GatewayHub"
+          className="size-4.5 shrink-0 rounded-[3px]"
+          draggable={false}
+        />
       </div>
 
-      <nav className="flex-1 flex flex-col px-2 py-2 gap-0.5">
-        <NavLink
+      <nav
+        className={`flex-1 flex flex-col py-1.5 gap-px ${collapsed ? 'items-center px-1.5' : 'px-2'}`}
+      >
+        <SideNavLink
           to="/dashboard"
-          className={({ isActive }) => (isActive ? 'sidebar-item-active' : 'sidebar-item')}
+          end
+          icon="i-ph-gauge"
+          title={t('sidebar.dashboard')}
+          collapsed={collapsed}
         >
-          <span className="i-ph-gauge text-[16px]" />
-          <span>{t('sidebar.dashboard')}</span>
-        </NavLink>
-
-        <div className="mt-3 mb-1 px-3">
-          <span className="label">{t('sidebar.gateways')}</span>
-        </div>
-
-        {configuredGateways.map((gw) => (
-          <GatewayNavItem
-            key={gw.name}
-            name={gw.name}
-            displayName={gw.displayName}
-            providerType={gw.providerType}
-            theme={theme}
-          />
-        ))}
-
-        <div className="mt-3 mb-1 px-3">
-          <span className="label">{t('sidebar.system')}</span>
-        </div>
-
-        <NavLink
+          {t('sidebar.dashboard')}
+        </SideNavLink>
+        <SideNavLink
           to="/logs"
-          className={({ isActive }) => (isActive ? 'sidebar-item-active' : 'sidebar-item')}
+          icon="i-ph-list-bullets"
+          title={t('sidebar.logs')}
+          collapsed={collapsed}
         >
-          <span className="i-ph-list-bullets text-[16px]" />
-          <span>{t('sidebar.logs')}</span>
-        </NavLink>
-
-        <NavLink
+          {t('sidebar.logs')}
+        </SideNavLink>
+        <SideNavLink
           to="/playground"
-          className={({ isActive }) => (isActive ? 'sidebar-item-active' : 'sidebar-item')}
+          icon="i-ph-chat-circle-dots"
+          title={t('sidebar.playground')}
+          collapsed={collapsed}
         >
-          <span className="i-ph-chat-circle-dots text-[16px]" />
-          <span>{t('sidebar.playground')}</span>
-        </NavLink>
-
-        <NavLink
+          {t('sidebar.playground')}
+        </SideNavLink>
+        <SideNavLink
           to="/api-keys"
-          className={({ isActive }) => (isActive ? 'sidebar-item-active' : 'sidebar-item')}
+          icon="i-ph-key"
+          title={t('sidebar.apiKeys')}
+          collapsed={collapsed}
         >
-          <span className="i-ph-key text-[16px]" />
-          <span>{t('sidebar.apiKeys')}</span>
-        </NavLink>
-
-        <NavLink
+          {t('sidebar.apiKeys')}
+        </SideNavLink>
+        <SideNavLink
           to="/model-mappings"
-          className={({ isActive }) => (isActive ? 'sidebar-item-active' : 'sidebar-item')}
+          icon="i-ph-arrows-left-right"
+          title={t('sidebar.modelMappings')}
+          collapsed={collapsed}
         >
-          <span className="i-ph-arrows-left-right text-[16px]" />
-          <span>{t('sidebar.modelMappings')}</span>
-        </NavLink>
+          {t('sidebar.modelMappings')}
+        </SideNavLink>
 
-        <NavLink
+        {providers.length > 0 && (
+          <div
+            className={`${collapsed ? 'w-5' : 'mx-2'} my-2 border-t border-charcoal/60`}
+            aria-hidden="true"
+          />
+        )}
+
+        {providers.map((p) => {
+          const label = getProviderLogoLabel(p.providerType, p.displayName)
+          const link = (
+            <NavLink
+              key={p.name}
+              to={`/gateway/${p.name}`}
+              title={label}
+              aria-label={label}
+              className={({ isActive }) => navItemClass(isActive, collapsed)}
+            >
+              <ProviderLogo
+                providerType={p.providerType}
+                label={label}
+                theme={theme}
+                size="xs"
+                className={p.configured ? undefined : 'opacity-45 saturate-50'}
+              />
+              {!collapsed && <span className="truncate capitalize">{label}</span>}
+            </NavLink>
+          )
+          return collapsed ? (
+            <TooltipWrapper key={p.name} content={label} side="right">
+              {link}
+            </TooltipWrapper>
+          ) : (
+            link
+          )
+        })}
+
+        <div
+          className={`${collapsed ? 'w-5' : 'mx-2'} my-2 border-t border-charcoal/60`}
+          aria-hidden="true"
+        />
+
+        <SideNavLink
           to="/settings"
-          className={({ isActive }) => (isActive ? 'sidebar-item-active' : 'sidebar-item')}
+          icon="i-ph-gear"
+          title={t('sidebar.settings')}
+          collapsed={collapsed}
         >
-          <span className="i-ph-gear text-[16px]" />
-          <span>{t('sidebar.settings')}</span>
-        </NavLink>
+          {t('sidebar.settings')}
+        </SideNavLink>
       </nav>
 
-      <div className="shrink-0 px-2 py-2 border-t border-charcoal flex items-center justify-between">
-        <button
-          type="button"
-          role="switch"
-          aria-checked={server.running}
-          aria-label={server.running ? t('sidebar.running') : t('sidebar.stopped')}
-          className="flex items-center gap-2 px-2 py-0.5 outline-none focus-visible:ring-1 focus-visible:ring-accent/40"
-          onClick={() => {
-            const wasRunning = server.running
-            const action = wasRunning ? window.api.gateway.stop() : window.api.gateway.start()
-            action
-              .then((result: any) => {
-                if (result?.ok === false) {
-                  const error = new Error(
-                    result.error ||
-                      (wasRunning ? t('sidebar.stopFailed') : t('sidebar.startFailed'))
-                  )
-                  ;(error as any).code = result.code
-                  throw error
-                }
-                refresh()
-              })
-              .catch((err) => {
-                refresh()
-                const raw = err?.message ?? String(err)
-                const portMatch = raw.match(/(?:port|端口)\s*(\d+)/i)
-                const port = portMatch?.[1]
-                const code = err?.code
-                  ? err.code
-                  : /EADDRINUSE/.test(raw) || /already in use/i.test(raw)
-                    ? 'EADDRINUSE'
-                    : /EACCES/.test(raw)
-                      ? 'EACCES'
-                      : /EADDRNOTAVAIL/.test(raw)
-                        ? 'EADDRNOTAVAIL'
-                        : null
-                const localized = code
-                  ? t(`sidebar.serverError.${code}`, {
-                      defaultValue: raw,
-                      port: port ?? '?'
-                    })
-                  : raw
-                const prefix = wasRunning ? t('sidebar.stopFailed') : t('sidebar.startFailed')
-                toast(`${prefix}: ${localized}`, 'error')
-              })
-          }}
+      <div
+        className={`shrink-0 border-t border-[color-mix(in_srgb,var(--c-charcoal)_60%,transparent)] ${
+          collapsed
+            ? 'flex flex-col items-center gap-0.5 px-1.5 py-2'
+            : 'flex items-center px-2 py-1.5'
+        }`}
+      >
+        <div
+          className={collapsed ? 'flex flex-col items-center gap-0.5' : 'flex items-center gap-px'}
         >
-          <div
-            className={`relative w-7 h-4 rounded-full transition-colors duration-200 ${server.running ? 'bg-emerald' : 'bg-charcoal border border-ash/60'}`}
+          <button
+            type="button"
+            onClick={() => changeLanguage(i18n.language === 'zh' ? 'en' : 'zh')}
+            className={footerBtn}
+            title={t('sidebar.toggleLang')}
+            aria-label={t('sidebar.toggleLang')}
           >
-            <div
-              className={`absolute top-0.5 w-3 h-3 rounded-full transition-[left,background-color] duration-200 shadow-sm t-icon-swap ${server.running ? 'left-3.5 bg-white' : 'left-0.5 bg-fog'}`}
+            <span className="i-ph-translate text-[14px]" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => toggleTheme({ x: e.clientX, y: e.clientY })}
+            className={footerBtn}
+            title={t('sidebar.toggleTheme')}
+            aria-label={t('sidebar.toggleTheme')}
+          >
+            <span
+              className={theme === 'dark' ? 'i-ph-sun text-[14px]' : 'i-ph-moon text-[14px]'}
+              aria-hidden="true"
             />
-          </div>
-          <span
-            className={`text-[12px] font-medium ${server.running ? 'text-emerald' : 'text-fog'}`}
-          >
-            {server.running ? t('sidebar.running') : t('sidebar.stopped')}
-          </span>
-        </button>
-        <div className="flex items-center gap-0.5">
+          </button>
           {updateInfo && (
-            <TooltipWrapper content={t('updater.newVersion', { version: updateInfo.version })}>
-              <Button
-                variant="ghost"
-                size="xs"
-                iconOnly
-                onClick={() => setUpdateModalOpen(true)}
-                aria-label="Update available"
-              >
-                <span className="relative">
-                  <span
-                    className="i-ph-arrow-circle-up text-[14px] text-warning"
-                    aria-hidden="true"
-                  />
-                  <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-warning animate-pulse" />
-                </span>
-              </Button>
-            </TooltipWrapper>
+            <button
+              type="button"
+              onClick={() => window.api.updater.install()}
+              className={`${footerBtn} text-accent`}
+              title={t('updater.title')}
+              aria-label={t('updater.title')}
+            >
+              <span className="i-ph-arrow-circle-up text-[14px]" aria-hidden="true" />
+            </button>
           )}
-          <TooltipWrapper content={t('sidebar.toggleLang')}>
-            <Button
-              variant="ghost"
-              size="xs"
-              iconOnly
-              onClick={toggleLang}
-              aria-label="Toggle language"
-            >
-              <span
-                className="i-ph-translate text-[14px] text-storm hover:text-porcelain"
-                aria-hidden="true"
-              />
-            </Button>
-          </TooltipWrapper>
-          <TooltipWrapper content={t('sidebar.toggleTheme')}>
-            <Button
-              variant="ghost"
-              size="xs"
-              iconOnly
-              onClick={(e) => toggle({ x: e.clientX, y: e.clientY })}
-              aria-label="Toggle theme"
-            >
-              {theme === 'dark' ? (
-                <span
-                  className="i-ph-sun-dim text-[14px] text-storm hover:text-porcelain"
-                  aria-hidden="true"
-                />
-              ) : (
-                <span
-                  className="i-ph-moon-stars text-[14px] text-storm hover:text-porcelain"
-                  aria-hidden="true"
-                />
-              )}
-            </Button>
-          </TooltipWrapper>
         </div>
+        {!collapsed && <span className="flex-1" />}
+        <TooltipWrapper
+          content={running ? t('dashboard.stop') : t('dashboard.start')}
+          side={collapsed ? 'right' : 'top'}
+        >
+          <button
+            type="button"
+            role="switch"
+            aria-checked={running}
+            onClick={toggleServer}
+            className={`${footerBtn} ${running ? 'text-accent' : ''}`}
+            aria-label={running ? t('dashboard.stop') : t('dashboard.start')}
+          >
+            <span className="i-ph-power text-[14px]" aria-hidden="true" />
+          </button>
+        </TooltipWrapper>
+        <TooltipWrapper
+          content={collapsed ? t('sidebar.expand') : t('sidebar.collapse')}
+          side={collapsed ? 'right' : 'top'}
+        >
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            className={footerBtn}
+            aria-label={collapsed ? t('sidebar.expand') : t('sidebar.collapse')}
+          >
+            <span
+              className={
+                collapsed ? 'i-ph-caret-line-right text-[14px]' : 'i-ph-caret-line-left text-[14px]'
+              }
+              aria-hidden="true"
+            />
+          </button>
+        </TooltipWrapper>
       </div>
-      <UpdateModal
-        open={updateModalOpen}
-        onOpenChange={setUpdateModalOpen}
-        updateInfo={updateInfo}
-        onInstall={() => {
-          window.api.updater.install()
-          setUpdateModalOpen(false)
-        }}
-      />
     </aside>
-  )
-}
-
-function GatewayNavItem({
-  name,
-  displayName,
-  providerType,
-  theme
-}: {
-  name: string
-  displayName?: string
-  providerType: string
-  theme: 'light' | 'dark'
-}): React.JSX.Element {
-  const label = getProviderLogoLabel(providerType, displayName)
-
-  return (
-    <NavLink
-      to={`/gateway/${name}`}
-      className={({ isActive }) => (isActive ? 'sidebar-item-active' : 'sidebar-item')}
-    >
-      <ProviderLogo providerType={providerType} label={label} theme={theme} size="sm" />
-      <span className="capitalize ml-0.5">{label}</span>
-    </NavLink>
   )
 }

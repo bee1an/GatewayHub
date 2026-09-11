@@ -421,10 +421,7 @@ export default function GatewayDetail(): React.JSX.Element {
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div
-              key={i}
-              className="card px-2.5 py-2 flex flex-col gap-2 border-l-[2.5px] border-l-charcoal"
-            >
+            <div key={i} className="card px-2.5 py-2 flex flex-col gap-2">
               <div className="flex items-center gap-2">
                 <div className="w-[6px] h-[6px] rounded-full bg-charcoal" />
                 <div className="h-[14px] w-[120px] rounded bg-charcoal/70 animate-pulse" />
@@ -446,7 +443,7 @@ export default function GatewayDetail(): React.JSX.Element {
           theme={theme}
           size="md"
         />
-        <h1 className="text-[17px] font-[590] text-porcelain capitalize tracking-[-0.15px]">
+        <h1 className="text-[19px] font-[650] text-porcelain capitalize tracking-[-0.3px]">
           {name}
         </h1>
         <Button
@@ -516,21 +513,7 @@ export default function GatewayDetail(): React.JSX.Element {
               className="inline-flex items-center justify-center w-6 h-6 rounded-[var(--radius-sm)] text-fog hover:text-storm hover:bg-[color-mix(in_srgb,var(--c-charcoal)_60%,transparent)] transition-colors"
               aria-label={t('gateway.editRouteName')}
             >
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M4 20h4l10-10-4-4L4 16v4z"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinejoin="round"
-                />
-                <path d="M14 6l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-              </svg>
+              <span className="i-ph-pencil-simple text-[13px]" aria-hidden="true" />
             </button>
           </TooltipWrapper>
         )}
@@ -574,7 +557,7 @@ export default function GatewayDetail(): React.JSX.Element {
                   disabled={raceSettings.loading || raceSettings.saving}
                   className={`inline-flex h-7 min-w-[66px] items-center justify-center gap-1.5 rounded-[var(--radius-md)] border px-2 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                     raceSettings.enabled
-                      ? 'border-accent bg-accent text-pitch shadow-[0_0_12px_rgba(216,255,0,0.16)] hover:bg-accent/90'
+                      ? 'border-accent bg-accent text-pitch hover:bg-accent/90'
                       : 'border-charcoal bg-graphite text-fog hover:border-white/15 hover:text-storm'
                   }`}
                   onClick={() => void updateRaceSettings({ enabled: !raceSettings.enabled })}
@@ -653,29 +636,25 @@ export default function GatewayDetail(): React.JSX.Element {
       ) : (
         <>
           <div className="grid grid-cols-3 gap-3">
-            <div className="card px-3 py-2 flex flex-col gap-1">
-              <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
-                {t('gateway.healthy')}
-              </span>
-              <span className="text-[17px] font-[650] text-emerald tabular-nums leading-none">
-                {accountStats.healthy}{' '}
-                <span className="text-[12px] text-fog font-normal">/ {accountStats.total}</span>
+            <div className="stat-card">
+              <span className="label">{t('gateway.healthy')}</span>
+              <span
+                className={`block mt-1 font-mono text-[18px] tabular-nums leading-none ${accountStats.problematic > 0 ? 'text-warning' : 'text-porcelain'}`}
+              >
+                {accountStats.healthy}
+                <span className="text-[12px] text-fog"> / {accountStats.total}</span>
               </span>
             </div>
-            <div className="card px-3 py-2 flex flex-col gap-1">
-              <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
-                {t('gateway.requests')}
-              </span>
-              <span className="text-[17px] font-[650] text-porcelain tabular-nums leading-none">
+            <div className="stat-card">
+              <span className="label">{t('gateway.requests')}</span>
+              <span className="block mt-1 font-mono text-[18px] text-porcelain tabular-nums leading-none">
                 {accountStats.totalReqs}
               </span>
             </div>
-            <div className="card px-3 py-2 flex flex-col gap-1">
-              <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
-                {t('gateway.successRate')}
-              </span>
+            <div className="stat-card">
+              <span className="label">{t('gateway.successRate')}</span>
               <span
-                className={`text-[17px] font-[650] tabular-nums leading-none ${accountStats.problematic > 0 ? 'text-warning' : 'text-emerald'}`}
+                className={`block mt-1 font-mono text-[18px] tabular-nums leading-none ${accountStats.problematic > 0 ? 'text-warning' : 'text-porcelain'}`}
               >
                 {accountStats.totalReqs > 0
                   ? `${Math.round((accounts.reduce((s, a) => s + (a.stats?.successfulRequests ?? 0), 0) / accountStats.totalReqs) * 100)}%`

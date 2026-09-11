@@ -6,6 +6,7 @@ import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { useToast } from '../components/ui/ToastContext'
 import { ProviderLogo } from '../components/ProviderLogo'
+import { PageHeader } from '../components/PageHeader'
 import { getProviderLogoLabel } from '../components/providerLogoData'
 import { useTheme } from '../components/useTheme'
 import { useSidebarVisibility } from '../components/useSidebarVisibility'
@@ -88,7 +89,8 @@ export default function Settings(): React.JSX.Element {
   const { hidden, isVisible, toggle, showAll } = useSidebarVisibility()
   const { data: status, refresh } = usePolling<GatewayStatus>(
     () => window.api.gateway.status(),
-    5000
+    5000,
+    ['gateway', 'status']
   )
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState('')
@@ -161,20 +163,15 @@ export default function Settings(): React.JSX.Element {
   )
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="section-title">{t('settings.title')}</h1>
-        <p className="section-desc">{t('settings.desc')}</p>
-      </div>
+    <div>
+      <PageHeader title={t('settings.title')} desc={t('settings.desc')} />
 
-      <div className="card">
-        <div className="px-3.5 py-2 border-b border-charcoal/60">
-          <h2 className="text-[13px] font-medium text-porcelain">{t('settings.connection')}</h2>
-        </div>
-        <div className="px-3.5 py-2.5">
+      <section className="sec">
+        <h2 className="label">{t('settings.connection')}</h2>
+        <div className="mt-3">
           <div className="grid grid-cols-[72px_1fr_auto] gap-x-3 gap-y-2 text-[12px] items-center">
-            <span className="text-fog font-medium">{t('settings.url')}</span>
-            <span className="text-storm font-mono truncate">{status?.server.url ?? '—'}</span>
+            <span className="kv-label">{t('settings.url')}</span>
+            <span className="kv-value">{status?.server.url ?? '—'}</span>
             <Button
               variant="ghost"
               size="sm"
@@ -183,23 +180,23 @@ export default function Settings(): React.JSX.Element {
             >
               {copied === 'url' ? t('common.copied') : t('common.copy')}
             </Button>
-            <span className="text-fog font-medium">{t('settings.config')}</span>
-            <span className="text-storm font-mono truncate col-span-2" title={status?.configPath}>
+            <span className="kv-label">{t('settings.config')}</span>
+            <span className="kv-value col-span-2" title={status?.configPath}>
               {status?.configPath ?? '—'}
             </span>
-            <span className="text-fog font-medium">{t('settings.state')}</span>
-            <span className="text-storm font-mono truncate col-span-2" title={status?.statePath}>
+            <span className="kv-label">{t('settings.state')}</span>
+            <span className="kv-value col-span-2" title={status?.statePath}>
               {status?.statePath ?? '—'}
             </span>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div className="card">
-        <div className="flex items-center justify-between px-3.5 py-2.5">
+      <section className="sec">
+        <div className="flex items-center justify-between">
           <div>
             <h2 className="text-[13px] font-medium text-porcelain">{t('settings.autoStart')}</h2>
-            <p className="text-[12px] text-fog mt-0.5">{t('settings.autoStartDesc')}</p>
+            <p className="sec-desc">{t('settings.autoStartDesc')}</p>
           </div>
           <button
             type="button"
@@ -227,10 +224,10 @@ export default function Settings(): React.JSX.Element {
             </div>
           </button>
         </div>
-      </div>
+      </section>
 
-      <div className="card">
-        <div className="flex items-center justify-between px-3.5 py-2.5">
+      <section className="sec">
+        <div className="flex items-center justify-between">
           <div className="min-w-0">
             <h2
               id="settings-listen-address-label"
@@ -238,7 +235,7 @@ export default function Settings(): React.JSX.Element {
             >
               {t('settings.listenAddress')}
             </h2>
-            <p className="text-[12px] text-fog mt-0.5">{t('settings.listenAddressDesc')}</p>
+            <p className="sec-desc">{t('settings.listenAddressDesc')}</p>
           </div>
           <button
             type="button"
@@ -267,11 +264,11 @@ export default function Settings(): React.JSX.Element {
           </button>
         </div>
         {hostValue === 'lan' && (
-          <div className="px-3.5 pb-2.5 -mt-0.5">
+          <div className="mt-2">
             <p className="text-[12px] text-warning">{t('settings.listenLanWarning')}</p>
           </div>
         )}
-      </div>
+      </section>
 
       <ConfirmDialog
         open={hostConfirmOpen}
@@ -294,12 +291,10 @@ export default function Settings(): React.JSX.Element {
         }}
       />
 
-      <div className="card">
-        <div className="px-3.5 py-2 border-b border-charcoal/60">
-          <h2 className="text-[13px] font-medium text-porcelain">{t('settings.port')}</h2>
-          <p className="text-[12px] text-fog mt-0.5">{t('settings.portDesc')}</p>
-        </div>
-        <div className="px-3.5 py-2.5">
+      <section className="sec">
+        <h2 className="label">{t('settings.port')}</h2>
+        <p className="sec-desc">{t('settings.portDesc')}</p>
+        <div className="mt-3">
           <div className="flex items-center gap-3">
             <input
               value={portValue}
@@ -326,14 +321,12 @@ export default function Settings(): React.JSX.Element {
             </Button>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div className="card">
-        <div className="px-3.5 py-2 border-b border-charcoal/60">
-          <h2 className="text-[13px] font-medium text-porcelain">{t('settings.proxy')}</h2>
-          <p className="text-[12px] text-fog mt-0.5">{t('settings.proxyDesc')}</p>
-        </div>
-        <div className="px-3.5 py-2.5">
+      <section className="sec">
+        <h2 className="label">{t('settings.proxy')}</h2>
+        <p className="sec-desc">{t('settings.proxyDesc')}</p>
+        <div className="mt-3">
           <div className="flex items-center gap-3">
             <input
               value={proxyUrl}
@@ -347,13 +340,13 @@ export default function Settings(): React.JSX.Element {
             </Button>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div className="card">
-        <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-charcoal/60">
+      <section className="sec">
+        <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-[13px] font-medium text-porcelain">{t('settings.quickTest')}</h2>
-            <p className="text-[12px] text-fog mt-0.5">{t('settings.quickTestDesc')}</p>
+            <h2 className="label">{t('settings.quickTest')}</h2>
+            <p className="sec-desc">{t('settings.quickTestDesc')}</p>
           </div>
           <div className="flex items-center gap-3">
             <SegmentedControl
@@ -370,20 +363,18 @@ export default function Settings(): React.JSX.Element {
             </Button>
           </div>
         </div>
-        <div className="p-3">
-          <pre className="p-3 pl-4 rounded-[var(--radius-md)] bg-pitch border border-charcoal/60 border-l-[3px] border-l-charcoal/40 text-[12px] font-mono text-storm overflow-x-auto whitespace-pre-wrap leading-[1.65] shadow-[inset_0_1px_3px_rgba(0,0,0,0.2)]">
+        <div className="mt-3">
+          <pre className="p-3.5 rounded-[var(--radius-sm)] bg-pitch border border-charcoal/60 text-[12px] font-mono text-storm overflow-x-auto whitespace-pre-wrap leading-[1.65]">
             {snippet}
           </pre>
         </div>
-      </div>
+      </section>
 
-      <div className="card">
-        <div className="flex items-center justify-between px-3.5 py-2 border-b border-charcoal/60">
+      <section className="sec">
+        <div className="flex items-center justify-between">
           <div className="min-w-0">
-            <h2 className="text-[13px] font-medium text-porcelain">
-              {t('settings.sidebarGateways')}
-            </h2>
-            <p className="text-[12px] text-fog mt-0.5">{t('settings.sidebarGatewaysDesc')}</p>
+            <h2 className="label">{t('settings.sidebarGateways')}</h2>
+            <p className="sec-desc">{t('settings.sidebarGatewaysDesc')}</p>
           </div>
           {hidden.size > 0 && (
             <Button variant="ghost" size="sm" className="!px-2 !py-0.5 shrink-0" onClick={showAll}>
@@ -391,7 +382,7 @@ export default function Settings(): React.JSX.Element {
             </Button>
           )}
         </div>
-        <div className="px-3.5 py-2.5">
+        <div className="mt-3">
           {sidebarGateways.length === 0 ? (
             <p className="text-[12px] text-fog py-1">{t('settings.noEnabledGateways')}</p>
           ) : (
@@ -432,29 +423,27 @@ export default function Settings(): React.JSX.Element {
             </div>
           )}
         </div>
-      </div>
+      </section>
 
-      <div className="card">
-        <div className="px-3.5 py-2 border-b border-charcoal/60">
-          <h2 className="text-[13px] font-medium text-porcelain">{t('settings.about')}</h2>
-        </div>
-        <div className="px-3.5 py-2.5">
+      <section className="sec">
+        <h2 className="label">{t('settings.about')}</h2>
+        <div className="mt-3">
           <div className="grid grid-cols-[72px_1fr] gap-x-3 gap-y-2 text-[12px] items-center">
-            <span className="text-fog font-medium">{t('settings.version')}</span>
-            <span className="text-storm font-mono">v{window.api.appVersion || '—'}</span>
-            <span className="text-fog font-medium">GitHub</span>
+            <span className="kv-label">{t('settings.version')}</span>
+            <span className="kv-value">v{window.api.appVersion || '—'}</span>
+            <span className="kv-label">GitHub</span>
             <a
               href="https://github.com/bee1an/GatewayHub"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-storm hover:text-porcelain transition-colors font-mono truncate"
+              className="text-storm hover:text-porcelain transition-colors truncate"
             >
               bee1an/GatewayHub
               <span className="i-ph-arrow-square-out ml-1 text-[10px] inline-block align-middle text-fog" />
             </a>
           </div>
         </div>
-      </div>
+      </section>
     </div>
   )
 }

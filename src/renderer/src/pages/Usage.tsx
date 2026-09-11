@@ -83,7 +83,8 @@ export default function Usage(props: UsageProps = {}): React.JSX.Element {
   const [range, setRange] = useState<Range>('30d')
   const { data: detail, refresh } = usePolling<UsageDetail>(
     () => window.api.gateway.readUsage(provider ? { provider } : undefined),
-    10_000
+    10_000,
+    ['gateway', 'usage', provider ?? 'all']
   )
   const [busy, setBusy] = useState(false)
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
@@ -138,8 +139,10 @@ export default function Usage(props: UsageProps = {}): React.JSX.Element {
           <div />
         ) : (
           <div>
-            <h1 className="section-title">{t('usage.title')}</h1>
-            <p className="section-desc">{t('usage.desc')}</p>
+            <h1 className="text-[19px] font-[650] text-porcelain tracking-[-0.3px]">
+              {t('usage.title')}
+            </h1>
+            <p className="mt-1 text-[11px] font-mono text-fog">{t('usage.desc')}</p>
           </div>
         )}
         <div className="flex items-center gap-2">
@@ -359,26 +362,20 @@ export default function Usage(props: UsageProps = {}): React.JSX.Element {
 function SummaryCard({
   icon,
   label,
-  value,
-  accent
+  value
 }: {
   icon: string
   label: string
   value: string
-  accent: string
+  accent?: string
 }): React.JSX.Element {
   return (
-    <div
-      className="card px-3 py-2.5 flex flex-col gap-1.5 border-l-[2px]"
-      style={{ borderLeftColor: `var(--c-${accent})` }}
-    >
+    <div className="card px-3 py-2.5 flex flex-col gap-1.5">
       <div className="flex items-center gap-1.5">
-        <span className={`${icon} text-[12px] text-${accent}`} aria-hidden="true" />
-        <span className="text-[10px] text-storm font-medium uppercase tracking-[0.5px]">
-          {label}
-        </span>
+        <span className={`${icon} text-[13px] text-fog`} aria-hidden="true" />
+        <span className="text-[11px] text-storm font-medium">{label}</span>
       </div>
-      <span className="text-[18px] font-[650] text-porcelain tabular-nums leading-none tracking-[-0.3px]">
+      <span className="text-[18px] font-[600] text-porcelain tabular-nums leading-none tracking-[-0.3px]">
         {value}
       </span>
     </div>
@@ -394,7 +391,7 @@ function ChartCard({
 }): React.JSX.Element {
   return (
     <div className="card px-3 py-3 flex flex-col gap-2">
-      <span className="text-[11px] text-storm font-medium uppercase tracking-[0.5px]">{title}</span>
+      <span className="text-[12px] text-porcelain font-[590]">{title}</span>
       <div className="min-h-[240px]">{children}</div>
     </div>
   )
@@ -472,7 +469,7 @@ function BreakdownCard({
   return (
     <div className="card px-3 py-3 flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <span className="text-[11px] text-storm font-medium uppercase tracking-[0.5px]">
+        <span className="text-[12px] text-porcelain font-[590]">
           {tab === 'model' ? byModelTitle : byAccountTitle}
         </span>
         <ToggleFilter

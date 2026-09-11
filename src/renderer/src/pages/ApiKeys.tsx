@@ -5,6 +5,7 @@ import { Button } from '../components/ui/Button'
 import { Modal } from '../components/ui/Modal'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { useToast } from '../components/ui/ToastContext'
+import { PageHeader } from '../components/PageHeader'
 
 type ApiKeyEntry = {
   id: string
@@ -33,7 +34,8 @@ export default function ApiKeys(): React.JSX.Element {
   const { toast } = useToast()
   const { data: status, refresh } = usePolling<GatewayStatus>(
     () => window.api.gateway.status(),
-    5000
+    5000,
+    ['gateway', 'status']
   )
   const [busy, setBusy] = useState(false)
   const [showKey, setShowKey] = useState<string | null>(null)
@@ -88,33 +90,24 @@ export default function ApiKeys(): React.JSX.Element {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="section-title">{t('apiKeys.title')}</h1>
-        <p className="section-desc">{t('apiKeys.desc')}</p>
-      </div>
+      <PageHeader title={t('apiKeys.title')} desc={t('apiKeys.desc')}>
+        <Button variant="primary" size="sm" disabled={busy} onClick={() => setCreateOpen(true)}>
+          {t('apiKeys.generate')}
+        </Button>
+      </PageHeader>
 
-      <div className="card">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-charcoal">
-          <h2 className="text-[13px] font-medium text-porcelain">
-            {t('apiKeys.count', { count: keys.length })}
-          </h2>
-          <Button variant="primary" disabled={busy} onClick={() => setCreateOpen(true)}>
-            {t('apiKeys.generate')}
-          </Button>
+      <div className="mt-4">
+        <div className="flex items-center pb-2 border-b border-[color-mix(in_srgb,var(--c-charcoal)_60%,transparent)]">
+          <h2 className="label">{t('apiKeys.count', { count: keys.length })}</h2>
         </div>
-        <div className="px-4 py-3 space-y-3">
+        <div className="divide-y divide-[color-mix(in_srgb,var(--c-charcoal)_45%,transparent)]">
           {keys.map((entry) => (
-            <div
-              key={entry.id}
-              className="py-3 px-4 rounded-[var(--radius-md)] bg-pitch border border-charcoal/60 hover:border-charcoal transition-all duration-200 space-y-2"
-            >
+            <div key={entry.id} className="py-3 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-[13px] text-porcelain font-[590]">{entry.name}</span>
                 <div className="flex items-center gap-2">
                   {entry.expiresAt && now > entry.expiresAt && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-red/10 border border-red/20 text-red">
-                      {t('apiKeys.expired')}
-                    </span>
+                    <span className="badge text-red">{t('apiKeys.expired')}</span>
                   )}
                   <Button
                     variant="ghost"
@@ -145,7 +138,7 @@ export default function ApiKeys(): React.JSX.Element {
                 </Button>
               </div>
 
-              <div className="flex items-center gap-4 text-[11px] text-fog font-medium">
+              <div className="flex items-center gap-4 text-[11px] text-fog">
                 <span>
                   {t('apiKeys.createdAt')}: {new Date(entry.createdAt).toLocaleDateString()}
                 </span>
@@ -158,16 +151,16 @@ export default function ApiKeys(): React.JSX.Element {
                 <span>
                   {t('apiKeys.scope')}:{' '}
                   {entry.scopes?.length ? (
-                    <span className="text-storm">{entry.scopes.join(', ')}</span>
+                    <span className="text-storm font-mono">{entry.scopes.join(', ')}</span>
                   ) : (
-                    <span className="text-storm">{t('apiKeys.scopeAll')}</span>
+                    <span className="text-storm font-mono">{t('apiKeys.scopeAll')}</span>
                   )}
                 </span>
               </div>
             </div>
           ))}
           {keys.length === 0 && (
-            <p className="text-[12px] text-fog text-center py-4">{t('apiKeys.empty')}</p>
+            <p className="text-[12px] text-fog text-center py-6">{t('apiKeys.empty')}</p>
           )}
         </div>
       </div>
@@ -281,7 +274,7 @@ function CreateKeyModal({
                 type="button"
                 role="radio"
                 aria-checked={expiryDays === opt.value}
-                className={`px-3 py-1 text-[12px] rounded-[var(--radius-sm)] border transition-all ${
+                className={`px-3 py-1 text-[12px] rounded-[var(--radius-sm)] border transition-colors duration-150 ${
                   expiryDays === opt.value
                     ? 'border-gunmetal bg-charcoal text-porcelain font-medium'
                     : 'border-charcoal text-fog hover:text-storm hover:border-gunmetal'

@@ -262,7 +262,7 @@ export function AddKiroAccountDialog({
                                 复制下面的链接到你想使用的浏览器，并输入验证码：
                               </p>
                               <div className="flex items-center gap-2 rounded-[var(--radius-md)] bg-pitch px-2 py-1.5 text-left">
-                                <span className="flex-1 text-[12px] text-lime break-all select-all">
+                                <span className="flex-1 text-[12px] text-porcelain font-mono break-all select-all">
                                   {verifyUrl}
                                 </span>
                                 <Button size="sm" onClick={() => handleCopyCliLink(verifyUrl)}>
@@ -272,7 +272,7 @@ export function AddKiroAccountDialog({
                               <p className="text-[22px] font-mono font-[700] text-porcelain tracking-[0.2em]">
                                 {codeMatch[1]}
                               </p>
-                              <p className="text-[12px] text-fog animate-pulse">等待验证完成...</p>
+                              <p className="text-[12px] text-fog">等待验证完成...</p>
                             </div>
                           ) : (
                             <pre className="text-[12px] font-mono bg-pitch rounded-[var(--radius-md)] p-3 max-h-36 overflow-y-auto whitespace-pre-wrap text-storm">

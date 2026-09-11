@@ -81,26 +81,9 @@ export function AccountRow({
   const cooldownRemaining =
     acc.cooldownUntil && acc.cooldownUntil > now ? acc.cooldownUntil - now : null
 
-  const borderColor = (() => {
-    if (!acc.enabled) return 'border-l-fog/40'
-    switch (status) {
-      case 'available':
-        return 'border-l-emerald'
-      case 'cooling':
-      case 'rate_limited':
-        return 'border-l-warning'
-      case 'quota_exceeded':
-      case 'auth_failed':
-        return 'border-l-red'
-      case 'manual_disabled':
-      default:
-        return 'border-l-fog/30'
-    }
-  })()
-
   return (
     <div
-      className={`border-l-[2.5px] ${borderColor} ${!last ? 'border-b border-b-charcoal/30' : ''} ${!acc.enabled ? 'opacity-50' : ''} transition-colors duration-75 ${expanded ? 'bg-[color-mix(in_srgb,var(--c-slate)_50%,transparent)]' : ''}`}
+      className={`group ${!last ? 'border-b border-b-charcoal/30' : ''} ${!acc.enabled ? 'opacity-50' : ''} transition-colors duration-75 ${expanded ? 'bg-[color-mix(in_srgb,var(--c-slate)_50%,transparent)]' : ''}`}
     >
       <div
         role="button"
@@ -121,7 +104,7 @@ export function AccountRow({
           accountInfo.subscription.type !== 'unknown' &&
           accountInfo.subscription.title &&
           !/^[\s—–-]+$/.test(accountInfo.subscription.title) && (
-            <span className="tag text-[10px] !px-1.5 !py-0 text-porcelain bg-charcoal border border-ash/20 shrink-0">
+            <span className="text-[11px] text-storm shrink-0">
               {accountInfo.subscription.title}
             </span>
           )}
@@ -170,7 +153,10 @@ export function AccountRow({
             </TooltipWrapper>
           )
         })()}
-        <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="flex items-center gap-0.5 shrink-0 opacity-40 group-hover:opacity-100 transition-opacity duration-150"
+          onClick={(e) => e.stopPropagation()}
+        >
           <TooltipWrapper content={t('gateway.refresh')}>
             <Button
               variant="ghost"
@@ -335,9 +321,10 @@ export function AccountRow({
                     setModelsExpanded(!modelsExpanded)
                   }}
                 >
-                  <span className="text-[9px]" aria-hidden="true">
-                    {modelsExpanded ? '▼' : '▶'}
-                  </span>
+                  <span
+                    className={`text-[10px] shrink-0 ${modelsExpanded ? 'i-ph-caret-down-fill' : 'i-ph-caret-right-fill'}`}
+                    aria-hidden="true"
+                  />
                   {t('gateway.models')} ({models.length})
                 </button>
                 {onRefreshModels && (
@@ -415,15 +402,13 @@ function QuotaUsagePanel({
   const unit = usage.unit || usage.usageType
 
   return (
-    <div className="rounded-[10px] border border-ash/15 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--c-charcoal)_74%,transparent),color-mix(in_srgb,var(--c-slate)_38%,transparent))] p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+    <div className="border-t border-charcoal/40 pt-2.5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
-            <span className="text-[10px] uppercase tracking-[0.16em] text-fog">
-              {t('gateway.usage')}
-            </span>
+            <span className="text-[11px] text-fog font-medium">{t('gateway.usage')}</span>
             {usage.isPlanQuotaProrated && (
-              <span className="tag text-[9px] !px-1.5 !py-0 border-warning/30 bg-warning/10 text-warning">
+              <span className="text-[10px] text-warning font-medium">
                 {t('gateway.quotaProrated')}
               </span>
             )}
@@ -451,15 +436,15 @@ function QuotaUsagePanel({
         aria-valuemin={0}
         aria-valuemax={usage.limit}
         aria-label={t('gateway.usage')}
-        className="mt-2 h-1.5 rounded-full bg-charcoal/60 overflow-hidden"
+        className="mt-2 h-1 rounded-[2px] bg-charcoal/60 overflow-hidden"
       >
         <div
-          className={`h-full rounded-full transition-all duration-300 ${barColor}`}
+          className={`h-full rounded-[2px] transition-[width,background-color] duration-300 ${barColor}`}
           style={{ width: `${clampedPercent}%` }}
         />
       </div>
 
-      <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+      <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1.5">
         <UsageStat label={t('gateway.quotaUsed')} value={formatUsageValue(usage.used, unit)} />
         <UsageStat label={t('gateway.quotaLimit')} value={formatUsageValue(usage.limit, unit)} />
         <UsageStat label={t('gateway.quotaPercent')} value={formatPercent(clampedPercent)} />
@@ -514,8 +499,8 @@ function UsageStat({
   danger?: boolean
 }): React.JSX.Element {
   return (
-    <div className="rounded-[7px] border border-ash/10 bg-charcoal/25 px-2 py-1.5">
-      <div className="text-[9px] uppercase tracking-[0.12em] text-fog/80">{label}</div>
+    <div className="min-w-0">
+      <div className="text-[10px] uppercase tracking-[0.04em] text-fog">{label}</div>
       <div
         className={`mt-0.5 truncate font-mono text-[11px] tabular-nums ${danger ? 'text-red' : 'text-storm'}`}
       >
@@ -549,10 +534,10 @@ function RateLimitBar({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-label={label}
-        className="flex-1 h-1.5 rounded-full bg-charcoal/50 overflow-hidden"
+        className="flex-1 h-1 rounded-[2px] bg-charcoal/50 overflow-hidden"
       >
         <div
-          className={`h-full rounded-full transition-all duration-300 ${barColor}`}
+          className={`h-full rounded-[2px] transition-[width,background-color] duration-300 ${barColor}`}
           style={{ width: `${percent}%` }}
         />
       </div>
@@ -577,8 +562,8 @@ function getStatusVisual(status: AccountStatus): {
     case 'available':
       return {
         i18nKey: 'statusAvailable',
-        badgeClass: 'badge text-emerald',
-        rateColorClass: 'text-emerald'
+        badgeClass: 'badge text-fog',
+        rateColorClass: 'text-porcelain'
       }
     case 'cooling':
       return {

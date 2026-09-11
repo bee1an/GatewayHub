@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { usePolling } from '../hooks/usePolling'
 import { Button } from '../components/ui/Button'
 import { useToast } from '../components/ui/ToastContext'
+import { PageHeader } from '../components/PageHeader'
 
 type ApiKeyEntry = {
   id: string
@@ -47,7 +48,8 @@ export default function Dashboard(): React.JSX.Element {
   const { toast } = useToast()
   const { data: status, refresh } = usePolling<GatewayStatus>(
     () => window.api.gateway.status(),
-    5000
+    5000,
+    ['gateway', 'status']
   )
   const [toggling, setToggling] = useState(false)
 
@@ -111,10 +113,7 @@ export default function Dashboard(): React.JSX.Element {
 
   return (
     <div className="flex flex-col gap-5 animate-fade-in">
-      <div>
-        <h1 className="section-title">{t('dashboard.title')}</h1>
-        <p className="section-desc">{t('dashboard.desc')}</p>
-      </div>
+      <PageHeader title={t('dashboard.title')} desc={t('dashboard.desc')} />
 
       {/* ① 网关控制条 */}
       <GatewayControlBar
@@ -152,39 +151,41 @@ function GatewayControlBar({
 }): React.JSX.Element {
   const { t } = useTranslation()
   return (
-    <div className="card px-4 py-3.5 flex items-center justify-between gap-4 flex-wrap">
-      <div className="flex items-center gap-3.5">
-        <div
-          className={`relative w-2.5 h-2.5 rounded-full ${running ? 'bg-emerald' : 'bg-fog'} ${running ? 'shadow-[var(--shadow-glow-emerald)]' : ''}`}
+    <div className="flex items-center justify-between gap-4 flex-wrap py-4 border-b border-[color-mix(in_srgb,var(--c-charcoal)_60%,transparent)]">
+      <div className="flex items-center gap-4 min-w-0">
+        <span
+          className={`font-mono text-[15px] font-semibold uppercase tracking-[0.08em] ${running ? 'text-accent' : 'text-fog'}`}
+        >
+          {running ? t('dashboard.running') : t('dashboard.stopped')}
+        </span>
+        <span
+          className={`inline-block w-1.5 h-1.5 rounded-full ${running ? 'bg-accent' : 'bg-charcoal'}`}
           aria-hidden="true"
         />
-        <div className="flex flex-col gap-0.5">
-          <span className={`text-[14px] font-[590] ${running ? 'text-emerald' : 'text-storm'}`}>
-            {running ? t('dashboard.running') : t('dashboard.stopped')}
-          </span>
-          <span className="text-[11px] text-fog font-mono">{url}</span>
-        </div>
+        <span className="text-[12px] text-storm font-mono tabular-nums truncate">{url}</span>
       </div>
       <div className="flex items-center gap-3">
         <Link
           to="/logs"
-          className="flex flex-col items-end gap-0.5 px-2.5 py-1 rounded-[var(--radius-sm)] hover:bg-charcoal/50 transition-colors"
+          className="flex items-baseline gap-3 px-2 py-1 rounded-[var(--radius-sm)] hover:bg-charcoal/50 transition-colors"
         >
-          <span className="text-[12px] text-storm tabular-nums">
+          <span className="text-[11px] text-storm font-mono tabular-nums">
             {t('dashboard.providersReady', { ready: readyCount, total: totalCount })}
           </span>
-          <span className={`text-[11px] tabular-nums ${errorCount > 0 ? 'text-red' : 'text-fog'}`}>
+          <span
+            className={`text-[11px] font-mono tabular-nums ${errorCount > 0 ? 'text-red' : 'text-fog'}`}
+          >
             {t('dashboard.errors', { count: errorCount })}
           </span>
         </Link>
         <Button
           variant={running ? 'danger' : 'primary'}
-          size="lg"
+          size="md"
           loading={toggling}
           onClick={onToggle}
           icon={
             <span
-              className={running ? 'i-ph-stop text-[14px]' : 'i-ph-play text-[14px]'}
+              className={running ? 'i-ph-stop text-[13px]' : 'i-ph-play text-[13px]'}
               aria-hidden="true"
             />
           }
@@ -199,21 +200,24 @@ function GatewayControlBar({
 function RecentErrors({ errors }: { errors: LogEntry[] }): React.JSX.Element {
   const { t } = useTranslation()
   return (
-    <div className="card px-4 py-3.5 flex flex-col gap-2">
+    <div className="flex flex-col gap-2 pt-4">
       <div className="flex items-center justify-between">
-        <span className="text-[13px] font-[590] text-porcelain">{t('dashboard.recentErrors')}</span>
-        <Link to="/logs" className="text-[11px] text-storm hover:text-porcelain transition-colors">
+        <span className="label">{t('dashboard.recentErrors')}</span>
+        <Link
+          to="/logs"
+          className="text-[11px] font-mono text-fog hover:text-porcelain transition-colors"
+        >
           {t('dashboard.viewAll')} →
         </Link>
       </div>
       {errors.length === 0 ? (
-        <p className="text-[12px] text-fog py-2 text-center">{t('dashboard.noErrors')}</p>
+        <p className="text-[12px] text-fog py-2">{t('dashboard.noErrors')}</p>
       ) : (
         <div className="flex flex-col">
           {errors.map((log, i) => (
             <div
               key={`${log.ts}-${i}`}
-              className={`flex items-start gap-2.5 px-1 py-1.5 ${i > 0 ? 'border-t border-charcoal/40' : ''}`}
+              className={`flex items-start gap-2.5 py-1.5 ${i > 0 ? 'border-t border-charcoal/40' : ''}`}
             >
               <time className="shrink-0 text-[11px] font-mono text-fog tabular-nums w-[56px]">
                 {new Date(log.ts).toLocaleTimeString('en-GB', {

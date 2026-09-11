@@ -57,7 +57,7 @@ export function UpgradeProgress(): React.JSX.Element {
     ? 'i-ph-warning-circle-bold text-rose text-lg'
     : isSuccess
       ? 'i-ph-check-circle-bold text-emerald text-lg'
-      : 'i-ph-arrow-circle-up-bold text-emerald text-lg animate-pulse'
+      : 'i-ph-arrow-circle-up-bold text-emerald text-lg'
 
   return (
     <div className="h-screen w-screen flex flex-col bg-pitch text-porcelain select-none">
@@ -65,7 +65,7 @@ export function UpgradeProgress(): React.JSX.Element {
       <div className="flex-1 min-h-0 flex flex-col gap-3 px-5 pb-5">
         {/* 顶部标题区 */}
         <div className="flex items-center gap-3 shrink-0">
-          <div className="flex items-center justify-center w-9 h-9 rounded-[var(--radius-md)] bg-[color-mix(in_srgb,var(--c-emerald)_15%,transparent)]">
+          <div className="flex items-center justify-center w-9 h-9 rounded-[var(--radius-md)] bg-charcoal">
             <span className={iconClass} />
           </div>
           <div className="flex flex-col">

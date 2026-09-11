@@ -175,8 +175,10 @@ export default function Playground(): React.JSX.Element {
   return (
     <div className="flex flex-col gap-4 animate-fade-in min-h-[calc(100vh-2.5rem-1.25rem)]">
       <div>
-        <h1 className="section-title">{t('playground.title')}</h1>
-        <p className="section-desc">{t('playground.desc')}</p>
+        <h1 className="text-[19px] font-[650] text-porcelain tracking-[-0.3px]">
+          {t('playground.title')}
+        </h1>
+        <p className="mt-1 text-[11px] font-mono text-fog">{t('playground.desc')}</p>
       </div>
 
       {/* ── toolbar ───────────────────────────────────────── */}

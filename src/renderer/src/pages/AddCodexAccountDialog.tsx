@@ -191,9 +191,7 @@ export function AddCodexAccountDialog({
                   </Button>
                 )}
                 {loginState === 'pending' && (
-                  <p className="text-[12px] text-fog animate-pulse">
-                    {t('addAccount.codexAwaitingBrowser')}
-                  </p>
+                  <p className="text-[12px] text-fog">{t('addAccount.codexAwaitingBrowser')}</p>
                 )}
                 {loginState === 'authorize' && (
                   <div className="space-y-2">
@@ -202,7 +200,7 @@ export function AddCodexAccountDialog({
                     </p>
                     {authorizeUrl && (
                       <div className="flex items-center gap-2 rounded-[var(--radius-md)] bg-pitch px-2 py-1.5">
-                        <span className="flex-1 text-[12px] text-lime break-all select-all">
+                        <span className="flex-1 text-[12px] text-porcelain font-mono break-all select-all">
                           {authorizeUrl}
                         </span>
                         <Button size="sm" onClick={handleCopyAuthorizeUrl}>
@@ -237,16 +235,14 @@ export function AddCodexAccountDialog({
                   </Button>
                 )}
                 {loginState === 'pending' && (
-                  <p className="text-[12px] text-fog animate-pulse">
-                    {t('addAccount.codexRequestingCode')}
-                  </p>
+                  <p className="text-[12px] text-fog">{t('addAccount.codexRequestingCode')}</p>
                 )}
                 {loginState === 'authorize' && (
                   <div className="space-y-2 text-center py-2">
                     <p className="text-[12px] text-fog">{t('addAccount.codexDeviceCodeHint')}</p>
                     {authorizeUrl && (
                       <div className="flex items-center gap-2 rounded-[var(--radius-md)] bg-pitch px-2 py-1.5 text-left">
-                        <span className="flex-1 text-[12px] text-lime break-all select-all">
+                        <span className="flex-1 text-[12px] text-porcelain font-mono break-all select-all">
                           {authorizeUrl}
                         </span>
                         <Button size="sm" onClick={handleCopyAuthorizeUrl}>

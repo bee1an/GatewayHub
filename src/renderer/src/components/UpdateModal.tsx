@@ -30,7 +30,7 @@ export function UpdateModal({
     <Modal open={open} onOpenChange={onOpenChange} title={t('updater.title')} width="420px">
       <div className="space-y-4">
         <div className="flex items-center gap-3 rounded-[var(--radius-md)] bg-slate p-3">
-          <div className="flex items-center justify-center w-9 h-9 rounded-[var(--radius-md)] bg-[color-mix(in_srgb,var(--c-emerald)_15%,transparent)]">
+          <div className="flex items-center justify-center w-9 h-9 rounded-[var(--radius-md)] bg-charcoal">
             <span className="i-ph-arrow-circle-up-bold text-emerald text-lg" />
           </div>
           <div className="flex-1 flex items-center justify-between">

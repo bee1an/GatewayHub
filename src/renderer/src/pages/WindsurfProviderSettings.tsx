@@ -59,7 +59,7 @@ function LabeledInput({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="input-base w-full font-mono"
+        className="input-base w-full"
         disabled={disabled}
       />
     </label>

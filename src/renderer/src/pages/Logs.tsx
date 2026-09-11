@@ -81,26 +81,19 @@ type GatewayStatus = {
   logs: LogEntry[]
 }
 
-const LEVEL_BORDER_COLORS: Record<string, string> = {
-  error: 'border-l-red',
-  warn: 'border-l-warning',
-  info: 'border-l-emerald',
-  debug: 'border-l-fog'
-}
-
 const LEVEL_CHIP_COLORS: Record<string, string> = {
-  error: 'text-red bg-[color-mix(in_srgb,var(--c-red)_12%,transparent)]',
-  warn: 'text-warning bg-[color-mix(in_srgb,var(--c-warning)_12%,transparent)]',
-  info: 'text-emerald bg-[color-mix(in_srgb,var(--c-emerald)_12%,transparent)]',
-  debug: 'text-fog bg-[color-mix(in_srgb,var(--c-fog)_12%,transparent)]'
+  error: 'text-red',
+  warn: 'text-warning',
+  info: 'text-fog',
+  debug: 'text-fog/70'
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
-  system: 'text-steel bg-[color-mix(in_srgb,var(--c-steel)_12%,transparent)]',
-  auth: 'text-warning bg-[color-mix(in_srgb,var(--c-warning)_12%,transparent)]',
-  request: 'text-emerald bg-[color-mix(in_srgb,var(--c-emerald)_12%,transparent)]',
-  upstream: 'text-sky bg-[color-mix(in_srgb,var(--c-sky,#38bdf8)_12%,transparent)]',
-  account: 'text-violet bg-[color-mix(in_srgb,var(--c-violet)_12%,transparent)]'
+  system: 'text-fog',
+  auth: 'text-fog',
+  request: 'text-fog',
+  upstream: 'text-fog',
+  account: 'text-fog'
 }
 
 const TIME_RANGES = [
@@ -121,7 +114,7 @@ function getTimeThreshold(range: string): number {
 
 function statusCodeColor(code?: number): string {
   if (!code) return 'text-fog'
-  if (code >= 200 && code < 300) return 'text-emerald'
+  if (code >= 200 && code < 300) return 'text-steel'
   if (code >= 400 && code < 500) return 'text-warning'
   return 'text-red'
 }
@@ -179,7 +172,8 @@ export default function Logs(): React.JSX.Element {
 
   const { data: status, refresh } = usePolling<GatewayStatus>(
     () => window.api.gateway.status(),
-    live ? 2000 : 0
+    live ? 2000 : 0,
+    ['gateway', 'status']
   )
   const parentRef = useRef<HTMLDivElement>(null)
 
@@ -325,7 +319,9 @@ export default function Logs(): React.JSX.Element {
   return (
     <div className="flex flex-col gap-3 h-[calc(100vh-80px)]">
       <div className="flex items-center justify-between shrink-0">
-        <h1 className="section-title">{t('logs.title')}</h1>
+        <h1 className="text-[19px] font-[650] text-porcelain tracking-[-0.3px]">
+          {t('logs.title')}
+        </h1>
         <div className="flex items-center gap-2">
           <Button onClick={handleExport} variant="ghost" size="sm">
             <span className="i-ph-export text-[13px]" aria-hidden="true" />
@@ -416,7 +412,7 @@ export default function Logs(): React.JSX.Element {
         {requestIdFilter && (
           <button
             onClick={() => setRequestIdFilter(null)}
-            className="flex items-center gap-1 px-2 py-0.5 rounded bg-sky/10 text-sky text-[11px] font-mono"
+            className="flex items-center gap-1 px-2 py-0.5 rounded bg-charcoal text-porcelain border border-charcoal/60 text-[11px] font-mono hover:border-ash transition-colors"
           >
             rid:{requestIdFilter.slice(0, 8)}
             <span className="i-ph-x text-[10px]" />
@@ -546,7 +542,6 @@ function LogRow({
   onRequestIdClick: (rid: string) => void
 }): React.JSX.Element {
   const { t } = useTranslation()
-  const levelBorder = LEVEL_BORDER_COLORS[log.level] ?? 'border-l-fog'
   const levelChip =
     LEVEL_CHIP_COLORS[log.level] ?? 'text-fog bg-[color-mix(in_srgb,var(--c-fog)_12%,transparent)]'
   const time = new Date(log.ts).toLocaleTimeString('en-GB', {
@@ -557,7 +552,7 @@ function LogRow({
 
   return (
     <div
-      className={`border-l-[3px] ${levelBorder} transition-colors duration-75 ${expanded ? 'bg-[color-mix(in_srgb,var(--c-slate)_60%,transparent)]' : ''}`}
+      className={`transition-colors duration-75 ${expanded ? 'bg-[color-mix(in_srgb,var(--c-slate)_60%,transparent)]' : ''}`}
     >
       <div
         role="button"
@@ -575,13 +570,13 @@ function LogRow({
           {time}
         </time>
         <span
-          className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide ${levelChip}`}
+          className={`shrink-0 w-12 text-[10px] font-mono font-medium uppercase ${levelChip}`}
         >
           {log.level}
         </span>
         {log.category && (
           <span
-            className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${CATEGORY_COLORS[log.category] ?? 'text-fog bg-[color-mix(in_srgb,var(--c-fog)_12%,transparent)]'}`}
+            className={`shrink-0 text-[10px] font-mono ${CATEGORY_COLORS[log.category] ?? 'text-fog'}`}
           >
             {log.category}
           </span>
@@ -641,7 +636,7 @@ function LogRow({
       {expanded && (
         <div
           onClick={(e) => e.stopPropagation()}
-          className="px-4 py-2.5 border-b border-charcoal/30 bg-pitch/30 shadow-[inset_0_1px_3px_rgba(0,0,0,0.15)] animate-slide-down"
+          className="px-4 py-2.5 border-b border-charcoal/30 bg-pitch/30 animate-slide-down"
         >
           <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-[12px]">
             <span className="text-fog">{t('logs.time')}</span>
@@ -852,7 +847,7 @@ function GroupBlock({
 
   return (
     <div
-      className={`border-l-[3px] ${row.summary.hasError ? 'border-l-red' : 'border-l-emerald'} ${expanded ? 'bg-[color-mix(in_srgb,var(--c-slate)_60%,transparent)]' : ''}`}
+      className={`transition-colors duration-75 ${expanded ? 'bg-[color-mix(in_srgb,var(--c-slate)_60%,transparent)]' : ''}`}
     >
       <div
         role="button"
@@ -867,11 +862,9 @@ function GroupBlock({
         className={`flex items-center gap-2 px-3 py-1.5 border-b border-charcoal/30 cursor-pointer ${expanded ? '' : 'hover:bg-[color-mix(in_srgb,var(--c-slate)_30%,transparent)]'}`}
       >
         <span
-          className={`shrink-0 text-[10px] text-fog transition-transform duration-100 ${expanded ? 'rotate-90' : ''}`}
+          className={`shrink-0 i-ph-caret-right-fill text-[10px] text-fog transition-transform duration-100 ${expanded ? 'rotate-90' : ''}`}
           aria-hidden="true"
-        >
-          ▶
-        </span>
+        />
         <time className="shrink-0 text-[12px] font-mono text-storm w-[60px] tabular-nums">
           {new Date(row.summary.startTime).toLocaleTimeString('en-GB', {
             hour: '2-digit',

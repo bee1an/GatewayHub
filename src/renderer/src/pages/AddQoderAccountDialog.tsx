@@ -232,16 +232,14 @@ export function AddQoderAccountDialog({
                             {t('addAccount.qoderCliLoginHint')}
                           </p>
                           <div className="flex items-center gap-2 rounded-[var(--radius-md)] bg-pitch px-2 py-1.5 text-left">
-                            <span className="flex-1 text-[12px] text-lime break-all select-all">
+                            <span className="flex-1 text-[12px] text-porcelain font-mono break-all select-all">
                               {loginUrl}
                             </span>
                             <Button size="sm" onClick={() => handleCopyCliLink(loginUrl)}>
                               {cliCopyOk ? t('common.copied') : t('common.copy')}
                             </Button>
                           </div>
-                          <p className="text-[12px] text-fog animate-pulse">
-                            {t('addAccount.qoderCliWaiting')}
-                          </p>
+                          <p className="text-[12px] text-fog">{t('addAccount.qoderCliWaiting')}</p>
                         </div>
                       ) : (
                         <pre className="text-[12px] font-mono bg-pitch rounded-[var(--radius-md)] p-3 max-h-36 overflow-y-auto whitespace-pre-wrap text-storm">

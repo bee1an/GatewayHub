@@ -32,20 +32,7 @@ export function Modal({
                 aria-label={t('common.close') || 'Close'}
                 className="text-fog hover:text-porcelain transition-colors p-1 rounded-[var(--radius-sm)] hover:bg-charcoal outline-none focus-visible:ring-1 focus-visible:ring-accent/60 focus-visible:ring-offset-1 focus-visible:ring-offset-pitch"
               >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 14 14"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    d="M11 3L3 11M3 3l8 8"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                  />
-                </svg>
+                <span className="i-ph-x text-[14px] block" aria-hidden="true" />
               </Dialog.Close>
             )}
           </div>

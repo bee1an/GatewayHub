@@ -1,4 +1,5 @@
 import type { TraeProviderSettings, UsageStats } from '../../types'
+import { createParser } from 'eventsource-parser'
 import { toErrorMessage } from '../../core/utils'
 import { DEFAULT_TRAE_CORE_BASE_URL, DEFAULT_TRAE_RAW_CHAT_PATH } from './constants'
 import { buildTraeIdeHeaders } from './headers'
@@ -211,24 +212,15 @@ async function readWithTimeout(
 }
 
 function parseSseBlocks(input: string): Array<{ event?: string; data: any }> {
-  const blocks = input.split(/\r?\n\r?\n/)
   const out: Array<{ event?: string; data: any }> = []
-  for (const block of blocks) {
-    if (!block.trim()) continue
-    let event: string | undefined
-    const dataLines: string[] = []
-    for (const line of block.split(/\r?\n/)) {
-      if (line.startsWith('event:')) event = line.slice(6).trim()
-      else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim())
+  const parser = createParser({
+    maxBufferSize: 1024 * 1024,
+    onEvent: ({ event, data }) => {
+      out.push({ event: data === '[DONE]' ? event || 'done' : event, data: tryJson(data) })
     }
-    if (!dataLines.length) continue
-    const dataText = dataLines.join('\n')
-    if (dataText === '[DONE]') {
-      out.push({ event: event || 'done', data: '[DONE]' })
-      continue
-    }
-    out.push({ event, data: tryJson(dataText) })
-  }
+  })
+  parser.feed(input)
+  parser.reset({ consume: true })
   return out
 }
 

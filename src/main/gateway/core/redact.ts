@@ -38,6 +38,10 @@ const STRING_REPLACERS: Array<{ pattern: RegExp; replacement: string }> = [
   { pattern: /sk-or-v1-[A-Za-z0-9_-]+/g, replacement: 'sk-or-v1-***' },
   // NVIDIA NIM API keys
   { pattern: /nvapi-[A-Za-z0-9._-]+/g, replacement: 'nvapi-***' },
+  // GatewayHub API keys (current sk- and legacy ghub- formats)
+  { pattern: /ghub-[A-Za-z0-9._-]+/g, replacement: 'ghub-***' },
+  // Generic sk- keys (8+ chars after the prefix so plain "sk-" text survives)
+  { pattern: /sk-[A-Za-z0-9._-]{8,}/g, replacement: 'sk-***' },
   // OAuth redirect with code= → 占位
   { pattern: /https?:\/\/[^\s]*\bcode=[^&\s]+/g, replacement: '<oauth-redirect-redacted>' },
   // JWT 形态字符串

@@ -34,7 +34,7 @@ type PackedUsage = [
 
 interface ModelEntry {
   packed: PackedUsage
-  apiFormat?: 'openai' | 'anthropic'
+  apiFormat?: 'openai' | 'anthropic' | 'responses'
   provider?: ProviderName
   updatedAt: string
 }
@@ -137,7 +137,9 @@ function normalizeStore(value: unknown): UsageStoreFile {
           Math.max(0, Math.trunc(Number(packed[6] ?? 0) || 0))
         ]
         const apiFormat =
-          entryRaw.apiFormat === 'openai' || entryRaw.apiFormat === 'anthropic'
+          entryRaw.apiFormat === 'openai' ||
+          entryRaw.apiFormat === 'anthropic' ||
+          entryRaw.apiFormat === 'responses'
             ? entryRaw.apiFormat
             : undefined
         const provider =
@@ -182,7 +184,7 @@ export interface UsageStoreOptions {
 export interface UsageRecordInput {
   accountId?: string
   model?: string
-  apiFormat?: 'openai' | 'anthropic'
+  apiFormat?: 'openai' | 'anthropic' | 'responses'
   provider?: ProviderName
   usage: UsageStats
   timestamp?: Date

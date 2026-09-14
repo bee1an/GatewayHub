@@ -15,6 +15,11 @@ import {
   safeEqualString
 } from './core/http'
 import { wrapStreamForTracing, type RequestTrace } from './core/requestTracer'
+import {
+  chatCompletionSseToResponsesSse,
+  chatCompletionToResponsesResponse,
+  responsesRequestToChatCompletions
+} from './core/responsesApi'
 import { deriveGatewaySession } from './core/session'
 import { ProviderRegistry } from './providerRegistry'
 import { PricingTable } from './core/pricing'
@@ -296,6 +301,55 @@ export class GatewayServer {
             abortSignal: upstreamAbort.signal
           })
           return await this.writeTracedResponse(req, res, response, trace)
+        } finally {
+          unbindClientAbort()
+        }
+      }
+
+      // 兼容把 base URL 填成裸地址（不带 /v1）的客户端。
+      if (
+        req.method === 'POST' &&
+        (url.pathname === '/v1/responses' || url.pathname === '/responses')
+      ) {
+        const body = await parseRequestBody(req, MAX_BODY_BYTES)
+        if (!this.checkScope(apiKeyEntry, body?.model, res, rid)) return
+        const chatBody = responsesRequestToChatCompletions(body)
+        const session = deriveGatewaySession(req.headers, chatBody, apiKeyEntry, rid, 'responses')
+        this.logger.info(`POST /v1/responses model=${body?.model || 'default'}`, {
+          requestId: rid,
+          category: 'request',
+          extra: {
+            apiFormat: 'responses',
+            stream: body?.stream === true,
+            sessionSource: session.source,
+            sessionKey: sha256Short(session.id, 12)
+          }
+        })
+        const trace: RequestTrace = {
+          requestId: rid,
+          method: 'POST',
+          path: url.pathname,
+          model: body?.model,
+          apiFormat: 'responses',
+          startedAt
+        }
+        const upstreamAbort = new AbortController()
+        const unbindClientAbort = this.bindClientAbort(req, res, upstreamAbort)
+        try {
+          const response = await this.registry.chatCompletions(chatBody, {
+            requestId: rid,
+            sessionId: session.id,
+            sessionSource: session.source,
+            apiFormat: 'responses',
+            onUsage: this.makeUsageSink(trace),
+            abortSignal: upstreamAbort.signal
+          })
+          return await this.writeTracedResponse(
+            req,
+            res,
+            toResponsesGatewayResponse(response, body),
+            trace
+          )
         } finally {
           unbindClientAbort()
         }
@@ -659,4 +713,16 @@ export class GatewayServer {
         })
     }
   }
+}
+
+/**
+ * 把 chat-completions 形态的 GatewayResponse 包装成 Responses API 形态。
+ * 非 2xx 错误体原样透传（providers 已经返回了 error JSON）。
+ */
+function toResponsesGatewayResponse(response: GatewayResponse, requestBody: any): GatewayResponse {
+  if (response.status >= 400) return response
+  if (response.stream) {
+    return { ...response, stream: chatCompletionSseToResponsesSse(response.stream, requestBody) }
+  }
+  return { ...response, body: chatCompletionToResponsesResponse(response.body, requestBody) }
 }

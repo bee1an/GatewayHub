@@ -5,7 +5,7 @@ export interface RequestTrace {
   method: string
   path: string
   model?: string
-  apiFormat?: 'openai' | 'anthropic'
+  apiFormat?: 'openai' | 'anthropic' | 'responses'
   startedAt: number
   streaming?: boolean
   statusCode?: number

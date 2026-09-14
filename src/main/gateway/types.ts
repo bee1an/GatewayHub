@@ -745,7 +745,7 @@ export interface UsageDailyEntry {
   model: string
   /** 来源网关（kiro/codex/...）；用于前端选择 token 还是 credit 视图 */
   provider?: ProviderName
-  apiFormat?: 'openai' | 'anthropic'
+  apiFormat?: 'openai' | 'anthropic' | 'responses'
   inputTokens: number
   outputTokens: number
   cacheReadTokens: number
@@ -802,7 +802,7 @@ export interface GatewayLogEntry {
   timeToFirstToken?: number
   chunkCount?: number
   model?: string
-  apiFormat?: 'openai' | 'anthropic'
+  apiFormat?: 'openai' | 'anthropic' | 'responses'
   usage?: UsageStats
   cost?: CostStats
   error?: { stack?: string; upstreamBody?: string }
@@ -817,7 +817,7 @@ export interface GatewayRequestContext {
    */
   sessionId?: string
   sessionSource?: 'body' | 'metadata' | 'header' | 'fallback' | 'request'
-  apiFormat: 'openai' | 'anthropic'
+  apiFormat: 'openai' | 'anthropic' | 'responses'
   onUsage?: (usage: UsageStats, meta?: UsageMeta) => void
   abortSignal?: AbortSignal
 }

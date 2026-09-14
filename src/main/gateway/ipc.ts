@@ -669,6 +669,14 @@ export function registerGatewayIpc(): void {
     )
   )
   ipcMain.handle(
+    'gateway:checkinTraeWorkAccounts',
+    safeHandler((_event, accountId: unknown) =>
+      withDaemonReload(() =>
+        gatewayHubService.checkinTraeWorkAccounts(optionalStringSchema.parse(accountId))
+      )
+    )
+  )
+  ipcMain.handle(
     'gateway:getTraeWorkSettings',
     safeHandler(() => gatewayHubService.getTraeWorkSettings())
   )

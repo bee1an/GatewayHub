@@ -290,6 +290,7 @@ declare global {
           status: string,
           reason?: string
         ) => Promise<any>
+        checkinTraeWorkAccounts: (accountId?: string) => Promise<any>
         getTraeWorkSettings: () => Promise<any>
         updateTraeWorkSettings: (settings: Record<string, any>) => Promise<any>
         // ========== OpenRouter ==========

@@ -4,6 +4,7 @@ import type {
   GatewayRequestContext,
   GatewayResponse,
   ProviderAdapter,
+  ProviderCheckinResult,
   ProviderModel,
   ProviderStatus,
   TraeWorkAccountConfig,
@@ -30,10 +31,14 @@ import {
 } from './streaming'
 
 const UPSTREAM_META = { category: 'upstream' as const, provider: 'traework' as const }
+const CHECKIN_INTERVAL_MS = 60 * 60_000
+const CHECKIN_STARTUP_DELAY_MS = 20_000
 
 export class TraeWorkProvider implements ProviderAdapter {
   readonly name = 'traework'
   private readonly pool: TraeWorkAccountPool
+  private checkinTimer?: ReturnType<typeof setTimeout>
+  private checkinInFlight = false
 
   constructor(
     private readonly config: TraeWorkProviderConfig,
@@ -47,6 +52,56 @@ export class TraeWorkProvider implements ProviderAdapter {
 
   async initialize(accountFiles: TraeWorkAccountConfig[]): Promise<void> {
     await this.pool.reload(accountFiles)
+    this.scheduleCheckin(CHECKIN_STARTUP_DELAY_MS)
+  }
+
+  dispose(): void {
+    if (this.checkinTimer) {
+      clearTimeout(this.checkinTimer)
+      this.checkinTimer = undefined
+    }
+  }
+
+  async checkinAccounts(accountId?: string, force = false): Promise<ProviderCheckinResult> {
+    return this.pool.checkinAccounts(accountId, force)
+  }
+
+  /**
+   * Hourly self-rescheduling timer. Only schedules when the provider and
+   * settings.autoCheckin are enabled; each tick runs the pool check-in which
+   * no-ops for accounts already confirmed for the current CN day.
+   */
+  private scheduleCheckin(delayMs: number): void {
+    if (this.checkinTimer) clearTimeout(this.checkinTimer)
+    if (!this.config.enabled || this.config.settings.autoCheckin === false) return
+    this.checkinTimer = setTimeout(() => {
+      this.checkinTimer = undefined
+      void this.runScheduledCheckin()
+    }, delayMs)
+    this.checkinTimer.unref?.()
+  }
+
+  private async runScheduledCheckin(): Promise<void> {
+    if (!this.checkinInFlight) {
+      this.checkinInFlight = true
+      try {
+        const result = await this.pool.checkinAccounts()
+        if (result.claimed || result.failed) {
+          this.logger.info(
+            `TraeWork daily check-in: ${result.claimed} claimed, ${result.failed} failed`,
+            { provider: 'traework', category: 'account' }
+          )
+        }
+      } catch (error) {
+        this.logger.warn(`TraeWork daily check-in sweep failed: ${toErrorMessage(error)}`, {
+          provider: 'traework',
+          category: 'account'
+        })
+      } finally {
+        this.checkinInFlight = false
+      }
+    }
+    this.scheduleCheckin(CHECKIN_INTERVAL_MS)
   }
 
   async listModels(): Promise<ProviderModel[]> {
@@ -152,7 +207,8 @@ export class TraeWorkProvider implements ProviderAdapter {
       statusUpdatedAt: account.state.statusUpdatedAt,
       cooldownUntil: account.state.cooldownUntil,
       lastResponseKind: account.state.lastResponseKind,
-      countryCode: account.config.countryCode
+      countryCode: account.config.countryCode,
+      checkin: account.state.checkin
     }))
     return {
       name: 'traework',

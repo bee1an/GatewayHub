@@ -1411,6 +1411,17 @@ export class GatewayHubService {
     return this.getStatus()
   }
 
+  /**
+   * Manual Trae CN check-in trigger. With an accountId it forces that account;
+   * without one it sweeps all enabled accounts that haven't checked in today.
+   */
+  async checkinTraeWorkAccounts(accountId?: string) {
+    await this.ensureReady()
+    const result = await this.registry!.checkinAccounts('traework', accountId, Boolean(accountId))
+    await this.persistStateSoon()
+    return result
+  }
+
   async setTraeWorkAccountStatus(
     accountId: string,
     status: AccountStatus,

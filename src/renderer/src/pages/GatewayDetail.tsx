@@ -54,6 +54,8 @@ export default function GatewayDetail(): React.JSX.Element {
   const [modelRefreshIds, setModelRefreshIds] = useState<Set<string>>(() => new Set())
   const [globalProxyUrl, setGlobalProxyUrl] = useState('')
   const [proxyToggleSaving, setProxyToggleSaving] = useState(false)
+  const [autoCheckin, setAutoCheckin] = useState<boolean | null>(null)
+  const [checkinToggleSaving, setCheckinToggleSaving] = useState(false)
 
   const draftValue =
     routeNameDraft && routeNameDraft.name === name ? routeNameDraft.value : (name ?? '')
@@ -300,6 +302,41 @@ export default function GatewayDetail(): React.JSX.Element {
     }
   }, [supportsProxy])
 
+  useEffect(() => {
+    if ((!isTraeWork && !isWorkBuddy) || tab !== 'settings') return
+    let cancelled = false
+    const load = isTraeWork
+      ? window.api.gateway.getTraeWorkSettings()
+      : window.api.gateway.getWorkBuddySettings()
+    load
+      .then((settings) => {
+        if (!cancelled) setAutoCheckin(settings?.autoCheckin !== false)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [isTraeWork, isWorkBuddy, tab])
+
+  async function toggleAutoCheckin(): Promise<void> {
+    if (checkinToggleSaving || autoCheckin === null) return
+    const next = !autoCheckin
+    setCheckinToggleSaving(true)
+    try {
+      if (isWorkBuddy) {
+        await window.api.gateway.updateWorkBuddySettings({ autoCheckin: next })
+      } else {
+        await window.api.gateway.updateTraeWorkSettings({ autoCheckin: next })
+      }
+      setAutoCheckin(next)
+      await refresh()
+    } catch (error) {
+      toast(error instanceof Error ? error.message : String(error), 'error')
+    } finally {
+      setCheckinToggleSaving(false)
+    }
+  }
+
   async function toggleUseProxy(): Promise<void> {
     if (!gateway?.providerType || proxyToggleSaving) return
     const next = !gateway.useProxy
@@ -495,6 +532,39 @@ export default function GatewayDetail(): React.JSX.Element {
                   >
                     <div
                       className={`absolute top-[3px] w-3 h-3 rounded-full transition-[left,background-color] duration-200 shadow-sm ${gateway.useProxy ? 'left-[17px] bg-white' : 'left-[3px] bg-fog'}`}
+                    />
+                  </div>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {(isTraeWork || isWorkBuddy) && (
+            <div className="card">
+              <div className="flex items-center justify-between px-3.5 py-2.5">
+                <div className="min-w-0">
+                  <h2
+                    id="gateway-auto-checkin-label"
+                    className="text-[13px] font-medium text-porcelain"
+                  >
+                    {t('gateway.autoCheckin')}
+                  </h2>
+                  <p className="text-[12px] text-fog mt-0.5">{t('gateway.autoCheckinDesc')}</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={autoCheckin === true}
+                  aria-labelledby="gateway-auto-checkin-label"
+                  disabled={checkinToggleSaving || busy || autoCheckin === null}
+                  className="outline-none focus-visible:ring-1 focus-visible:ring-accent/40 disabled:opacity-40 shrink-0"
+                  onClick={toggleAutoCheckin}
+                >
+                  <div
+                    className={`relative w-8 h-[18px] rounded-full transition-colors duration-200 ${autoCheckin ? 'bg-emerald' : 'bg-charcoal border border-ash/60'}`}
+                  >
+                    <div
+                      className={`absolute top-[3px] w-3 h-3 rounded-full transition-[left,background-color] duration-200 shadow-sm ${autoCheckin ? 'left-[17px] bg-white' : 'left-[3px] bg-fog'}`}
                     />
                   </div>
                 </button>

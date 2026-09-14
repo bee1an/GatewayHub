@@ -399,6 +399,13 @@ export class ProviderRegistry {
       throw new Error(`Provider ${providerName} does not support setAccountStatus`)
     return provider.setAccountStatus(accountId, status, reason)
   }
+
+  async checkinAccounts(providerName: ProviderName, accountId?: string, force = false) {
+    const provider = this.providers.get(providerName)
+    if (!provider?.checkinAccounts)
+      throw new Error(`Provider ${providerName} does not support checkinAccounts`)
+    return provider.checkinAccounts(accountId, force)
+  }
 }
 
 function dedupeModels(models: ProviderModel[]): ProviderModel[] {

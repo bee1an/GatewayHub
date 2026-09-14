@@ -76,6 +76,7 @@ export const DEFAULT_TRAEWORK_SETTINGS: TraeWorkProviderSettings = {
   function: DEFAULT_TRAEWORK_FUNCTION,
   dataDir: '',
   vpnProxyUrl: '',
+  autoCheckin: true,
   firstTokenTimeoutSeconds: 60,
   streamingReadTimeoutSeconds: 120,
   maxRetries: 2

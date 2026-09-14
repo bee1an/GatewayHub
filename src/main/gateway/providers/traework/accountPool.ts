@@ -2,6 +2,7 @@ import type {
   AccountRuntimeState,
   AccountStatus,
   AccountTestResult,
+  ProviderCheckinResult,
   TraeWorkAccountConfig,
   TraeWorkProviderConfig,
   TraeWorkProviderState
@@ -14,6 +15,7 @@ import {
   type ClassifiedError
 } from '../../core/accountPool'
 import { TraeWorkAuthError, TraeWorkAuthManager, type TraeWorkTokenSnapshot } from './client'
+import { claimCheckin, cnDayKey, getCheckinStatus, getCreditsUsage } from './checkin'
 import {
   DEFAULT_TRAEWORK_MODEL,
   describeTraeWorkModel,
@@ -200,11 +202,19 @@ export class TraeWorkAccountPool extends BaseAccountPool<TraeWorkAccountConfig> 
     const account = this.accounts.find((item) => item.config.id === accountId)
     if (!account) throw new Error('Account not found')
     await this.maybeRefreshAccountModels(account)
+    let creditsRemaining: number | undefined
+    try {
+      const token = await this.ensureAuth(account).getJwtToken()
+      creditsRemaining = await getCreditsUsage(account.config, token, this.config.settings)
+    } catch {
+      // best-effort — entitlement lookup must not break account info display
+    }
     return {
       id: account.config.id,
       subscription: { title: 'TraeWork', type: 'unknown' },
       email: account.config.email,
       countryCode: account.config.countryCode,
+      creditsRemaining,
       endpoints: {
         authBaseUrl: account.config.authBaseUrl || this.config.settings.authBaseUrl,
         coreBaseUrl: account.config.coreBaseUrl || this.config.settings.coreBaseUrl
@@ -227,6 +237,103 @@ export class TraeWorkAccountPool extends BaseAccountPool<TraeWorkAccountConfig> 
     if (!account) throw new Error('Account not found')
     await this.refreshAccountModels(account)
     return { models: account.state.modelIds }
+  }
+
+  /**
+   * Daily Trae CN check-in (checkin_credits/status + claim). Accounts already
+   * confirmed for the current CN day are skipped unless `force`. Failures are
+   * recorded on state.checkin.lastError but never flip the confirmed day, so
+   * the scheduler can keep retrying until the daily claim lands.
+   */
+  async checkinAccounts(accountId?: string, force = false): Promise<ProviderCheckinResult> {
+    const today = cnDayKey()
+    const targets = accountId
+      ? this.accounts.filter((item) => item.config.id === accountId)
+      : this.accounts.filter((item) => item.config.enabled !== false)
+    const result: ProviderCheckinResult = {
+      ok: true,
+      claimed: 0,
+      alreadyCheckedIn: 0,
+      skipped: 0,
+      failed: 0,
+      results: []
+    }
+    if (accountId && !targets.length) {
+      result.ok = false
+      result.results.push({ accountId, ok: false, message: 'Account not found' })
+      return result
+    }
+    for (const account of targets) {
+      const id = account.config.id
+      const existing = account.state.checkin
+      if (!force && existing?.lastDay === today) {
+        result.skipped += 1
+        result.results.push({
+          accountId: id,
+          ok: true,
+          checkedIn: true,
+          credits: existing.lastCredits
+        })
+        continue
+      }
+      try {
+        const token = await this.ensureAuth(account).getJwtToken()
+        let status = await getCheckinStatus(account.config, token, this.config.settings)
+        let claimed = false
+        if (!status.checkedIn && status.enable) {
+          await claimCheckin(account.config, token, this.config.settings)
+          claimed = true
+          status = await getCheckinStatus(account.config, token, this.config.settings)
+        }
+        const totalCredits = status.credits + status.extraCredits
+        account.state.checkin = {
+          lastDay: today,
+          lastAt: Date.now(),
+          lastCredits: totalCredits
+        }
+        if (!status.enable) {
+          result.skipped += 1
+          result.results.push({
+            accountId: id,
+            ok: true,
+            credits: totalCredits,
+            message: 'Check-in not enabled for this account'
+          })
+        } else {
+          if (claimed) result.claimed += 1
+          else result.alreadyCheckedIn += 1
+          result.results.push({
+            accountId: id,
+            ok: true,
+            checkedIn: status.checkedIn,
+            credits: totalCredits
+          })
+        }
+        this.logger.info('TraeWork check-in done', {
+          provider: 'traework',
+          accountId: this.accountLabel(account),
+          category: 'account',
+          extra: { claimed, credits: totalCredits, enable: status.enable }
+        })
+      } catch (error) {
+        const message = toErrorMessage(error)
+        account.state.checkin = {
+          ...(existing || {}),
+          lastAt: Date.now(),
+          lastError: message.slice(0, 300)
+        }
+        result.failed += 1
+        result.ok = false
+        result.results.push({ accountId: id, ok: false, message })
+        this.logger.warn(`TraeWork check-in failed: ${message}`, {
+          provider: 'traework',
+          accountId: this.accountLabel(account),
+          category: 'account'
+        })
+      }
+    }
+    this.onStateChanged()
+    return result
   }
 
   protected transitionStatus(

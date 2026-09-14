@@ -208,6 +208,8 @@ const api = {
       ipcRenderer.invoke('gateway:resetTraeWorkAccount', accountId),
     setTraeWorkAccountStatus: (accountId: string, status: string, reason?: string) =>
       ipcRenderer.invoke('gateway:setTraeWorkAccountStatus', accountId, status, reason),
+    checkinTraeWorkAccounts: (accountId?: string) =>
+      ipcRenderer.invoke('gateway:checkinTraeWorkAccounts', accountId),
     getTraeWorkSettings: () => ipcRenderer.invoke('gateway:getTraeWorkSettings'),
     updateTraeWorkSettings: (settings: Record<string, any>) =>
       ipcRenderer.invoke('gateway:updateTraeWorkSettings', settings),

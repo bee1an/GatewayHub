@@ -29,6 +29,7 @@ export function AccountRow({
   onPauseToggle,
   onRefreshInfo,
   onRefreshModels,
+  onCheckin,
   modelsRefreshing = false
 }: {
   account: Account
@@ -43,6 +44,8 @@ export function AccountRow({
   onPauseToggle: () => void
   onRefreshInfo: () => void
   onRefreshModels?: () => void
+  /** TraeWork: manually trigger the daily check-in for this account. */
+  onCheckin?: () => void
   modelsRefreshing?: boolean
 }): React.JSX.Element {
   const { t } = useTranslation()
@@ -81,6 +84,9 @@ export function AccountRow({
   const cooldownRemaining =
     acc.cooldownUntil && acc.cooldownUntil > now ? acc.cooldownUntil - now : null
 
+  const cnToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(now)
+  const checkedInToday = acc.checkin?.lastDay === cnToday
+
   return (
     <div
       className={`group ${!last ? 'border-b border-b-charcoal/30' : ''} ${!acc.enabled ? 'opacity-50' : ''} transition-colors duration-75 ${expanded ? 'bg-[color-mix(in_srgb,var(--c-slate)_50%,transparent)]' : ''}`}
@@ -116,6 +122,36 @@ export function AccountRow({
             </span>
           )}
         </span>
+        {checkedInToday && (
+          <TooltipWrapper
+            content={
+              acc.checkin?.lastCredits
+                ? `${t('gateway.checkedInToday')} +${acc.checkin.lastCredits}`
+                : t('gateway.checkedInToday')
+            }
+          >
+            <span className="text-[10px] text-storm font-mono tabular-nums shrink-0 flex items-center gap-0.5">
+              <span className="i-ph-calendar-check text-[11px]" aria-hidden="true" />
+              {acc.checkin?.lastCredits ? `+${acc.checkin.lastCredits}` : '✓'}
+            </span>
+          </TooltipWrapper>
+        )}
+        {!checkedInToday && acc.checkin?.lastError && (
+          <TooltipWrapper content={acc.checkin.lastError}>
+            <span
+              className="i-ph-calendar-x text-[13px] text-warning shrink-0 cursor-help"
+              aria-hidden="true"
+            />
+          </TooltipWrapper>
+        )}
+        {accountInfo?.creditsRemaining !== undefined && (
+          <TooltipWrapper content={t('gateway.creditsRemaining')}>
+            <span className="text-[10px] text-storm font-mono tabular-nums shrink-0 flex items-center gap-0.5">
+              <span className="i-ph-coins text-[11px]" aria-hidden="true" />
+              {formatUsageNumber(accountInfo.creditsRemaining)}
+            </span>
+          </TooltipWrapper>
+        )}
         {peakPercent !== null && peakPercent > 80 && (
           <TooltipWrapper
             content={
@@ -187,6 +223,26 @@ export function AccountRow({
                 <span
                   aria-hidden="true"
                   className="i-ph-arrow-counter-clockwise text-[12px] text-storm"
+                />
+              </Button>
+            </TooltipWrapper>
+          )}
+          {onCheckin && acc.enabled && (
+            <TooltipWrapper
+              content={checkedInToday ? t('gateway.checkedInToday') : t('gateway.checkinNow')}
+            >
+              <Button
+                variant="ghost"
+                size="xs"
+                iconOnly
+                disabled={busy || checkedInToday}
+                onClick={onCheckin}
+                aria-label={t('gateway.checkinNow')}
+                className="!h-6 !w-6"
+              >
+                <span
+                  aria-hidden="true"
+                  className={`text-[12px] ${checkedInToday ? 'i-ph-calendar-check text-emerald' : 'i-ph-calendar-plus text-storm'}`}
                 />
               </Button>
             </TooltipWrapper>
@@ -288,6 +344,14 @@ export function AccountRow({
                   className={`font-mono tabular-nums font-medium ${statusVisual.rateColorClass}`}
                 >
                   {rate}%
+                </span>
+              </div>
+            )}
+            {accountInfo?.creditsRemaining !== undefined && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-fog">{t('gateway.creditsRemaining')}</span>
+                <span className="font-mono tabular-nums text-storm">
+                  {formatUsageNumber(accountInfo.creditsRemaining)}
                 </span>
               </div>
             )}

@@ -307,6 +307,8 @@ export interface TraeWorkProviderSettings {
   function: string
   /** TRAE SOLO CN data directory used for local account scanning */
   dataDir: string
+  /** Daily Trae CN check-in (checkin_credits). Defaults to true. */
+  autoCheckin?: boolean
   /**
    * Runtime-injected proxy URL. Not user-configured — resolved from the global
    * `server.proxyUrl` + this provider's `useProxy` flag by the registry on rebuild.
@@ -685,6 +687,8 @@ export interface AccountRuntimeState {
   statusUpdatedAt: number
   cooldownUntil?: number
   lastResponseKind?: ResponseKind
+  /** Daily check-in bookkeeping (TraeWork checkin_credits). */
+  checkin?: CheckinState
   stats: {
     totalRequests: number
     successfulRequests: number
@@ -692,6 +696,14 @@ export interface AccountRuntimeState {
   }
 }
 
+export interface CheckinState {
+  /** Last CN calendar day (YYYY-MM-DD, Asia/Shanghai) a check-in was confirmed. */
+  lastDay?: string
+  lastAt?: number
+  /** Credits reported by the last status/claim response. */
+  lastCredits?: number
+  lastError?: string
+}
 
 export type LogCategory = 'system' | 'auth' | 'request' | 'upstream' | 'account'
 
@@ -853,6 +865,23 @@ export interface ProviderAdapter {
   refreshAccountModels?(accountId: string): Promise<any>
   resetAccount?(accountId: string): Promise<void>
   setAccountStatus?(accountId: string, status: AccountStatus, reason?: string): Promise<void>
+  /** Daily check-in surface. accountId limits to a single account; force ignores the day key. */
+  checkinAccounts?(accountId?: string, force?: boolean): Promise<ProviderCheckinResult>
+}
+
+export interface ProviderCheckinResult {
+  ok: boolean
+  claimed: number
+  alreadyCheckedIn: number
+  skipped: number
+  failed: number
+  results: {
+    accountId: string
+    ok: boolean
+    checkedIn?: boolean
+    credits?: number
+    message?: string
+  }[]
 }
 
 export interface AccountTestResult {

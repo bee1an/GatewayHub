@@ -36,6 +36,13 @@ export type Account = {
   statusUpdatedAt?: number
   cooldownUntil?: number
   lastResponseKind?: string
+  /** TraeWork daily check-in bookkeeping. */
+  checkin?: {
+    lastDay?: string
+    lastAt?: number
+    lastCredits?: number
+    lastError?: string
+  }
 }
 
 export type CodexRateLimitWindow = {
@@ -75,6 +82,8 @@ export type AccountInfo = {
   }
   models: AccountModel[]
   keyInfo?: Record<string, any>
+  /** TraeWork: remaining credits summed across entitlement packs. */
+  creditsRemaining?: number
   error?: string
   /** codex 专属：5h primary / weekly secondary 速率窗口 */
   rateLimits?: {

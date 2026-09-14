@@ -45,15 +45,20 @@ export default function Layout(): React.JSX.Element {
   const isGatewayRoute = location.pathname.startsWith('/gateway/')
 
   return (
-    <div className="h-full flex bg-pitch">
-      <Sidebar />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <StatusStrip />
-        <main className="flex-1 overflow-y-auto bg-pitch">
-          <div className={`mx-auto px-6 pb-5 ${isGatewayRoute ? 'max-w-5xl' : 'max-w-4xl'}`}>
-            <Outlet />
-          </div>
-        </main>
+    <div className="h-full flex justify-center bg-pitch">
+      <div className="app-shell h-full w-full max-w-[1500px] flex border-x border-charcoal/50">
+        <Sidebar />
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <StatusStrip />
+          <main className="app-main flex-1 overflow-y-auto bg-pitch">
+            <div
+              className={`page-col mx-auto px-6 pb-5 ${isGatewayRoute ? 'max-w-5xl' : 'max-w-4xl'}`}
+              style={{ '--page-mw': isGatewayRoute ? '64rem' : '56rem' } as React.CSSProperties}
+            >
+              <Outlet />
+            </div>
+          </main>
+        </div>
       </div>
     </div>
   )

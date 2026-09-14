@@ -1,19 +1,19 @@
 :root,
 [data-theme='dark'] {
-  /* Surfaces */
-  --c-pitch: #050607;
-  --c-graphite: #0c0d0f;
-  --c-slate: #141517;
-  --c-charcoal: #222429;
-  --c-ash: #2e3034;
-  --c-gunmetal: #383b40;
+  /* Surfaces — warm charcoal family, matching the paper-warm light theme */
+  --c-pitch: #0b0a07;
+  --c-graphite: #15140f;
+  --c-slate: #1e1c16;
+  --c-charcoal: #2a2721;
+  --c-ash: #3a372e;
+  --c-gunmetal: #4b473c;
 
   /* Text */
-  --c-porcelain: #f7f8f8;
-  --c-steel: #d0d6e0;
-  --c-storm: #8a8f98;
-  --c-fog: #62666d;
-  --c-alabaster: #e5e5e6;
+  --c-porcelain: #f5f3e9;
+  --c-steel: #d4d0c1;
+  --c-storm: #948f80;
+  --c-fog: #6b675a;
+  --c-alabaster: #e9e6d9;
 
   /* Accent */
   --c-lime: #e4f222;
@@ -41,7 +41,7 @@
   /* Shadows */
   --shadow-sm: rgba(0, 0, 0, 0.4) 0px 2px 4px 0px;
   --shadow-md: rgba(0, 0, 0, 0.2) 0px 0px 12px 0px inset;
-  --shadow-subtle: rgb(35, 37, 42) 0px 0px 0px 1px inset;
+  --shadow-subtle: rgb(58, 55, 46) 0px 0px 0px 1px inset;
   --shadow-xl: rgba(0, 0, 0, 0.55) 0px 8px 24px 0px;
 
   /* Spacing */

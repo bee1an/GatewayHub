@@ -210,6 +210,19 @@ pre,
   background-size: 16px 16px;
 }
 
+/* Wide screens: shift the centered page column left by half the sidebar width
+   so it centers on the window instead of the area right of the sidebar.
+   The shift is clamped to the available slack, so narrow windows are unaffected. */
+.app-main {
+  container-type: inline-size;
+}
+
+.page-col {
+  transform: translateX(
+    calc(-1 * clamp(0px, (100cqw - var(--page-mw, 56rem)) / 2, var(--gh-sb, 0px) / 2))
+  );
+}
+
 /* Cursor — default everywhere, text cursor for inputs */
 * {
   cursor: default;

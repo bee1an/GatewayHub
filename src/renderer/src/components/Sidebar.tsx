@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useMatch, useResolvedPath } from 'react-router-dom'
 import { ProviderLogo } from './ProviderLogo'
 import { getProviderLogoLabel } from './providerLogoData'
 import { TooltipWrapper } from './ui/Tooltip'
@@ -30,6 +30,13 @@ function navItemClass(active: boolean, collapsed: boolean): string {
   return `${base} text-[12px] transition-colors duration-100 ${state}`
 }
 
+// Radix Tooltip.Trigger asChild merges props via Slot, which stringifies a
+// function className — so active state must be resolved here into a string.
+function useNavActive(to: string, end?: boolean): boolean {
+  const resolved = useResolvedPath(to)
+  return Boolean(useMatch({ path: resolved.pathname, end: !!end }))
+}
+
 function SideNavLink({
   to,
   end,
@@ -45,16 +52,25 @@ function SideNavLink({
   collapsed: boolean
   children: React.ReactNode
 }): React.JSX.Element {
+  const active = useNavActive(to, end)
   const link = (
     <NavLink
       to={to}
       end={end}
       title={title}
       aria-label={title}
-      className={({ isActive }) => navItemClass(isActive, collapsed)}
+      className={navItemClass(active, collapsed)}
     >
-      <span className={`${icon} text-[15px] shrink-0`} aria-hidden="true" />
-      {!collapsed && <span className="truncate">{children}</span>}
+      {collapsed ? (
+        <span className={`${icon} text-[15px] shrink-0`} aria-hidden="true" />
+      ) : (
+        <>
+          <span className="flex w-[40px] shrink-0 justify-center">
+            <span className={`${icon} text-[15px]`} aria-hidden="true" />
+          </span>
+          <span className="truncate">{children}</span>
+        </>
+      )}
     </NavLink>
   )
   return collapsed ? (
@@ -63,6 +79,30 @@ function SideNavLink({
     </TooltipWrapper>
   ) : (
     link
+  )
+}
+
+function ProviderNavLink({
+  name,
+  label,
+  collapsed,
+  children
+}: {
+  name: string
+  label: string
+  collapsed: boolean
+  children: React.ReactNode
+}): React.JSX.Element {
+  const active = useNavActive(`/gateway/${name}`)
+  return (
+    <NavLink
+      to={`/gateway/${name}`}
+      title={label}
+      aria-label={label}
+      className={navItemClass(active, collapsed)}
+    >
+      {children}
+    </NavLink>
   )
 }
 
@@ -115,6 +155,10 @@ export default function Sidebar(): React.JSX.Element {
     return () => unsubs.forEach((fn) => fn())
   }, [])
 
+  useEffect(() => {
+    document.documentElement.style.setProperty('--gh-sb', collapsed ? '72px' : '148px')
+  }, [collapsed])
+
   function toggleCollapsed(): void {
     setCollapsed((c) => {
       localStorage.setItem(COLLAPSED_KEY, c ? '0' : '1')
@@ -146,19 +190,18 @@ export default function Sidebar(): React.JSX.Element {
     <aside
       className={`${collapsed ? 'w-[72px]' : 'w-[148px]'} shrink-0 flex flex-col border-r border-charcoal bg-graphite overflow-y-auto select-none transition-[width] duration-150`}
     >
-      {/* macOS traffic lights sit at top-left ~70px; when collapsed the rail
-          header grows so the mark drops below them instead of overlapping. */}
-      <div
-        className={`flex shrink-0 [-webkit-app-region:drag] ${
-          collapsed ? 'h-[64px] items-end justify-center pb-2' : 'h-10 items-center pl-[74px] pr-2'
-        }`}
-      >
-        <img
-          src={gatewayHubMark}
-          alt="GatewayHub"
-          className="size-4.5 shrink-0 rounded-[3px]"
-          draggable={false}
-        />
+      {/* macOS traffic lights sit at top-left ~70px; the 64px header keeps the
+          mark below them, anchored to the same 72px rail center in both
+          collapsed and expanded layouts so it doesn't shift on toggle. */}
+      <div className="flex h-[64px] shrink-0 items-end pb-2 [-webkit-app-region:drag]">
+        <div className="flex w-[72px] justify-center">
+          <img
+            src={gatewayHubMark}
+            alt="GatewayHub"
+            className="size-4.5 shrink-0 rounded-[3px]"
+            draggable={false}
+          />
+        </div>
       </div>
 
       <nav
@@ -216,22 +259,30 @@ export default function Sidebar(): React.JSX.Element {
         {providers.map((p) => {
           const label = getProviderLogoLabel(p.providerType, p.displayName)
           const link = (
-            <NavLink
-              key={p.name}
-              to={`/gateway/${p.name}`}
-              title={label}
-              aria-label={label}
-              className={({ isActive }) => navItemClass(isActive, collapsed)}
-            >
-              <ProviderLogo
-                providerType={p.providerType}
-                label={label}
-                theme={theme}
-                size="xs"
-                className={p.configured ? undefined : 'opacity-45 saturate-50'}
-              />
-              {!collapsed && <span className="truncate capitalize">{label}</span>}
-            </NavLink>
+            <ProviderNavLink key={p.name} name={p.name} label={label} collapsed={collapsed}>
+              {collapsed ? (
+                <ProviderLogo
+                  providerType={p.providerType}
+                  label={label}
+                  theme={theme}
+                  size="xs"
+                  className={p.configured ? undefined : 'opacity-45 saturate-50'}
+                />
+              ) : (
+                <>
+                  <span className="flex w-[40px] shrink-0 justify-center">
+                    <ProviderLogo
+                      providerType={p.providerType}
+                      label={label}
+                      theme={theme}
+                      size="xs"
+                      className={p.configured ? undefined : 'opacity-45 saturate-50'}
+                    />
+                  </span>
+                  <span className="truncate capitalize">{label}</span>
+                </>
+              )}
+            </ProviderNavLink>
           )
           return collapsed ? (
             <TooltipWrapper key={p.name} content={label} side="right">
@@ -328,7 +379,9 @@ export default function Sidebar(): React.JSX.Element {
           >
             <span
               className={
-                collapsed ? 'i-ph-caret-line-right text-[14px]' : 'i-ph-caret-line-left text-[14px]'
+                collapsed
+                  ? 'i-ph-caret-double-right text-[14px]'
+                  : 'i-ph-caret-double-left text-[14px]'
               }
               aria-hidden="true"
             />

@@ -17,7 +17,8 @@ import type {
   QoderAccountConfig,
   TraeAccountConfig,
   TraeWorkAccountConfig,
-  WindsurfAccountConfig
+  WindsurfAccountConfig,
+  WorkBuddyAccountConfig
 } from './types'
 import {
   DEFAULT_KIRO_SETTINGS,
@@ -35,6 +36,8 @@ import { DEFAULT_TRAE_SETTINGS, LEGACY_TRAE_MODEL_LIST_PATH } from './providers/
 import { scanExternalTraeAccounts } from './providers/trae/localState'
 import { DEFAULT_TRAEWORK_SETTINGS } from './providers/traework/constants'
 import { scanExternalTraeWorkAccounts } from './providers/traework/localState'
+import { DEFAULT_WORKBUDDY_SETTINGS } from './providers/workbuddy/constants'
+import { scanExternalWorkBuddyAccounts } from './providers/workbuddy/localState'
 import { DEFAULT_OPENROUTER_SETTINGS } from './providers/openrouter/constants'
 import { DEFAULT_NVIDIA_SETTINGS } from './providers/nvidia/constants'
 import { DEFAULT_GPT_WEB_SETTINGS } from './providers/gptWeb/constants'
@@ -77,6 +80,10 @@ export class GatewayConfigStore {
 
   traeworkAccountsDir(): string {
     return join(dirname(this.configPath), 'traework', 'accounts')
+  }
+
+  workbuddyAccountsDir(): string {
+    return join(dirname(this.configPath), 'workbuddy', 'accounts')
   }
 
   openrouterAccountsDir(): string {
@@ -183,6 +190,7 @@ export class GatewayConfigStore {
       migratedFromV2 ||
       Boolean(parsed.providers?.kiro?.accounts) ||
       !parsed.providers?.traework ||
+      !parsed.providers?.workbuddy ||
       !parsed.providers?.nvidia ||
       !parsed.providers?.gptWeb ||
       !parsed.providers?.grokWeb ||
@@ -209,6 +217,7 @@ export class GatewayConfigStore {
       'windsurf',
       'trae',
       'traework',
+      'workbuddy',
       'gptWeb',
       'grokWeb',
       'qoder',
@@ -603,6 +612,65 @@ export class GatewayConfigStore {
     return { candidates: result }
   }
 
+  // ============== WorkBuddy account file management ==============
+
+  private readonly workbuddyStore = new AccountFileStore<WorkBuddyAccountConfig>({
+    dir: () => this.workbuddyAccountsDir(),
+    providerLabel: 'workbuddy',
+    backfillId: (data) => {
+      if (!data.id) data.id = makeWorkBuddyStableId(data)
+      return data
+    },
+    fileNameSource: (data) => data.label || data.nickname || data.email || data.id,
+    strip: (data) => {
+      const {
+        path: _path,
+        sourceType: _sourceType,
+        existing: _existing,
+        ...rest
+      } = data as WorkBuddyAccountConfig & { sourceType?: string; existing?: boolean }
+      return rest
+    },
+    renameOnEmailChange: true
+  })
+
+  readWorkBuddyAccountFiles(): Promise<WorkBuddyAccountConfig[]> {
+    return this.workbuddyStore.readAll()
+  }
+
+  writeWorkBuddyAccountFile(data: WorkBuddyAccountConfig): Promise<string> {
+    return this.workbuddyStore.write(data)
+  }
+
+  deleteWorkBuddyAccountFile(accountId: string): Promise<boolean> {
+    return this.workbuddyStore.delete(accountId)
+  }
+
+  updateWorkBuddyAccountFile(
+    accountId: string,
+    updates: Partial<WorkBuddyAccountConfig>
+  ): Promise<void> {
+    return this.workbuddyStore.update(accountId, updates)
+  }
+
+  async scanWorkBuddyAccounts(dataDir?: string): Promise<{
+    candidates: Array<WorkBuddyAccountConfig & { existing?: boolean; sourceType?: string }>
+  }> {
+    const external = await scanExternalWorkBuddyAccounts(dataDir)
+    const existing = await this.readWorkBuddyAccountFiles()
+    const existingKeys = new Set<string>()
+    for (const acc of existing) {
+      for (const key of workbuddyIdentityKeys(acc)) existingKeys.add(key)
+    }
+    const result: Array<WorkBuddyAccountConfig & { existing?: boolean; sourceType?: string }> = []
+    for (const candidate of external) {
+      const keys = workbuddyIdentityKeys(candidate)
+      const isExisting = keys.some((key) => existingKeys.has(key))
+      result.push({ ...candidate, existing: isExisting || undefined })
+    }
+    return { candidates: result }
+  }
+
   // ============== OpenRouter account file management ==============
 
   private readonly openrouterStore = new AccountFileStore<OpenRouterAccountConfig>({
@@ -890,6 +958,12 @@ export class GatewayConfigStore {
           routeName: 'traework',
           settings: { ...DEFAULT_TRAEWORK_SETTINGS }
         },
+        workbuddy: {
+          enabled: true,
+          useProxy: false,
+          routeName: 'workbuddy',
+          settings: { ...DEFAULT_WORKBUDDY_SETTINGS }
+        },
         openrouter: {
           enabled: true,
           routeName: 'openrouter',
@@ -959,6 +1033,11 @@ export class GatewayConfigStore {
           logs: []
         },
         traework: {
+          accounts: {},
+          currentAccountIndex: 0,
+          logs: []
+        },
+        workbuddy: {
           accounts: {},
           currentAccountIndex: 0,
           logs: []
@@ -1336,6 +1415,14 @@ export class GatewayConfigStore {
             ? input.providers.traework.logs.slice(-1000)
             : []
         },
+        workbuddy: {
+          ...defaults.providers.workbuddy,
+          ...(input?.providers?.workbuddy ?? {}),
+          accounts: input?.providers?.workbuddy?.accounts ?? {},
+          logs: Array.isArray(input?.providers?.workbuddy?.logs)
+            ? input.providers.workbuddy.logs.slice(-1000)
+            : []
+        },
         openrouter: {
           ...defaults.providers.openrouter,
           ...(input?.providers?.openrouter ?? {}),
@@ -1620,6 +1707,24 @@ function traeworkIdentityKeys(account: Partial<TraeWorkAccountConfig>): string[]
   if (account.refreshToken) keys.push(`traework-refresh:${sha256Short(account.refreshToken)}`)
   if (!keys.length && account.jwtToken) keys.push(`traework-jwt:${sha256Short(account.jwtToken)}`)
   if (!keys.length && account.id) keys.push(`traework-id:${account.id}`)
+  return keys
+}
+
+function makeWorkBuddyStableId(account: Partial<WorkBuddyAccountConfig>): string {
+  if (account.uid) return `workbuddy-user-${sha256Short(account.uid, 12)}`
+  if (account.refreshToken) return `workbuddy-refresh-${sha256Short(account.refreshToken, 12)}`
+  if (account.accessToken) return `workbuddy-token-${sha256Short(account.accessToken, 12)}`
+  return `workbuddy-${sha256Short(Math.random().toString(), 12)}`
+}
+
+function workbuddyIdentityKeys(account: Partial<WorkBuddyAccountConfig>): string[] {
+  const keys: string[] = []
+  if (account.uid) keys.push(`workbuddy-uid:${account.uid}`)
+  if (account.email) keys.push(`workbuddy-email:${account.email.toLowerCase()}`)
+  if (account.refreshToken) keys.push(`workbuddy-refresh:${sha256Short(account.refreshToken)}`)
+  if (!keys.length && account.accessToken)
+    keys.push(`workbuddy-token:${sha256Short(account.accessToken)}`)
+  if (!keys.length && account.id) keys.push(`workbuddy-id:${account.id}`)
   return keys
 }
 

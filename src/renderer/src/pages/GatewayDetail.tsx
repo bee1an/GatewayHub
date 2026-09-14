@@ -18,6 +18,7 @@ import { AddCodexAccountDialog } from './AddCodexAccountDialog'
 import { AddWindsurfAccountDialog } from './AddWindsurfAccountDialog'
 import { AddTraeAccountDialog } from './AddTraeAccountDialog'
 import { AddTraeWorkAccountDialog } from './AddTraeWorkAccountDialog'
+import { AddWorkBuddyAccountDialog } from './AddWorkBuddyAccountDialog'
 import { AddOpenRouterAccountDialog } from './AddOpenRouterAccountDialog'
 import { AddNvidiaAccountDialog } from './AddNvidiaAccountDialog'
 import { AddGptWebAccountDialog } from './AddGptWebAccountDialog'
@@ -70,6 +71,7 @@ export default function GatewayDetail(): React.JSX.Element {
   const isWindsurf = gateway?.providerType === 'windsurf'
   const isTrae = gateway?.providerType === 'trae'
   const isTraeWork = gateway?.providerType === 'traework'
+  const isWorkBuddy = gateway?.providerType === 'workbuddy'
   const isOpenRouter = gateway?.providerType === 'openrouter'
   const isNvidia = gateway?.providerType === 'nvidia'
   const isGptWeb = gateway?.providerType === 'gptWeb'
@@ -82,6 +84,7 @@ export default function GatewayDetail(): React.JSX.Element {
     isWindsurf ||
     isTrae ||
     isTraeWork ||
+    isWorkBuddy ||
     isGptWeb ||
     isGrokWeb ||
     isQoder ||
@@ -92,6 +95,7 @@ export default function GatewayDetail(): React.JSX.Element {
     isWindsurf ||
     isTrae ||
     isTraeWork ||
+    isWorkBuddy ||
     isOpenRouter ||
     isNvidia ||
     isGptWeb ||
@@ -136,19 +140,21 @@ export default function GatewayDetail(): React.JSX.Element {
               ? await window.api.gateway.getTraeAccountInfo(accountId)
               : isTraeWork
                 ? await window.api.gateway.getTraeWorkAccountInfo(accountId)
-                : isOpenRouter
-                  ? await window.api.gateway.getOpenRouterAccountInfo(accountId)
-                  : isNvidia
-                    ? await window.api.gateway.getNvidiaAccountInfo(accountId)
-                    : isGptWeb
-                      ? await window.api.gateway.getGptWebAccountInfo(accountId)
-                      : isGrokWeb
-                        ? await window.api.gateway.getGrokWebAccountInfo(accountId)
-                        : isGeminiWeb
-                          ? await window.api.gateway.getGeminiWebAccountInfo(accountId)
-                          : isQoder
-                            ? await window.api.gateway.getQoderAccountInfo(accountId)
-                            : await window.api.gateway.getAccountInfo(accountId)
+                : isWorkBuddy
+                  ? await window.api.gateway.getWorkBuddyAccountInfo(accountId)
+                  : isOpenRouter
+                    ? await window.api.gateway.getOpenRouterAccountInfo(accountId)
+                    : isNvidia
+                      ? await window.api.gateway.getNvidiaAccountInfo(accountId)
+                      : isGptWeb
+                        ? await window.api.gateway.getGptWebAccountInfo(accountId)
+                        : isGrokWeb
+                          ? await window.api.gateway.getGrokWebAccountInfo(accountId)
+                          : isGeminiWeb
+                            ? await window.api.gateway.getGeminiWebAccountInfo(accountId)
+                            : isQoder
+                              ? await window.api.gateway.getQoderAccountInfo(accountId)
+                              : await window.api.gateway.getAccountInfo(accountId)
         const normalizedInfo = { ...info, models: normalizeAccountModels(info?.models) }
         setAccountInfoMap((prev) => {
           const next = { ...prev, [accountId]: { data: normalizedInfo, loading: false } }
@@ -168,6 +174,7 @@ export default function GatewayDetail(): React.JSX.Element {
       isWindsurf,
       isTrae,
       isTraeWork,
+      isWorkBuddy,
       isOpenRouter,
       isNvidia,
       isGptWeb,
@@ -188,6 +195,7 @@ export default function GatewayDetail(): React.JSX.Element {
         !isWindsurf &&
         !isTrae &&
         !isTraeWork &&
+        !isWorkBuddy &&
         !isOpenRouter &&
         !isNvidia &&
         !isGptWeb &&
@@ -204,19 +212,21 @@ export default function GatewayDetail(): React.JSX.Element {
             ? await window.api.gateway.refreshTraeAccountModels(accountId)
             : isTraeWork
               ? await window.api.gateway.refreshTraeWorkAccountModels(accountId)
-              : isOpenRouter
-                ? await window.api.gateway.refreshOpenRouterAccountModels(accountId)
-                : isNvidia
-                  ? await window.api.gateway.refreshNvidiaAccountModels(accountId)
-                  : isGptWeb
-                    ? await window.api.gateway.refreshGptWebAccountModels(accountId)
-                    : isGrokWeb
-                      ? await window.api.gateway.refreshGrokWebAccountModels(accountId)
-                      : isGeminiWeb
-                        ? await window.api.gateway.refreshGeminiWebAccountModels(accountId)
-                        : isQoder
-                          ? await window.api.gateway.refreshQoderAccountModels(accountId)
-                          : await window.api.gateway.refreshKiroAccountModels(accountId)
+              : isWorkBuddy
+                ? await window.api.gateway.refreshWorkBuddyAccountModels(accountId)
+                : isOpenRouter
+                  ? await window.api.gateway.refreshOpenRouterAccountModels(accountId)
+                  : isNvidia
+                    ? await window.api.gateway.refreshNvidiaAccountModels(accountId)
+                    : isGptWeb
+                      ? await window.api.gateway.refreshGptWebAccountModels(accountId)
+                      : isGrokWeb
+                        ? await window.api.gateway.refreshGrokWebAccountModels(accountId)
+                        : isGeminiWeb
+                          ? await window.api.gateway.refreshGeminiWebAccountModels(accountId)
+                          : isQoder
+                            ? await window.api.gateway.refreshQoderAccountModels(accountId)
+                            : await window.api.gateway.refreshKiroAccountModels(accountId)
         if (result?.ok === false) throw new Error(result.error || t('gateway.infoError'))
         const models = normalizeAccountModels(result?.models)
         setAccountInfoMap((prev) => {
@@ -256,6 +266,7 @@ export default function GatewayDetail(): React.JSX.Element {
       isWindsurf,
       isTrae,
       isTraeWork,
+      isWorkBuddy,
       isOpenRouter,
       isNvidia,
       isGptWeb,
@@ -666,31 +677,39 @@ export default function GatewayDetail(): React.JSX.Element {
                               ? window.api.gateway.toggleTraeAccount(acc.id, !acc.enabled)
                               : isTraeWork
                                 ? window.api.gateway.toggleTraeWorkAccount(acc.id, !acc.enabled)
-                                : isOpenRouter
-                                  ? window.api.gateway.toggleOpenRouterAccount(acc.id, !acc.enabled)
-                                  : isNvidia
-                                    ? window.api.gateway.toggleNvidiaAccount(acc.id, !acc.enabled)
-                                    : isGptWeb
-                                      ? window.api.gateway.toggleGptWebAccount(acc.id, !acc.enabled)
-                                      : isGrokWeb
-                                        ? window.api.gateway.toggleGrokWebAccount(
+                                : isWorkBuddy
+                                  ? window.api.gateway.toggleWorkBuddyAccount(acc.id, !acc.enabled)
+                                  : isOpenRouter
+                                    ? window.api.gateway.toggleOpenRouterAccount(
+                                        acc.id,
+                                        !acc.enabled
+                                      )
+                                    : isNvidia
+                                      ? window.api.gateway.toggleNvidiaAccount(acc.id, !acc.enabled)
+                                      : isGptWeb
+                                        ? window.api.gateway.toggleGptWebAccount(
                                             acc.id,
                                             !acc.enabled
                                           )
-                                        : isGeminiWeb
-                                          ? window.api.gateway.toggleGeminiWebAccount(
+                                        : isGrokWeb
+                                          ? window.api.gateway.toggleGrokWebAccount(
                                               acc.id,
                                               !acc.enabled
                                             )
-                                          : isQoder
-                                            ? window.api.gateway.toggleQoderAccount(
+                                          : isGeminiWeb
+                                            ? window.api.gateway.toggleGeminiWebAccount(
                                                 acc.id,
                                                 !acc.enabled
                                               )
-                                            : window.api.gateway.toggleKiroAccount(
-                                                acc.id,
-                                                !acc.enabled
-                                              ),
+                                            : isQoder
+                                              ? window.api.gateway.toggleQoderAccount(
+                                                  acc.id,
+                                                  !acc.enabled
+                                                )
+                                              : window.api.gateway.toggleKiroAccount(
+                                                  acc.id,
+                                                  !acc.enabled
+                                                ),
                       acc.enabled ? t('gateway.disabled') : t('gateway.enabled')
                     )
                   }
@@ -706,19 +725,21 @@ export default function GatewayDetail(): React.JSX.Element {
                               ? window.api.gateway.resetTraeAccount(acc.id)
                               : isTraeWork
                                 ? window.api.gateway.resetTraeWorkAccount(acc.id)
-                                : isOpenRouter
-                                  ? window.api.gateway.resetOpenRouterAccount(acc.id)
-                                  : isNvidia
-                                    ? window.api.gateway.resetNvidiaAccount(acc.id)
-                                    : isGptWeb
-                                      ? window.api.gateway.resetGptWebAccount(acc.id)
-                                      : isGrokWeb
-                                        ? window.api.gateway.resetGrokWebAccount(acc.id)
-                                        : isGeminiWeb
-                                          ? window.api.gateway.resetGeminiWebAccount(acc.id)
-                                          : isQoder
-                                            ? window.api.gateway.resetQoderAccount(acc.id)
-                                            : window.api.gateway.resetKiroAccount(acc.id),
+                                : isWorkBuddy
+                                  ? window.api.gateway.resetWorkBuddyAccount(acc.id)
+                                  : isOpenRouter
+                                    ? window.api.gateway.resetOpenRouterAccount(acc.id)
+                                    : isNvidia
+                                      ? window.api.gateway.resetNvidiaAccount(acc.id)
+                                      : isGptWeb
+                                        ? window.api.gateway.resetGptWebAccount(acc.id)
+                                        : isGrokWeb
+                                          ? window.api.gateway.resetGrokWebAccount(acc.id)
+                                          : isGeminiWeb
+                                            ? window.api.gateway.resetGeminiWebAccount(acc.id)
+                                            : isQoder
+                                              ? window.api.gateway.resetQoderAccount(acc.id)
+                                              : window.api.gateway.resetKiroAccount(acc.id),
                       t('gateway.resetDone')
                     )
                   }
@@ -746,49 +767,70 @@ export default function GatewayDetail(): React.JSX.Element {
                                     acc.id,
                                     isPaused ? 'available' : 'manual_disabled'
                                   )
-                                : isOpenRouter
-                                  ? window.api.gateway.setOpenRouterAccountStatus(
+                                : isWorkBuddy
+                                  ? window.api.gateway.setWorkBuddyAccountStatus(
                                       acc.id,
                                       isPaused ? 'available' : 'manual_disabled'
                                     )
-                                  : isNvidia
-                                    ? window.api.gateway.setNvidiaAccountStatus(
+                                  : isOpenRouter
+                                    ? window.api.gateway.setOpenRouterAccountStatus(
                                         acc.id,
                                         isPaused ? 'available' : 'manual_disabled'
                                       )
-                                    : isGptWeb
-                                      ? window.api.gateway.setGptWebAccountStatus(
+                                    : isNvidia
+                                      ? window.api.gateway.setNvidiaAccountStatus(
                                           acc.id,
                                           isPaused ? 'available' : 'manual_disabled'
                                         )
-                                      : isGrokWeb
-                                        ? window.api.gateway.setGrokWebAccountStatus(
+                                      : isGptWeb
+                                        ? window.api.gateway.setGptWebAccountStatus(
                                             acc.id,
                                             isPaused ? 'available' : 'manual_disabled'
                                           )
-                                        : isGeminiWeb
-                                          ? window.api.gateway.setGeminiWebAccountStatus(
+                                        : isGrokWeb
+                                          ? window.api.gateway.setGrokWebAccountStatus(
                                               acc.id,
                                               isPaused ? 'available' : 'manual_disabled'
                                             )
-                                          : isQoder
-                                            ? window.api.gateway.setQoderAccountStatus(
+                                          : isGeminiWeb
+                                            ? window.api.gateway.setGeminiWebAccountStatus(
                                                 acc.id,
                                                 isPaused ? 'available' : 'manual_disabled'
                                               )
-                                            : window.api.gateway.setKiroAccountStatus(
-                                                acc.id,
-                                                isPaused ? 'available' : 'manual_disabled'
-                                              ),
+                                            : isQoder
+                                              ? window.api.gateway.setQoderAccountStatus(
+                                                  acc.id,
+                                                  isPaused ? 'available' : 'manual_disabled'
+                                                )
+                                              : window.api.gateway.setKiroAccountStatus(
+                                                  acc.id,
+                                                  isPaused ? 'available' : 'manual_disabled'
+                                                ),
                       isPaused ? t('gateway.resumed') : t('gateway.paused')
                     )
                   }}
+                  onCheckin={
+                    isTraeWork
+                      ? () =>
+                          run(
+                            () => window.api.gateway.checkinTraeWorkAccounts(acc.id),
+                            t('gateway.checkinDone')
+                          )
+                      : isWorkBuddy
+                        ? () =>
+                            run(
+                              () => window.api.gateway.checkinWorkBuddyAccounts(acc.id),
+                              t('gateway.checkinDone')
+                            )
+                        : undefined
+                  }
                   onRefreshInfo={() => fetchAccountInfo(acc.id)}
                   onRefreshModels={
                     isKiro ||
                     isWindsurf ||
                     isTrae ||
                     isTraeWork ||
+                    isWorkBuddy ||
                     isOpenRouter ||
                     isNvidia ||
                     isGptWeb ||
@@ -838,6 +880,14 @@ export default function GatewayDetail(): React.JSX.Element {
 
       {isTraeWork && (
         <AddTraeWorkAccountDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          onImported={refresh}
+        />
+      )}
+
+      {isWorkBuddy && (
+        <AddWorkBuddyAccountDialog
           open={dialogOpen}
           onOpenChange={setDialogOpen}
           onImported={refresh}
@@ -915,19 +965,21 @@ export default function GatewayDetail(): React.JSX.Element {
                       ? window.api.gateway.removeTraeAccount(removeTarget.id)
                       : isTraeWork
                         ? window.api.gateway.removeTraeWorkAccount(removeTarget.id)
-                        : isOpenRouter
-                          ? window.api.gateway.removeOpenRouterAccount(removeTarget.id)
-                          : isNvidia
-                            ? window.api.gateway.removeNvidiaAccount(removeTarget.id)
-                            : isGptWeb
-                              ? window.api.gateway.removeGptWebAccount(removeTarget.id)
-                              : isGrokWeb
-                                ? window.api.gateway.removeGrokWebAccount(removeTarget.id)
-                                : isGeminiWeb
-                                  ? window.api.gateway.removeGeminiWebAccount(removeTarget.id)
-                                  : isQoder
-                                    ? window.api.gateway.removeQoderAccount(removeTarget.id)
-                                    : window.api.gateway.removeKiroAccount(removeTarget.id),
+                        : isWorkBuddy
+                          ? window.api.gateway.removeWorkBuddyAccount(removeTarget.id)
+                          : isOpenRouter
+                            ? window.api.gateway.removeOpenRouterAccount(removeTarget.id)
+                            : isNvidia
+                              ? window.api.gateway.removeNvidiaAccount(removeTarget.id)
+                              : isGptWeb
+                                ? window.api.gateway.removeGptWebAccount(removeTarget.id)
+                                : isGrokWeb
+                                  ? window.api.gateway.removeGrokWebAccount(removeTarget.id)
+                                  : isGeminiWeb
+                                    ? window.api.gateway.removeGeminiWebAccount(removeTarget.id)
+                                    : isQoder
+                                      ? window.api.gateway.removeQoderAccount(removeTarget.id)
+                                      : window.api.gateway.removeKiroAccount(removeTarget.id),
               t('gateway.removed')
             ).then(() => setRemoveTarget(null))
           }

@@ -1422,6 +1422,165 @@ export class GatewayHubService {
     return result
   }
 
+  // ============== WorkBuddy ==============
+
+  async scanWorkBuddyAccounts(): Promise<{ candidates: any[] }> {
+    await this.ensureReady()
+    const dataDir = this.config?.providers?.workbuddy?.settings?.dataDir
+    return this.store.scanWorkBuddyAccounts(typeof dataDir === 'string' ? dataDir : undefined)
+  }
+
+  async importScannedWorkBuddyAccounts(
+    ids: string[]
+  ): Promise<{ added: WorkBuddyAccountConfig[]; status: GatewayStatusSnapshot }> {
+    await this.ensureReady()
+    const dataDir = this.config?.providers?.workbuddy?.settings?.dataDir
+    const { candidates } = await this.store.scanWorkBuddyAccounts(
+      typeof dataDir === 'string' ? dataDir : undefined
+    )
+    const wanted = new Set(ids)
+    const added: WorkBuddyAccountConfig[] = []
+    for (const candidate of candidates) {
+      if (!wanted.has(candidate.id) || candidate.existing) continue
+      try {
+        await this.store.writeWorkBuddyAccountFile(candidate)
+        added.push(candidate)
+      } catch {
+        // skip failed writes
+      }
+    }
+    if (added.length) await this.rebuildRuntime(this.server?.running ?? false)
+    return { added, status: await this.getStatus() }
+  }
+
+  async importWorkBuddyAuthJson(
+    text: string
+  ): Promise<{ added: number; skipped: number; errors: string[]; status: GatewayStatusSnapshot }> {
+    await this.ensureReady()
+    const trimmed = text.trim()
+    if (!trimmed) throw new Error('Empty WorkBuddy credential input')
+    const payloads = parseWorkBuddyAuthInput(trimmed)
+    if (!payloads.length) {
+      throw new Error(
+        'No WorkBuddy credentials found. Expected accessToken or refreshToken (or a pasted .info document).'
+      )
+    }
+    const existing = await this.store.readWorkBuddyAccountFiles()
+    const existingIds = new Set(existing.map((a) => a.id))
+    let added = 0
+    let skipped = 0
+    const errors: string[] = []
+    for (const account of payloads) {
+      try {
+        if (existingIds.has(account.id)) {
+          await this.store.updateWorkBuddyAccountFile(account.id, {
+            accessToken: account.accessToken,
+            refreshToken: account.refreshToken,
+            tokenExpiresAt: account.tokenExpiresAt,
+            refreshExpiresAt: account.refreshExpiresAt,
+            uid: account.uid,
+            enterpriseId: account.enterpriseId,
+            domain: account.domain
+          })
+          skipped += 1
+          continue
+        }
+        await this.store.writeWorkBuddyAccountFile(account)
+        added += 1
+      } catch (error) {
+        errors.push(`${account.id}: ${toErrorMessage(error)}`)
+      }
+    }
+    if (added || skipped) await this.rebuildRuntime(this.server?.running ?? false)
+    return { added, skipped, errors, status: await this.getStatus() }
+  }
+
+  async addWorkBuddyAccessToken(text: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const account = buildWorkBuddyAccountFromInput({ accessToken: text.trim() })
+    if (!account) throw new Error('Invalid WorkBuddy access token')
+    await this.store.writeWorkBuddyAccountFile(account)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async testWorkBuddyAccount(accountId: string): Promise<AccountTestResult> {
+    await this.ensureReady()
+    const result = await this.registry!.testAccount('workbuddy', accountId)
+    await this.persistStateSoon()
+    return result
+  }
+
+  async toggleWorkBuddyAccount(
+    accountId: string,
+    enabled: boolean
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.store.updateWorkBuddyAccountFile(accountId, { enabled })
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async removeWorkBuddyAccount(accountId: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    const deleted = await this.store.deleteWorkBuddyAccountFile(accountId)
+    if (!deleted) throw new Error(`WorkBuddy account not found: ${accountId}`)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
+  async getWorkBuddyAccountInfo(accountId: string) {
+    await this.ensureReady()
+    return this.registry!.getAccountInfo('workbuddy', accountId)
+  }
+
+  async refreshWorkBuddyAccountModels(accountId: string) {
+    await this.ensureReady()
+    const models = await this.registry!.refreshAccountModels('workbuddy', accountId)
+    await this.persistStateSoon()
+    return models
+  }
+
+  async resetWorkBuddyAccount(accountId: string): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.registry!.resetAccount('workbuddy', accountId)
+    await this.persistStateSoon()
+    return this.getStatus()
+  }
+
+  async setWorkBuddyAccountStatus(
+    accountId: string,
+    status: AccountStatus,
+    reason?: string
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    await this.registry!.setAccountStatus('workbuddy', accountId, status, reason)
+    await this.persistStateSoon()
+    return this.getStatus()
+  }
+
+  async checkinWorkBuddyAccounts(accountId?: string) {
+    await this.ensureReady()
+    const result = await this.registry!.checkinAccounts('workbuddy', accountId, Boolean(accountId))
+    await this.persistStateSoon()
+    return result
+  }
+
+  async getWorkBuddySettings() {
+    await this.ensureReady()
+    return this.config!.providers.workbuddy.settings
+  }
+
+  async updateWorkBuddySettings(
+    settings: Partial<Record<string, any>>
+  ): Promise<GatewayStatusSnapshot> {
+    await this.ensureReady()
+    Object.assign(this.config!.providers.workbuddy.settings, settings)
+    await this.store.saveConfig(this.config!)
+    await this.rebuildRuntime(this.server?.running ?? false)
+    return this.getStatus()
+  }
+
   async setTraeWorkAccountStatus(
     accountId: string,
     status: AccountStatus,

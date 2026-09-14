@@ -7,6 +7,7 @@ import traeIcon from '../assets/provider-logos/trae-icon.png'
 import geminiIcon from '../assets/provider-logos/gemini-icon.svg'
 import nvidiaIcon from '../assets/provider-logos/nvidia-icon.png'
 import grokIcon from '../assets/provider-logos/grok-icon.png'
+import workbuddyIcon from '../assets/provider-logos/workbuddy-icon.png'
 import qoderIcon from '../assets/provider-logos/qoder-icon.png'
 
 export type ProviderLogoTheme = 'light' | 'dark'
@@ -24,6 +25,7 @@ export const LOCAL_PROVIDER_LOGOS: Record<string, ProviderLogoSet> = {
   windsurf: { light: windsurfIcon, dark: windsurfIcon },
   trae: { light: traeIcon, dark: traeIcon },
   traework: { light: traeIcon, dark: traeIcon },
+  workbuddy: { light: workbuddyIcon, dark: workbuddyIcon },
   openrouter: { light: openRouterIcon, dark: openRouterIcon },
   nvidia: { light: nvidiaIcon, dark: nvidiaIcon },
   qoder: { light: qoderIcon, dark: qoderIcon },
@@ -39,6 +41,7 @@ export const LOGO_DEV_DOMAINS: Record<string, string> = {
   windsurf: 'windsurf.com',
   trae: 'trae.ai',
   traework: 'trae.cn',
+  workbuddy: 'workbuddy.cn',
   openrouter: 'openrouter.ai',
   nvidia: 'nvidia.com',
   qoder: 'qoder.com',
@@ -54,6 +57,7 @@ export const FALLBACK_CLASSES: Record<string, string> = {
   windsurf: 'bg-[#0B100F] text-[#F9F3E9]',
   trae: 'bg-[#101828] text-[#2EF58D]',
   traework: 'bg-[#101828] text-[#2EF58D]',
+  workbuddy: 'bg-[#0B1220] text-[#4C9FFF]',
   openrouter: 'bg-porcelain text-pitch',
   nvidia: 'bg-[#76B900] text-pitch',
   qoder: 'bg-[#111827] text-[#7DF9D4]',
@@ -69,6 +73,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   windsurf: 'Windsurf',
   trae: 'Trae',
   traework: 'Trae CN',
+  workbuddy: 'WorkBuddy',
   openrouter: 'OpenRouter',
   nvidia: 'NVIDIA',
   qoder: 'Qoder',

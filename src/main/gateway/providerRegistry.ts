@@ -18,7 +18,8 @@ import type {
   QoderAccountConfig,
   TraeAccountConfig,
   TraeWorkAccountConfig,
-  WindsurfAccountConfig
+  WindsurfAccountConfig,
+  WorkBuddyAccountConfig
 } from './types'
 import { GatewayLogger } from './core/logger'
 import { KiroProvider } from './providers/kiro/provider'
@@ -26,6 +27,7 @@ import { CodexProvider } from './providers/codex/provider'
 import { WindsurfProvider } from './providers/windsurf/provider'
 import { TraeProvider } from './providers/trae/provider'
 import { TraeWorkProvider } from './providers/traework/provider'
+import { WorkBuddyProvider } from './providers/workbuddy/provider'
 import { OpenRouterProvider } from './providers/openrouter/provider'
 import { NvidiaProvider } from './providers/nvidia/provider'
 import { GptWebProvider } from './providers/gptWeb/provider'
@@ -105,6 +107,10 @@ export class ProviderRegistry {
     private readonly persistTraeWorkAccount?: (
       accountId: string,
       updates: Partial<TraeWorkAccountConfig>
+    ) => Promise<void>,
+    private readonly persistWorkBuddyAccount?: (
+      accountId: string,
+      updates: Partial<WorkBuddyAccountConfig>
     ) => Promise<void>
   ) {
     for (const mapping of config.modelMappings ?? []) {
@@ -125,7 +131,8 @@ export class ProviderRegistry {
     grokWebAccountFiles: GrokWebAccountConfig[] = [],
     qoderAccountFiles: QoderAccountConfig[] = [],
     geminiWebAccountFiles: GeminiWebAccountConfig[] = [],
-    traeworkAccountFiles: TraeWorkAccountConfig[] = []
+    traeworkAccountFiles: TraeWorkAccountConfig[] = [],
+    workbuddyAccountFiles: WorkBuddyAccountConfig[] = []
   ): Promise<void> {
     const p = this.config.providers
     const s = this.state.providers
@@ -144,6 +151,7 @@ export class ProviderRegistry {
     p.windsurf.settings.vpnProxyUrl = resolveProxy(p.windsurf.useProxy)
     p.trae.settings.vpnProxyUrl = resolveProxy(p.trae.useProxy)
     p.traework.settings.vpnProxyUrl = resolveProxy(p.traework.useProxy)
+    p.workbuddy.settings.vpnProxyUrl = resolveProxy(p.workbuddy.useProxy)
     p.gptWeb.settings.vpnProxyUrl = resolveProxy(p.gptWeb.useProxy)
     p.grokWeb.settings.vpnProxyUrl = resolveProxy(p.grokWeb.useProxy)
     p.qoder.settings.vpnProxyUrl = resolveProxy(p.qoder.useProxy)
@@ -170,6 +178,11 @@ export class ProviderRegistry {
       'traework',
       new TraeWorkProvider(p.traework, s.traework, log, onChange, this.persistTraeWorkAccount),
       traeworkAccountFiles
+    )
+    await this.initProvider(
+      'workbuddy',
+      new WorkBuddyProvider(p.workbuddy, s.workbuddy, log, onChange, this.persistWorkBuddyAccount),
+      workbuddyAccountFiles
     )
     await this.initProvider(
       'openrouter',

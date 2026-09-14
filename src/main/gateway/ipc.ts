@@ -11,6 +11,7 @@ import { DEFAULT_CODEX_SETTINGS } from './providers/codex/constants'
 import { DEFAULT_WINDSURF_SETTINGS } from './providers/windsurf/constants'
 import { DEFAULT_TRAE_SETTINGS } from './providers/trae/constants'
 import { DEFAULT_TRAEWORK_SETTINGS } from './providers/traework/constants'
+import { DEFAULT_WORKBUDDY_SETTINGS } from './providers/workbuddy/constants'
 import { DEFAULT_OPENROUTER_SETTINGS } from './providers/openrouter/constants'
 import { DEFAULT_NVIDIA_SETTINGS } from './providers/nvidia/constants'
 import { DEFAULT_GPT_WEB_SETTINGS } from './providers/gptWeb/constants'
@@ -37,6 +38,7 @@ const CODEX_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_CODEX_SETTINGS)
 const WINDSURF_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_WINDSURF_SETTINGS)
 const TRAE_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_TRAE_SETTINGS)
 const TRAEWORK_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_TRAEWORK_SETTINGS)
+const WORKBUDDY_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_WORKBUDDY_SETTINGS)
 const OPENROUTER_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_OPENROUTER_SETTINGS)
 const NVIDIA_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_NVIDIA_SETTINGS)
 const GPT_WEB_SETTINGS_SCHEMA = createSettingsPatchSchema(DEFAULT_GPT_WEB_SETTINGS)
@@ -685,6 +687,93 @@ export function registerGatewayIpc(): void {
     safeHandler((_event, settings: unknown) => {
       const parsed = TRAEWORK_SETTINGS_SCHEMA.parse(settings)
       return gatewayHubService.updateTraeWorkSettings(parsed)
+    })
+  )
+
+  // ============== WorkBuddy ==============
+  ipcMain.handle(
+    'gateway:scanWorkBuddyAccounts',
+    safeHandler(() => gatewayHubService.scanWorkBuddyAccounts())
+  )
+  ipcMain.handle(
+    'gateway:importScannedWorkBuddyAccounts',
+    safeHandler((_event, ids: string[]) =>
+      withDaemonReload(() => gatewayHubService.importScannedWorkBuddyAccounts(ids))
+    )
+  )
+  ipcMain.handle(
+    'gateway:importWorkBuddyJson',
+    safeHandler((_event, text: string) =>
+      withDaemonReload(() => gatewayHubService.importWorkBuddyAuthJson(text))
+    )
+  )
+  ipcMain.handle(
+    'gateway:addWorkBuddyAccessToken',
+    safeHandler((_event, text: string) => gatewayHubService.addWorkBuddyAccessToken(text))
+  )
+  ipcMain.handle(
+    'gateway:testWorkBuddyAccount',
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.testWorkBuddyAccount(accountId))
+    )
+  )
+  ipcMain.handle(
+    'gateway:toggleWorkBuddyAccount',
+    safeHandler((_event, accountId: string, enabled: boolean) =>
+      withDaemonReload(() => gatewayHubService.toggleWorkBuddyAccount(accountId, enabled))
+    )
+  )
+  ipcMain.handle(
+    'gateway:removeWorkBuddyAccount',
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.removeWorkBuddyAccount(accountId))
+    )
+  )
+  ipcMain.handle(
+    'gateway:getWorkBuddyAccountInfo',
+    safeHandler((_event, accountId: string) => gatewayHubService.getWorkBuddyAccountInfo(accountId))
+  )
+  ipcMain.handle(
+    'gateway:refreshWorkBuddyAccountModels',
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.refreshWorkBuddyAccountModels(accountId))
+    )
+  )
+  ipcMain.handle(
+    'gateway:resetWorkBuddyAccount',
+    safeHandler((_event, accountId: string) =>
+      withDaemonReload(() => gatewayHubService.resetWorkBuddyAccount(accountId))
+    )
+  )
+  ipcMain.handle(
+    'gateway:setWorkBuddyAccountStatus',
+    safeHandler((_event, accountId: unknown, status: unknown, reason?: unknown) =>
+      withDaemonReload(() =>
+        gatewayHubService.setWorkBuddyAccountStatus(
+          nonEmptyStringSchema.parse(accountId),
+          accountStatusSchema.parse(status),
+          optionalStringSchema.parse(reason)
+        )
+      )
+    )
+  )
+  ipcMain.handle(
+    'gateway:checkinWorkBuddyAccounts',
+    safeHandler((_event, accountId: unknown) =>
+      withDaemonReload(() =>
+        gatewayHubService.checkinWorkBuddyAccounts(optionalStringSchema.parse(accountId))
+      )
+    )
+  )
+  ipcMain.handle(
+    'gateway:getWorkBuddySettings',
+    safeHandler(() => gatewayHubService.getWorkBuddySettings())
+  )
+  ipcMain.handle(
+    'gateway:updateWorkBuddySettings',
+    safeHandler((_event, settings: unknown) => {
+      const parsed = WORKBUDDY_SETTINGS_SCHEMA.parse(settings)
+      return gatewayHubService.updateWorkBuddySettings(parsed)
     })
   )
 

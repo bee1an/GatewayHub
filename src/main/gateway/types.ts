@@ -4,6 +4,7 @@ export type ProviderName =
   | 'windsurf'
   | 'trae'
   | 'traework'
+  | 'workbuddy'
   | 'openrouter'
   | 'nvidia'
   | 'gptWeb'
@@ -23,6 +24,7 @@ export interface GatewayHubConfig {
     windsurf: WindsurfProviderConfig
     trae: TraeProviderConfig
     traework: TraeWorkProviderConfig
+    workbuddy: WorkBuddyProviderConfig
     openrouter: OpenRouterProviderConfig
     nvidia: NvidiaProviderConfig
     gptWeb: GptWebProviderConfig
@@ -348,6 +350,57 @@ export interface TraeWorkAccountConfig {
   coreBaseUrl?: string
 }
 
+export interface WorkBuddyProviderConfig {
+  enabled: boolean
+  /** When true, this gateway routes upstream requests through the global server.proxyUrl. Defaults to false. */
+  useProxy?: boolean
+  routeName?: string
+  displayName?: string
+  settings: WorkBuddyProviderSettings
+}
+
+export interface WorkBuddyProviderSettings {
+  /** Tencent copilot backend, defaults to https://copilot.tencent.com */
+  backend: string
+  /** Billing/check-in hosts tried in order, e.g. www.workbuddy.cn then www.codebuddy.cn */
+  billingHosts: string[]
+  /** CodeBuddyExtension/Data dir override used for local account scanning */
+  dataDir: string
+  /** WorkBuddy product.json override used for the local model catalog */
+  productJsonPath: string
+  /**
+   * Runtime-injected proxy URL. Not user-configured — resolved from the global
+   * `server.proxyUrl` + this provider's `useProxy` flag by the registry on rebuild.
+   */
+  vpnProxyUrl: string
+  firstTokenTimeoutSeconds: number
+  streamingReadTimeoutSeconds: number
+  maxRetries: number
+  /** Daily billing-meter check-in. Defaults to true. */
+  autoCheckin?: boolean
+}
+
+export interface WorkBuddyAccountConfig {
+  id: string
+  label?: string
+  email?: string
+  enabled: boolean
+  path?: string
+  /** Bearer access token for copilot.tencent.com */
+  accessToken?: string
+  refreshToken?: string
+  tokenExpiresAt?: number
+  refreshExpiresAt?: number
+  /** Tencent account uid, sent as X-User-Id */
+  uid?: string
+  enterpriseId?: string
+  /** Account nickname/phone for display */
+  nickname?: string
+  /** X-Domain header + check-in host, e.g. www.workbuddy.cn */
+  domain?: string
+  authType?: string
+}
+
 export interface OpenRouterProviderConfig {
   enabled: boolean
   routeName?: string
@@ -603,6 +656,7 @@ export interface GatewayHubState {
     windsurf: WindsurfProviderState
     trae: TraeProviderState
     traework: TraeWorkProviderState
+    workbuddy: WorkBuddyProviderState
     openrouter: OpenRouterProviderState
     nvidia: NvidiaProviderState
     gptWeb: GptWebProviderState
@@ -638,6 +692,12 @@ export interface TraeProviderState {
 }
 
 export interface TraeWorkProviderState {
+  accounts: Record<string, AccountRuntimeState>
+  currentAccountIndex: number
+  logs: GatewayLogEntry[]
+}
+
+export interface WorkBuddyProviderState {
   accounts: Record<string, AccountRuntimeState>
   currentAccountIndex: number
   logs: GatewayLogEntry[]

@@ -444,6 +444,12 @@ const en = {
     traeWorkJsonHint:
       'Paste JSON with refreshToken or jwtToken/cloudIdeJwt (single object or array), optionally with label/email.',
     traeWorkJsonPlaceholder: '{ "refreshToken": "...", "label": "Trae CN" }',
+    workBuddyTitle: 'Add WorkBuddy Account',
+    workBuddyDiscoverDesc:
+      'Scan the local WorkBuddy desktop credentials (CodeBuddyExtension/Data/Public/auth/*.info) and import access/refresh tokens.',
+    workBuddyTokenHint:
+      'Paste a WorkBuddy access token, or the full workbuddy-desktop.info JSON document (auth/account fields are extracted automatically).',
+    workBuddyTokenPlaceholder: 'Paste access token or .info JSON...',
     openrouterKeyHint:
       'Paste an OpenRouter API key (sk-or-v1-*). GatewayHub checks /key locally, detects free vs paid tier, and filters available models accordingly.',
     openrouterKeyPlaceholder: 'Paste OpenRouter API key...',

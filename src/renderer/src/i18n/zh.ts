@@ -435,6 +435,12 @@ const zh = {
     traeWorkJsonHint:
       '粘贴包含 refreshToken 或 jwtToken/cloudIdeJwt 的 JSON（单对象或数组），可选包含 label/email。',
     traeWorkJsonPlaceholder: '{ "refreshToken": "...", "label": "Trae CN" }',
+    workBuddyTitle: '添加 WorkBuddy 账号',
+    workBuddyDiscoverDesc:
+      '扫描本机 WorkBuddy 客户端登录凭据（CodeBuddyExtension/Data/Public/auth/*.info），自动导入 access token 与 refresh token。',
+    workBuddyTokenHint:
+      '粘贴 WorkBuddy access token，或直接粘贴 workbuddy-desktop.info 的完整 JSON（自动提取 auth/account 字段）。',
+    workBuddyTokenPlaceholder: '粘贴 access token 或 .info JSON...',
     openrouterKeyHint:
       '粘贴 OpenRouter API Key（sk-or-v1-*）。GatewayHub 会在本地调用 /key 判断免费/付费层级，并按层级过滤可用模型。',
     openrouterKeyPlaceholder: '粘贴 OpenRouter API Key...',

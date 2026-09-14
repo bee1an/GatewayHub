@@ -264,8 +264,7 @@ export abstract class BaseAccountPool<C extends { id: string; enabled: boolean; 
   }
 
   /**
-   * Shared success-reporting body. Pools that support request-racing should
-   * override to additionally call recordAccountRaceSuccess().
+   * Shared success-reporting body.
    */
   async reportSuccess(account: AccountWithState<C>, _latencyMs?: number): Promise<void> {
     account.state.failures = 0
@@ -280,8 +279,6 @@ export abstract class BaseAccountPool<C extends { id: string; enabled: boolean; 
 
   /**
    * Shared failure-reporting body with the standard status-mapping branch table.
-   * Pools that support request-racing should override to additionally call
-   * recordAccountRaceFailure().
    *
    * The status→cooldownUntil mapping is delegated to {@link resolveCooldown} so
    * pools that diverge from the default (codex's resetAtIso, qoder's capped

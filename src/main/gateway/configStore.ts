@@ -41,7 +41,6 @@ import { DEFAULT_GPT_WEB_SETTINGS } from './providers/gptWeb/constants'
 import { DEFAULT_GROK_WEB_SETTINGS } from './providers/grokWeb/constants'
 import { DEFAULT_GEMINI_WEB_SETTINGS } from './providers/geminiWeb/constants'
 import { DEFAULT_QODER_SETTINGS, normalizeQoderMaxOutputTokens } from './providers/qoder/constants'
-import { normalizeRequestRaceSettings } from './providers/requestRace'
 import { generateApiKey, readJsonFile, sha256Short, writeJsonFile, atomicWrite } from './core/utils'
 import { getPaths } from './core/paths'
 import { normalizeKiroExpiresAt } from './providers/kiro/normalize'
@@ -1197,10 +1196,10 @@ export class GatewayConfigStore {
             typeof input?.providers?.openrouter?.enabled === 'boolean'
               ? input.providers.openrouter.enabled
               : defaults.providers.openrouter.enabled,
-          settings: normalizeRequestRaceSettings({
+          settings: {
             ...defaults.providers.openrouter.settings,
             ...(input?.providers?.openrouter?.settings ?? {})
-          })
+          }
         },
         nvidia: {
           ...defaults.providers.nvidia,
@@ -1210,10 +1209,10 @@ export class GatewayConfigStore {
             typeof input?.providers?.nvidia?.enabled === 'boolean'
               ? input.providers.nvidia.enabled
               : defaults.providers.nvidia.enabled,
-          settings: normalizeRequestRaceSettings({
+          settings: {
             ...defaults.providers.nvidia.settings,
             ...(input?.providers?.nvidia?.settings ?? {})
-          })
+          }
         },
         gptWeb: {
           ...defaults.providers.gptWeb,

@@ -28,32 +28,6 @@ import {
 
 const UPSTREAM_META = { category: 'upstream' as const, provider: 'openrouter' as const }
 
-type RaceTask = {
-  account: OpenRouterAccountRuntime
-  controller: AbortController
-  abortedAsLoser: boolean
-  promise: Promise<RaceAttemptResult>
-}
-
-type RaceAttemptResult =
-  | { kind: 'success'; parsed: any; responseText?: string; duration: number }
-  | {
-      kind: 'stream_success'
-      reader: ReadableStreamDefaultReader<Uint8Array>
-      decoder: TextDecoder
-      firstText: string
-      firstChunkLatencyMs: number
-      duration: number
-      usageChunk: any
-    }
-  | {
-      kind: 'failure'
-      error: unknown
-      classified: OpenRouterClassifiedError
-      duration: number
-    }
-  | { kind: 'aborted'; duration: number; client: boolean }
-
 export class OpenRouterProvider implements ProviderAdapter {
   readonly name = 'openrouter'
   private readonly pool: OpenRouterAccountPool
@@ -157,8 +131,7 @@ export class OpenRouterProvider implements ProviderAdapter {
       lastResponseKind: account.state.lastResponseKind,
       keyLabel: account.config.keyLabel,
       isFreeTier: account.config.isFreeTier,
-      limitRemaining: account.config.limitRemaining,
-      raceStats: account.state.raceStats
+      limitRemaining: account.config.limitRemaining
     }))
     return {
       name: 'openrouter',
@@ -173,21 +146,6 @@ export class OpenRouterProvider implements ProviderAdapter {
   }
 
   private async nonStreamProxy(
-    model: string,
-    body: any,
-    context: GatewayRequestContext
-  ): Promise<GatewayResponse> {
-    if (this.config.settings.requestRaceEnabled) {
-      const accounts = await this.pool.getRaceAccountsForModel(
-        model,
-        this.config.settings.requestRaceMaxConcurrent
-      )
-      if (accounts.length >= 2) return this.nonStreamRaceProxy(model, body, context, accounts)
-    }
-    return this.nonStreamSerialProxy(model, body, context)
-  }
-
-  private async nonStreamSerialProxy(
     model: string,
     body: any,
     context: GatewayRequestContext
@@ -246,87 +204,7 @@ export class OpenRouterProvider implements ProviderAdapter {
     return jsonResponse(502, { error: { message: msg, type: 'gateway_error' } })
   }
 
-  private async nonStreamRaceProxy(
-    model: string,
-    body: any,
-    context: GatewayRequestContext,
-    accounts: OpenRouterAccountRuntime[]
-  ): Promise<GatewayResponse> {
-    const tasks = accounts.map((account) =>
-      this.createRaceTask(account, context, (task) => this.nonStreamRaceAttempt(task, body))
-    )
-    const pending = new Set(tasks)
-    let lastError: unknown
-
-    try {
-      while (pending.size) {
-        const { task, result } = await Promise.race(
-          [...pending].map((task) => task.promise.then((result) => ({ task, result })))
-        )
-        pending.delete(task)
-        if (result.kind === 'success') {
-          abortRaceTasks(pending)
-          this.reportUsage(result.parsed, model, task.account, context)
-          await this.pool.reportSuccess(task.account, result.duration)
-          this.logger.info('OpenRouter race upstream success', {
-            ...UPSTREAM_META,
-            requestId: context.requestId,
-            accountId: task.account.config.label || task.account.config.id,
-            model,
-            duration: result.duration,
-            extra: { racedAccounts: accounts.length }
-          })
-          return jsonResponse(200, result.parsed)
-        }
-        if (result.kind === 'aborted') {
-          if (result.client) {
-            abortRaceTasks(pending)
-            return jsonResponse(499, {
-              error: { message: 'Client aborted request', type: 'client_aborted' }
-            })
-          }
-          continue
-        }
-        if (result.kind === 'failure') {
-          lastError = result.error
-          await this.pool.reportFailure(task.account, result.error, result.classified)
-          this.logger.warn(`OpenRouter race upstream failed: ${toErrorMessage(result.error)}`, {
-            ...UPSTREAM_META,
-            requestId: context.requestId,
-            accountId: task.account.config.label || task.account.config.id,
-            model,
-            duration: result.duration,
-            extra: { kind: result.classified.kind, racedAccounts: accounts.length }
-          })
-        }
-      }
-    } finally {
-      abortRaceTasks(pending)
-    }
-
-    const msg = toErrorMessage(lastError ?? 'No available OpenRouter accounts')
-    return jsonResponse(502, { error: { message: msg, type: 'gateway_error' } })
-  }
-
   private async *streamProxy(
-    model: string,
-    body: any,
-    context: GatewayRequestContext
-  ): AsyncGenerator<string> {
-    if (this.config.settings.requestRaceEnabled) {
-      const accounts = await this.pool.getRaceAccountsForModel(
-        model,
-        this.config.settings.requestRaceMaxConcurrent
-      )
-      if (accounts.length >= 2) {
-        yield* this.streamRaceProxy(model, body, context, accounts)
-        return
-      }
-    }
-    yield* this.streamSerialProxy(model, body, context)
-  }
-
-  private async *streamSerialProxy(
     model: string,
     body: any,
     context: GatewayRequestContext
@@ -412,189 +290,6 @@ export class OpenRouterProvider implements ProviderAdapter {
     yield 'data: [DONE]\n\n'
   }
 
-  private async *streamRaceProxy(
-    model: string,
-    body: any,
-    context: GatewayRequestContext,
-    accounts: OpenRouterAccountRuntime[]
-  ): AsyncGenerator<string> {
-    const tasks = accounts.map((account) =>
-      this.createRaceTask(account, context, (task) => this.streamRaceFirstChunkAttempt(task, body))
-    )
-    const pending = new Set(tasks)
-    let winner: RaceTask | undefined
-    let winnerCompleted = false
-    let lastError: unknown
-
-    try {
-      while (pending.size) {
-        const { task, result } = await Promise.race(
-          [...pending].map((task) => task.promise.then((result) => ({ task, result })))
-        )
-        pending.delete(task)
-        if (result.kind === 'stream_success') {
-          winner = task
-          abortRaceTasks(pending)
-          yield result.firstText
-          let usageChunk = result.usageChunk
-          try {
-            while (true) {
-              const { done, value } = await readWithTimeout(
-                result.reader,
-                this.config.settings.streamingReadTimeoutSeconds * 1000,
-                task.controller,
-                'OpenRouter stream read timeout'
-              )
-              if (done) break
-              const text = result.decoder.decode(value, { stream: true })
-              yield text
-              usageChunk = extractUsageChunk(text) ?? usageChunk
-            }
-          } catch (error: any) {
-            if (context.abortSignal?.aborted) return
-            const classified = error.classified ?? classifyOpenRouterError(0, toErrorMessage(error))
-            await this.pool.reportFailure(task.account, error, classified)
-            throw error
-          } finally {
-            if (task.controller.signal.aborted) await result.reader.cancel().catch(() => undefined)
-          }
-          if (usageChunk) this.reportUsage(usageChunk, model, task.account, context)
-          await this.pool.reportSuccess(task.account, result.firstChunkLatencyMs)
-          winnerCompleted = true
-          this.logger.info('OpenRouter race stream success', {
-            ...UPSTREAM_META,
-            requestId: context.requestId,
-            accountId: task.account.config.label || task.account.config.id,
-            model,
-            duration: result.duration,
-            timeToFirstToken: result.firstChunkLatencyMs,
-            extra: { racedAccounts: accounts.length }
-          })
-          return
-        }
-        if (result.kind === 'aborted') {
-          if (result.client) {
-            abortRaceTasks(pending)
-            return
-          }
-          continue
-        }
-        if (result.kind === 'failure') {
-          lastError = result.error
-          await this.pool.reportFailure(task.account, result.error, result.classified)
-          this.logger.warn(`OpenRouter race stream failed: ${toErrorMessage(result.error)}`, {
-            ...UPSTREAM_META,
-            requestId: context.requestId,
-            accountId: task.account.config.label || task.account.config.id,
-            model,
-            duration: result.duration,
-            extra: { kind: result.classified.kind, racedAccounts: accounts.length }
-          })
-        }
-      }
-    } finally {
-      abortRaceTasks(pending)
-      if (!winnerCompleted) winner?.controller.abort(new Error('OpenRouter race stream closed'))
-    }
-
-    const message = `OpenRouter stream failed: ${toErrorMessage(lastError ?? 'No available accounts')}`
-    yield sseData({ error: { message, type: 'gateway_error', code: 'openrouter_error' } })
-    yield 'data: [DONE]\n\n'
-  }
-
-  private createRaceTask(
-    account: OpenRouterAccountRuntime,
-    context: GatewayRequestContext,
-    run: (task: RaceTask) => Promise<RaceAttemptResult>
-  ): RaceTask {
-    const controller = new AbortController()
-    const task: RaceTask = {
-      account,
-      controller,
-      abortedAsLoser: false,
-      promise: undefined as unknown as Promise<RaceAttemptResult>
-    }
-    bindAbortSignal(context.abortSignal, controller)
-    task.promise = run(task)
-    return task
-  }
-
-  private async nonStreamRaceAttempt(task: RaceTask, body: any): Promise<RaceAttemptResult> {
-    const startedAt = Date.now()
-    try {
-      const res = await this.fetchUpstream(task.account, body, false, task.controller.signal)
-      const responseBody = await res.text()
-      if (!res.ok) {
-        const classified = classifyOpenRouterError(res.status, responseBody)
-        throw Object.assign(new Error(`HTTP ${res.status}: ${responseBody.slice(0, 500)}`), {
-          classified
-        })
-      }
-      return {
-        kind: 'success',
-        parsed: parseJsonResponse(responseBody),
-        responseText: responseBody,
-        duration: Date.now() - startedAt
-      }
-    } catch (error: any) {
-      const duration = Date.now() - startedAt
-      if (task.abortedAsLoser) return { kind: 'aborted', duration, client: false }
-      if (!error.classified && task.controller.signal.aborted)
-        return { kind: 'aborted', duration, client: true }
-      return {
-        kind: 'failure',
-        error,
-        classified: error.classified ?? classifyOpenRouterError(0, toErrorMessage(error)),
-        duration
-      }
-    }
-  }
-
-  private async streamRaceFirstChunkAttempt(task: RaceTask, body: any): Promise<RaceAttemptResult> {
-    const startedAt = Date.now()
-    try {
-      const res = await this.fetchUpstream(task.account, body, true, task.controller.signal)
-      if (!res.ok) {
-        const errBody = await res.text().catch(() => '')
-        const classified = classifyOpenRouterError(res.status, errBody)
-        throw Object.assign(new Error(`HTTP ${res.status}: ${errBody.slice(0, 500)}`), {
-          classified
-        })
-      }
-      if (!res.body) throw new Error('OpenRouter stream response has no body')
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      const { done, value } = await readWithTimeout(
-        reader,
-        this.config.settings.firstTokenTimeoutSeconds * 1000,
-        task.controller,
-        'OpenRouter stream first chunk timeout'
-      )
-      if (done || !value) throw new Error('OpenRouter stream ended before first chunk')
-      const firstText = decoder.decode(value, { stream: true })
-      return {
-        kind: 'stream_success',
-        reader,
-        decoder,
-        firstText,
-        firstChunkLatencyMs: Date.now() - startedAt,
-        duration: Date.now() - startedAt,
-        usageChunk: extractUsageChunk(firstText)
-      }
-    } catch (error: any) {
-      const duration = Date.now() - startedAt
-      if (task.abortedAsLoser) return { kind: 'aborted', duration, client: false }
-      if (!error.classified && task.controller.signal.aborted)
-        return { kind: 'aborted', duration, client: true }
-      return {
-        kind: 'failure',
-        error,
-        classified: error.classified ?? classifyOpenRouterError(0, toErrorMessage(error)),
-        duration
-      }
-    }
-  }
-
   private async fetchUpstream(
     account: OpenRouterAccountRuntime,
     body: any,
@@ -652,14 +347,6 @@ export class OpenRouterProvider implements ProviderAdapter {
       provider: 'openrouter'
     })
   }
-}
-
-function abortRaceTasks(tasks: Set<RaceTask>): void {
-  for (const task of tasks) {
-    task.abortedAsLoser = true
-    task.controller.abort(new Error('race loser'))
-  }
-  tasks.clear()
 }
 
 function bindAbortSignal(signal: AbortSignal | undefined, controller: AbortController): () => void {

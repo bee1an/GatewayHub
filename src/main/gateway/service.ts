@@ -80,7 +80,6 @@ import {
   type QoderCliDetectResult
 } from './providers/qoder/cliLogin'
 import { normalizeQoderMaxOutputTokens } from './providers/qoder/constants'
-import { normalizeRequestRaceSettings } from './providers/requestRace'
 
 export class GatewayHubService {
   private readonly store = new GatewayConfigStore()
@@ -1571,13 +1570,7 @@ export class GatewayHubService {
     settings: Partial<Record<string, any>>
   ): Promise<GatewayStatusSnapshot> {
     await this.ensureReady()
-    Object.assign(
-      this.config!.providers.openrouter.settings,
-      normalizeRequestRaceSettings({
-        ...this.config!.providers.openrouter.settings,
-        ...settings
-      })
-    )
+    Object.assign(this.config!.providers.openrouter.settings, settings)
     await this.store.saveConfig(this.config!)
     await this.rebuildRuntime(this.server?.running ?? false)
     return this.getStatus()
@@ -1713,13 +1706,7 @@ export class GatewayHubService {
     settings: Partial<Record<string, any>>
   ): Promise<GatewayStatusSnapshot> {
     await this.ensureReady()
-    Object.assign(
-      this.config!.providers.nvidia.settings,
-      normalizeRequestRaceSettings({
-        ...this.config!.providers.nvidia.settings,
-        ...settings
-      })
-    )
+    Object.assign(this.config!.providers.nvidia.settings, settings)
     await this.store.saveConfig(this.config!)
     await this.rebuildRuntime(this.server?.running ?? false)
     return this.getStatus()

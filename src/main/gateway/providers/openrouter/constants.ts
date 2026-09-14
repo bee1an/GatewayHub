@@ -8,7 +8,5 @@ export const DEFAULT_OPENROUTER_SETTINGS = {
   baseUrl: OPENROUTER_BASE_URL,
   firstTokenTimeoutSeconds: 120,
   streamingReadTimeoutSeconds: 300,
-  maxRetries: 2,
-  requestRaceEnabled: false,
-  requestRaceMaxConcurrent: 3
+  maxRetries: 2
 }

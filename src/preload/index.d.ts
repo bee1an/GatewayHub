@@ -293,6 +293,27 @@ declare global {
         checkinTraeWorkAccounts: (accountId?: string) => Promise<any>
         getTraeWorkSettings: () => Promise<any>
         updateTraeWorkSettings: (settings: Record<string, any>) => Promise<any>
+        // ========== WorkBuddy ==========
+        scanWorkBuddyAccounts: () => Promise<{ candidates: any[] }>
+        importScannedWorkBuddyAccounts: (ids: string[]) => Promise<any>
+        importWorkBuddyJson: (
+          text: string
+        ) => Promise<{ added: number; skipped: number; errors: string[]; status: any }>
+        addWorkBuddyAccessToken: (text: string) => Promise<any>
+        testWorkBuddyAccount: (accountId: string) => Promise<any>
+        toggleWorkBuddyAccount: (accountId: string, enabled: boolean) => Promise<any>
+        removeWorkBuddyAccount: (accountId: string) => Promise<any>
+        getWorkBuddyAccountInfo: (accountId: string) => Promise<any>
+        refreshWorkBuddyAccountModels: (accountId: string) => Promise<any>
+        resetWorkBuddyAccount: (accountId: string) => Promise<any>
+        setWorkBuddyAccountStatus: (
+          accountId: string,
+          status: string,
+          reason?: string
+        ) => Promise<any>
+        checkinWorkBuddyAccounts: (accountId?: string) => Promise<any>
+        getWorkBuddySettings: () => Promise<any>
+        updateWorkBuddySettings: (settings: Record<string, any>) => Promise<any>
         // ========== OpenRouter ==========
         importOpenRouterJson: (
           text: string

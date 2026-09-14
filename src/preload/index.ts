@@ -213,6 +213,32 @@ const api = {
     getTraeWorkSettings: () => ipcRenderer.invoke('gateway:getTraeWorkSettings'),
     updateTraeWorkSettings: (settings: Record<string, any>) =>
       ipcRenderer.invoke('gateway:updateTraeWorkSettings', settings),
+    // ========== WorkBuddy ==========
+    scanWorkBuddyAccounts: () => ipcRenderer.invoke('gateway:scanWorkBuddyAccounts'),
+    importScannedWorkBuddyAccounts: (ids: string[]) =>
+      ipcRenderer.invoke('gateway:importScannedWorkBuddyAccounts', ids),
+    importWorkBuddyJson: (text: string) => ipcRenderer.invoke('gateway:importWorkBuddyJson', text),
+    addWorkBuddyAccessToken: (text: string) =>
+      ipcRenderer.invoke('gateway:addWorkBuddyAccessToken', text),
+    testWorkBuddyAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:testWorkBuddyAccount', accountId),
+    toggleWorkBuddyAccount: (accountId: string, enabled: boolean) =>
+      ipcRenderer.invoke('gateway:toggleWorkBuddyAccount', accountId, enabled),
+    removeWorkBuddyAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:removeWorkBuddyAccount', accountId),
+    getWorkBuddyAccountInfo: (accountId: string) =>
+      ipcRenderer.invoke('gateway:getWorkBuddyAccountInfo', accountId),
+    refreshWorkBuddyAccountModels: (accountId: string) =>
+      ipcRenderer.invoke('gateway:refreshWorkBuddyAccountModels', accountId),
+    resetWorkBuddyAccount: (accountId: string) =>
+      ipcRenderer.invoke('gateway:resetWorkBuddyAccount', accountId),
+    setWorkBuddyAccountStatus: (accountId: string, status: string, reason?: string) =>
+      ipcRenderer.invoke('gateway:setWorkBuddyAccountStatus', accountId, status, reason),
+    checkinWorkBuddyAccounts: (accountId?: string) =>
+      ipcRenderer.invoke('gateway:checkinWorkBuddyAccounts', accountId),
+    getWorkBuddySettings: () => ipcRenderer.invoke('gateway:getWorkBuddySettings'),
+    updateWorkBuddySettings: (settings: Record<string, any>) =>
+      ipcRenderer.invoke('gateway:updateWorkBuddySettings', settings),
     // ========== OpenRouter ==========
     importOpenRouterJson: (text: string) =>
       ipcRenderer.invoke('gateway:importOpenRouterJson', text),

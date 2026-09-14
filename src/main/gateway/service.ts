@@ -18,7 +18,8 @@ import type {
   QoderAccountConfig,
   TraeAccountConfig,
   TraeWorkAccountConfig,
-  WindsurfAccountConfig
+  WindsurfAccountConfig,
+  WorkBuddyAccountConfig
 } from './types'
 import { GatewayConfigStore, sanitizeModelMappings } from './configStore'
 import { GatewayLogger } from './core/logger'
@@ -485,6 +486,7 @@ export class GatewayHubService {
       'windsurf',
       'trae',
       'traework',
+      'workbuddy',
       'gptWeb',
       'grokWeb',
       'qoder',
@@ -2604,6 +2606,7 @@ export class GatewayHubService {
     const windsurfFiles = await this.store.readWindsurfAccountFiles()
     const traeFiles = await this.store.readTraeAccountFiles()
     const traeworkFiles = await this.store.readTraeWorkAccountFiles()
+    const workbuddyFiles = await this.store.readWorkBuddyAccountFiles()
     const openrouterFiles = await this.store.readOpenRouterAccountFiles()
     const nvidiaFiles = await this.store.readNvidiaAccountFiles()
     const gptWebFiles = await this.store.readGptWebAccountFiles()
@@ -2668,6 +2671,15 @@ export class GatewayHubService {
             category: 'system'
           })
         }
+      },
+      async (accountId, updates) => {
+        try {
+          await this.store.updateWorkBuddyAccountFile(accountId, updates)
+        } catch (error) {
+          this.logger.warn(`updateWorkBuddyAccountFile failed: ${toErrorMessage(error)}`, {
+            category: 'system'
+          })
+        }
       }
     )
     await this.registry.initialize(
@@ -2681,7 +2693,8 @@ export class GatewayHubService {
       grokWebFiles,
       qoderFiles,
       geminiWebFiles,
-      traeworkFiles
+      traeworkFiles,
+      workbuddyFiles
     )
     this.server = new GatewayServer(
       this.config!,

@@ -2,6 +2,7 @@ import { ipcMain, BrowserWindow } from 'electron'
 import { createParser } from 'eventsource-parser'
 import { gatewayHubService } from './service'
 import type { LogCategory } from './types'
+import type { LogQuery } from './core/logReader'
 import type { GatewayStatusSnapshot } from './types'
 import { daemonStatus, daemonStop, notifyDaemonReload } from '../../cli/daemon/controller'
 import type { CodexLoginEvent } from './providers/codex/types'
@@ -302,6 +303,14 @@ export function registerGatewayIpc(): void {
         options?: { category?: LogCategory; requestId?: string; level?: string; limit?: number }
       ) => gatewayHubService.getLogs(options)
     )
+  )
+  ipcMain.handle(
+    'gateway:queryLogs',
+    safeHandler((_event, query?: LogQuery) => gatewayHubService.queryLogs(query))
+  )
+  ipcMain.handle(
+    'gateway:getRequestTrace',
+    safeHandler((_event, requestId: string) => gatewayHubService.getRequestTrace(requestId))
   )
   ipcMain.handle(
     'gateway:exportLogs',

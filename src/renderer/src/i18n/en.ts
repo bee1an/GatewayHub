@@ -8,7 +8,8 @@ const en = {
     test: 'Test',
     refresh: 'Refresh',
     loading: 'Loading...',
-    add: 'Add'
+    add: 'Add',
+    close: 'Close'
   },
   sidebar: {
     dashboard: 'Dashboard',
@@ -197,6 +198,15 @@ const en = {
     export: 'Export',
     exported: 'Logs exported to {{path}}',
     maxReached: 'Showing last 1000 entries',
+    sourceLive: 'Live',
+    sourceDisk: 'Disk',
+    refresh: 'Refresh',
+    truncated: 'truncated',
+    trace: 'Request trace',
+    traceCopied: 'Trace copied to clipboard',
+    copyTrace: 'Copy trace',
+    filterToRequest: 'Filter list to this request',
+    traceEmpty: 'No entries for this request',
     time: 'Time',
     level: 'Level',
     message: 'Message',

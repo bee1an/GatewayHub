@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useCallback, useEffect, useDeferredValue } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useQuery } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { usePolling } from '../hooks/usePolling'
 import { ToggleFilter } from '../components/ui/ToggleFilter'
@@ -42,7 +43,7 @@ type LogEntry = {
   timeToFirstToken?: number
   chunkCount?: number
   model?: string
-  apiFormat?: 'openai' | 'anthropic'
+  apiFormat?: 'openai' | 'anthropic' | 'responses'
   usage?: UsageStats
   cost?: CostStats
   error?: { stack?: string; upstreamBody?: string }
@@ -169,12 +170,28 @@ export default function Logs(): React.JSX.Element {
   const [requestIdFilter, setRequestIdFilter] = useState<string | null>(null)
   const [grouped, setGrouped] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  const [source, setSource] = useState<'live' | 'disk'>('live')
+  const [traceId, setTraceId] = useState<string | null>(null)
 
   const { data: status, refresh } = usePolling<GatewayStatus>(
     () => window.api.gateway.status(),
-    live ? 2000 : 0,
+    live && source === 'live' ? 2000 : 0,
     ['gateway', 'status']
   )
+
+  const diskQuery = useQuery({
+    queryKey: ['logs', 'disk', filter, categoryFilter, deferredSearch, timeRange, requestIdFilter],
+    enabled: source === 'disk',
+    queryFn: () =>
+      window.api.gateway.queryLogs({
+        level: filter === 'all' ? undefined : filter,
+        category: categoryFilter === 'all' ? undefined : categoryFilter,
+        search: deferredSearch || undefined,
+        requestId: requestIdFilter ?? undefined,
+        since: getTimeThreshold(timeRange) || undefined,
+        limit: 2000
+      })
+  })
   const parentRef = useRef<HTMLDivElement>(null)
 
   const accountLabels = useMemo(() => {
@@ -189,9 +206,10 @@ export default function Logs(): React.JSX.Element {
   }, [status?.providers])
 
   const reversed = useMemo(() => {
+    if (source === 'disk') return diskQuery.data?.entries ?? []
     const raw = status?.logs ?? []
     return [...raw].reverse()
-  }, [status?.logs])
+  }, [source, status?.logs, diskQuery.data])
 
   const getLogKey = useCallback(
     (log: LogEntry): string =>
@@ -313,7 +331,7 @@ export default function Logs(): React.JSX.Element {
   }
 
   function handleRequestIdClick(rid: string): void {
-    setRequestIdFilter(requestIdFilter === rid ? null : rid)
+    setTraceId(rid)
   }
 
   return (
@@ -349,13 +367,28 @@ export default function Logs(): React.JSX.Element {
           className="input-base !w-[180px] !py-1.5 !text-[12px]"
         />
         <ToggleFilter
+          value={source}
+          onValueChange={(v) => setSource(v as 'live' | 'disk')}
+          items={[
+            { value: 'live', label: t('logs.sourceLive') },
+            { value: 'disk', label: t('logs.sourceDisk') }
+          ]}
+        />
+        {source === 'disk' && (
+          <Button onClick={() => diskQuery.refetch()} variant="ghost" size="sm">
+            <span className="i-ph-arrow-clockwise text-[13px]" aria-hidden="true" />
+            {t('logs.refresh')}
+          </Button>
+        )}
+        <ToggleFilter
           value={filter}
           onValueChange={setFilter}
           items={[
             { value: 'all', label: t('logs.all') },
-            { value: 'info', label: t('logs.info') },
+            { value: 'error', label: t('logs.error') },
             { value: 'warn', label: t('logs.warn') },
-            { value: 'error', label: t('logs.error') }
+            { value: 'info', label: t('logs.info') },
+            { value: 'debug', label: 'debug' }
           ]}
         />
         <ToggleFilter
@@ -420,6 +453,7 @@ export default function Logs(): React.JSX.Element {
         )}
         <span className="ml-auto text-[12px] text-fog tabular-nums">
           {t('logs.entries', { count: logs.length })}
+          {source === 'disk' && diskQuery.data?.truncated && ` · ${t('logs.truncated')}`}
         </span>
       </div>
 
@@ -518,10 +552,179 @@ export default function Logs(): React.JSX.Element {
             })}
           </div>
         )}
-        {atMax && logs.length > 0 && (
+        {atMax && source === 'live' && logs.length > 0 && (
           <div className="text-center text-[11px] text-fog py-2 border-t border-charcoal/30">
             {t('logs.maxReached')}
           </div>
+        )}
+      </div>
+
+      {traceId && (
+        <RequestTracePanel
+          requestId={traceId}
+          accountLabels={accountLabels}
+          onClose={() => setTraceId(null)}
+          onFilterList={() => {
+            setRequestIdFilter(traceId)
+            setTraceId(null)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * Slide-over panel showing the full lifecycle of one requestId, ordered
+ * oldest-first with +ms offsets — for analyzing a request's flow end to end.
+ */
+function RequestTracePanel({
+  requestId,
+  accountLabels,
+  onClose,
+  onFilterList
+}: {
+  requestId: string
+  accountLabels: Record<string, string>
+  onClose: () => void
+  onFilterList: () => void
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const { toast } = useToast()
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null)
+  const query = useQuery({
+    queryKey: ['logs', 'trace', requestId],
+    queryFn: () => window.api.gateway.getRequestTrace(requestId),
+    staleTime: 5_000
+  })
+  const entries: LogEntry[] = query.data ?? []
+  const t0 = entries[0]?.ts
+
+  function copyTrace(): void {
+    const lines = entries.map((e) => {
+      const parts = [
+        new Date(e.ts).toISOString(),
+        e.level.toUpperCase().padEnd(5),
+        e.category ?? '-',
+        e.provider ?? '-',
+        e.accountId ?? '-',
+        e.message
+      ]
+      if (e.extra && Object.keys(e.extra).length) parts.push(JSON.stringify(e.extra))
+      if (e.error?.stack) parts.push(`\n  ${e.error.stack.replace(/\n/g, '\n  ')}`)
+      return parts.join(' ')
+    })
+    void navigator.clipboard.writeText(lines.join('\n'))
+    toast(t('logs.traceCopied'), 'success')
+  }
+
+  return (
+    <div className="fixed inset-y-0 right-0 z-40 flex w-[560px] max-w-[80vw] flex-col border-l border-charcoal bg-graphite shadow-2xl">
+      <div className="flex shrink-0 items-center gap-2 border-b border-charcoal/60 px-4 py-2.5">
+        <span className="i-ph-timeline text-[14px] text-storm" aria-hidden="true" />
+        <span className="text-[13px] font-medium text-porcelain">{t('logs.trace')}</span>
+        <code className="text-[11px] font-mono text-fog">{requestId.slice(0, 12)}</code>
+        <span className="flex-1" />
+        <button
+          type="button"
+          onClick={copyTrace}
+          className="flex items-center gap-1 rounded-[var(--radius-sm)] px-1.5 py-1 text-[11px] text-fog transition-colors hover:bg-charcoal/50 hover:text-porcelain"
+          title={t('logs.copyTrace')}
+        >
+          <span className="i-ph-copy text-[13px]" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          onClick={onFilterList}
+          className="flex items-center gap-1 rounded-[var(--radius-sm)] px-1.5 py-1 text-[11px] text-fog transition-colors hover:bg-charcoal/50 hover:text-porcelain"
+          title={t('logs.filterToRequest')}
+        >
+          <span className="i-ph-funnel text-[13px]" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex items-center rounded-[var(--radius-sm)] p-1 text-fog transition-colors hover:bg-charcoal/50 hover:text-porcelain"
+          aria-label={t('common.close')}
+        >
+          <span className="i-ph-x text-[14px]" aria-hidden="true" />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {query.isLoading ? (
+          <div className="flex items-center justify-center py-16 text-fog">
+            <span className="i-svg-spinners:ring-resize h-4 w-4" />
+          </div>
+        ) : entries.length === 0 ? (
+          <div className="py-16 text-center text-[12px] text-fog">{t('logs.traceEmpty')}</div>
+        ) : (
+          entries.map((log, i) => {
+            const expanded = expandedIdx === i
+            return (
+              <div key={i} className="border-b border-charcoal/30">
+                <button
+                  type="button"
+                  onClick={() => setExpandedIdx(expanded ? null : i)}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--c-slate)_30%,transparent)]"
+                >
+                  <span className="w-[64px] shrink-0 text-[10px] font-mono tabular-nums text-fog">
+                    +{t0 !== undefined ? log.ts - t0 : 0}ms
+                  </span>
+                  <span
+                    className={`w-10 shrink-0 text-[10px] font-mono font-medium uppercase ${LEVEL_CHIP_COLORS[log.level] ?? 'text-fog'}`}
+                  >
+                    {log.level}
+                  </span>
+                  {log.category && (
+                    <span className="shrink-0 text-[10px] font-mono text-fog">{log.category}</span>
+                  )}
+                  <span className="min-w-0 flex-1 truncate text-[12px] text-porcelain/85">
+                    {log.message}
+                  </span>
+                  {log.duration !== undefined && (
+                    <span className="shrink-0 text-[10px] font-mono tabular-nums text-storm">
+                      {log.duration}ms
+                    </span>
+                  )}
+                  {log.statusCode !== undefined && (
+                    <span
+                      className={`shrink-0 text-[10px] font-mono tabular-nums ${statusCodeColor(log.statusCode)}`}
+                    >
+                      {log.statusCode}
+                    </span>
+                  )}
+                  {log.accountId && (
+                    <span className="max-w-[120px] shrink-0 truncate text-[10px] font-mono text-fog">
+                      {accountLabels[log.accountId] ?? log.accountId}
+                    </span>
+                  )}
+                </button>
+                {expanded && (
+                  <div className="space-y-1.5 px-4 pb-2.5 pt-0.5 text-[11px]">
+                    {log.error?.stack && (
+                      <pre className="max-h-[160px] overflow-y-auto whitespace-pre-wrap break-all text-red/80">
+                        {log.error.stack}
+                      </pre>
+                    )}
+                    {log.error?.upstreamBody && (
+                      <pre className="max-h-[100px] overflow-y-auto whitespace-pre-wrap break-all text-warning/80">
+                        {log.error.upstreamBody}
+                      </pre>
+                    )}
+                    {log.extra && Object.keys(log.extra).length > 0 && (
+                      <pre className="whitespace-pre-wrap break-all font-mono text-steel">
+                        {JSON.stringify(log.extra, null, 2)}
+                      </pre>
+                    )}
+                    {!log.error && !log.extra && (
+                      <div className="text-fog">{new Date(log.ts).toLocaleString()}</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })
         )}
       </div>
     </div>
@@ -569,9 +772,7 @@ function LogRow({
         <time className="shrink-0 text-[12px] font-mono text-storm w-[60px] tabular-nums">
           {time}
         </time>
-        <span
-          className={`shrink-0 w-12 text-[10px] font-mono font-medium uppercase ${levelChip}`}
-        >
+        <span className={`shrink-0 w-12 text-[10px] font-mono font-medium uppercase ${levelChip}`}>
           {log.level}
         </span>
         {log.category && (

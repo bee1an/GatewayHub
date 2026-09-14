@@ -80,6 +80,18 @@ const api = {
       level?: string
       limit?: number
     }) => ipcRenderer.invoke('gateway:getLogs', options),
+    queryLogs: (query?: {
+      level?: string
+      category?: string
+      requestId?: string
+      search?: string
+      since?: number
+      until?: number
+      before?: number
+      limit?: number
+    }) => ipcRenderer.invoke('gateway:queryLogs', query),
+    getRequestTrace: (requestId: string) =>
+      ipcRenderer.invoke('gateway:getRequestTrace', requestId),
     exportLogs: (format: 'json' | 'ndjson') => ipcRenderer.invoke('gateway:exportLogs', format),
     getPricing: () => typedGateway.getPricing(),
     readUsage: (options?: {

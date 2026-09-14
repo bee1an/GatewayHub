@@ -8,7 +8,8 @@ const zh = {
     test: '测试',
     refresh: '刷新',
     loading: '加载中...',
-    add: '添加'
+    add: '添加',
+    close: '关闭'
   },
   sidebar: {
     dashboard: '仪表盘',
@@ -194,6 +195,15 @@ const zh = {
     export: '导出',
     exported: '日志已导出到 {{path}}',
     maxReached: '仅显示最近 1000 条记录',
+    sourceLive: '实时',
+    sourceDisk: '磁盘',
+    refresh: '刷新',
+    truncated: '已截断',
+    trace: '请求追踪',
+    traceCopied: '追踪已复制到剪贴板',
+    copyTrace: '复制追踪',
+    filterToRequest: '列表过滤到此请求',
+    traceEmpty: '该请求没有日志',
     time: '时间',
     level: '级别',
     message: '消息',

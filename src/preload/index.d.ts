@@ -90,6 +90,17 @@ declare global {
           level?: string
           limit?: number
         }) => Promise<any[]>
+        queryLogs: (query?: {
+          level?: string
+          category?: string
+          requestId?: string
+          search?: string
+          since?: number
+          until?: number
+          before?: number
+          limit?: number
+        }) => Promise<{ entries: any[]; nextBefore?: number; truncated: boolean }>
+        getRequestTrace: (requestId: string) => Promise<any[]>
         exportLogs: (format: 'json' | 'ndjson') => Promise<string>
         getPricing: () => Promise<
           Record<

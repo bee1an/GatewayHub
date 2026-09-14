@@ -60,6 +60,10 @@ import {
   parseTraeWorkAuthInput
 } from './providers/traework/normalize'
 import {
+  buildWorkBuddyAccountFromInput,
+  parseWorkBuddyAuthInput
+} from './providers/workbuddy/normalize'
+import {
   buildOpenRouterAccountFromInput,
   parseOpenRouterAuthInput
 } from './providers/openrouter/normalize'
@@ -525,8 +529,27 @@ export class GatewayHubService {
     return this.logger.getLogs(options)
   }
 
+  /**
+   * Disk-backed log query over rotated files. The in-memory ring only keeps
+   * the latest 1000 entries; this scans `logs/gateway*.log` so older requests
+   * stay analyzable. Returns newest-first.
+   */
+  async queryLogs(query?: LogQuery): Promise<LogQueryResult> {
+    await this.ensureReady()
+    return new LogReader(this.store.logsDir()).query(query)
+  }
+
+  /** Full lifecycle of a single requestId, oldest first, across rotations. */
+  async getRequestTrace(requestId: string): Promise<GatewayLogEntry[]> {
+    await this.ensureReady()
+    return new LogReader(this.store.logsDir()).requestTrace(requestId)
+  }
+
   async exportLogs(format: 'json' | 'ndjson'): Promise<string> {
-    return this.logger.exportLogs(format)
+    // Export from disk (full history) rather than the 1000-entry memory ring.
+    const reader = new LogReader(this.store.logsDir())
+    const { entries } = await reader.query({ limit: 100_000 })
+    return this.logger.exportEntries(entries.slice().reverse(), format)
   }
 
   getPricing(): Record<string, ModelPrice> {

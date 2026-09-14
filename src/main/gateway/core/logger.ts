@@ -102,9 +102,13 @@ export class GatewayLogger {
   }
 
   async exportLogs(format: 'json' | 'ndjson'): Promise<string> {
+    return this.exportEntries(this.entries, format)
+  }
+
+  async exportEntries(entries: GatewayLogEntry[], format: 'json' | 'ndjson'): Promise<string> {
     if (!this.writer) throw new Error('Log writer not configured')
     return this.writer.exportToFile(
-      this.entries.map((e) => redactSecrets(e)),
+      entries.map((e) => redactSecrets(e)),
       format
     )
   }

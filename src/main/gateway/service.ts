@@ -22,6 +22,7 @@ import type {
 } from './types'
 import { GatewayConfigStore, sanitizeModelMappings } from './configStore'
 import { GatewayLogger } from './core/logger'
+import { LogReader, type LogQuery, type LogQueryResult } from './core/logReader'
 import { DEFAULT_LOG_WRITER_CONFIG, type LogWriterConfig } from './core/logWriter'
 import { ProviderRegistry } from './providerRegistry'
 import { GatewayServer } from './server'

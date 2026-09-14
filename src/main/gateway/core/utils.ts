@@ -5,7 +5,7 @@ import { mkdir, readFile, rename, stat, writeFile } from 'fs/promises'
 import { withLock } from './lockfile'
 
 export function generateApiKeyString(): string {
-  return `ghub-${randomBytes(24).toString('base64url')}`
+  return `sk-${randomBytes(24).toString('base64url')}`
 }
 
 export function generateApiKey(): import('../types').ApiKeyEntry {

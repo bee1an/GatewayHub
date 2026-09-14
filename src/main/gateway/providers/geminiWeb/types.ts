@@ -34,6 +34,4 @@ export interface GeminiWebSession {
  * streaming parser converts Gemini's nested-array response into these.
  */
 export type GeminiStreamEvent =
-  | { type: 'text'; delta: string }
-  | { type: 'done' }
-  | { type: 'error'; message: string }
+  { type: 'text'; delta: string } | { type: 'done' } | { type: 'error'; message: string }

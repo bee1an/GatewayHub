@@ -390,15 +390,13 @@ function normalizeMaybeModel(value: string): string {
   )
     return ''
   if (!/[a-z]/i.test(trimmed)) return ''
-  if (
-    !(
-      /[-_.]/.test(trimmed) ||
-      /\d/.test(trimmed) ||
-      /^(gpt|gemini|deepseek|kimi|mini|max|minimax|dola|claude|qwen|llama|mistral|seed|o\d)/i.test(
-        trimmed
-      )
+  if (!(
+    /[-_.]/.test(trimmed) ||
+    /\d/.test(trimmed) ||
+    /^(gpt|gemini|deepseek|kimi|mini|max|minimax|dola|claude|qwen|llama|mistral|seed|o\d)/i.test(
+      trimmed
     )
-  )
+  ))
     return ''
   return normalizeTraeModel(trimmed)
 }

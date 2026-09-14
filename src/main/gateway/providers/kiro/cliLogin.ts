@@ -254,8 +254,7 @@ async function extractAccountFromProfile(profileDir: string): Promise<CliLoginRe
 
         for (const key of SQLITE_TOKEN_KEYS) {
           const row = db.prepare('SELECT value FROM auth_kv WHERE key = ?').get(key) as
-            | { value?: string }
-            | undefined
+            { value?: string } | undefined
           if (!row?.value) continue
           const tokenJson = JSON.parse(row.value)
           accessToken = tokenJson.access_token || tokenJson.accessToken || ''
@@ -268,8 +267,7 @@ async function extractAccountFromProfile(profileDir: string): Promise<CliLoginRe
 
         for (const key of SQLITE_REGISTRATION_KEYS) {
           const row = db.prepare('SELECT value FROM auth_kv WHERE key = ?').get(key) as
-            | { value?: string }
-            | undefined
+            { value?: string } | undefined
           if (!row?.value) continue
           const reg = JSON.parse(row.value)
           clientId = reg.client_id || reg.clientId || ''

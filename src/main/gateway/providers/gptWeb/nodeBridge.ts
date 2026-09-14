@@ -24,9 +24,7 @@ interface ModelsWorkerOutput {
 }
 
 type StreamWorkerMessage =
-  | { type: 'line'; line: string }
-  | { type: 'done' }
-  | { type: 'error'; message: string }
+  { type: 'line'; line: string } | { type: 'done' } | { type: 'error'; message: string }
 
 let cachedNodePath: string | null | undefined
 let cachedCliPath: string | null | undefined

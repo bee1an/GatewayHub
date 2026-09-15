@@ -29,6 +29,7 @@ enum Page {
     Dashboard,
     ApiKeys,
     Mappings,
+    Playground,
     Usage,
     Logs,
     Settings,
@@ -58,6 +59,11 @@ pub struct AppRoot {
     /// Provider detail: paste-an-account-JSON import box + last result.
     import_input: Entity<InputState>,
     import_result: Option<String>,
+    /// Playground: model + prompt inputs, transcript, in-flight reply.
+    pg_model_input: Entity<InputState>,
+    pg_msg_input: Entity<InputState>,
+    pg_log: Vec<(SharedString, SharedString)>,
+    pg_pending: Option<tokio::sync::oneshot::Receiver<String>>,
 }
 
 impl AppRoot {
@@ -94,6 +100,11 @@ impl AppRoot {
             import_input: cx
                 .new(|cx| InputState::new(_window, cx).placeholder("paste account JSON to import")),
             import_result: None,
+            pg_model_input: cx
+                .new(|cx| InputState::new(_window, cx).placeholder("model (e.g. claude-sonnet-4)")),
+            pg_msg_input: cx.new(|cx| InputState::new(_window, cx).placeholder("message…")),
+            pg_log: Vec::new(),
+            pg_pending: None,
         }
     }
 
@@ -187,6 +198,29 @@ impl AppRoot {
             tracing::error!(error = %e, "save config failed");
             return;
         }
+        cx.notify();
+    }
+
+    /// Provider-level enable / proxy toggles — config write + registry
+    /// rebuild so the change takes effect for new requests.
+    fn toggle_provider_flag(&mut self, provider: &str, flag: &'static str, cx: &mut Context<Self>) {
+        let mut cfg = self.service.config();
+        let entry = cfg
+            .providers
+            .entry(provider.to_string())
+            .or_insert_with(|| serde_json::json!({}));
+        let mut pcfg = gateway_core::ProviderConfig::from_value(&entry);
+        match flag {
+            "enabled" => pcfg.enabled = !pcfg.enabled,
+            "useProxy" => pcfg.use_proxy = Some(!pcfg.use_proxy.unwrap_or(false)),
+            _ => {}
+        }
+        *entry = serde_json::to_value(&pcfg).unwrap_or_default();
+        if let Err(e) = self.service.save_config(cfg) {
+            tracing::error!(error = %e, "save config failed");
+            return;
+        }
+        self.service.reload_registry();
         cx.notify();
     }
 
@@ -284,6 +318,80 @@ impl AppRoot {
         self.test_pending.insert(key, rx);
     }
 
+    /// Playground send — goes through the in-process registry (the same
+    /// path the HTTP server uses) rather than HTTP, so it works whether
+    /// or not the server is running.
+    fn playground_send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.pg_pending.is_some() {
+            return;
+        }
+        let model = self.pg_model_input.read(cx).value().trim().to_string();
+        let text = self.pg_msg_input.read(cx).value().trim().to_string();
+        if model.is_empty() || text.is_empty() {
+            return;
+        }
+        self.pg_log.push(("you".into(), text.clone().into()));
+        self.pg_msg_input.update(cx, |input, cx| {
+            input.set_value("", window, cx);
+        });
+        let registry = self.service.registry();
+        let body = serde_json::json!({
+            "model": model,
+            "messages": [{"role": "user", "content": text}],
+            "stream": false,
+        });
+        let ctx = gateway_core::GatewayRequestContext {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            session_id: None,
+            session_source: None,
+            api_format: gateway_core::ApiFormat::OpenAi,
+            on_usage: None,
+            cancel: tokio_util::sync::CancellationToken::new(),
+        };
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.service.spawn_ui(async move {
+            use futures::StreamExt;
+            let reply = match registry.chat_completions(body, &ctx).await {
+                gateway_core::GatewayResponse::Json { status, body } => {
+                    if status >= 400 {
+                        let msg = body
+                            .pointer("/error/message")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_string)
+                            .unwrap_or_else(|| body.to_string());
+                        format!("error {status}: {msg}")
+                    } else {
+                        body.pointer("/choices/0/message/content")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_string)
+                            .unwrap_or_else(|| body.to_string())
+                    }
+                }
+                gateway_core::GatewayResponse::Sse { stream, .. } => {
+                    let mut text = String::new();
+                    futures::pin_mut!(stream);
+                    while let Some(chunk) = stream.next().await {
+                        for line in chunk.lines() {
+                            if let Some(data) = line.strip_prefix("data: ")
+                                && data != "[DONE]"
+                                && let Ok(v) = serde_json::from_str::<serde_json::Value>(data)
+                                && let Some(t) = v
+                                    .pointer("/choices/0/delta/content")
+                                    .and_then(serde_json::Value::as_str)
+                            {
+                                text.push_str(t);
+                            }
+                        }
+                    }
+                    text
+                }
+            };
+            let _ = tx.send(reply);
+        });
+        self.pg_pending = Some(rx);
+        cx.notify();
+    }
+
     /// Drain completed test/model futures into their result maps.
     fn drain_pending(&mut self) {
         let mut done = Vec::new();
@@ -320,6 +428,20 @@ impl AppRoot {
         }
         for name in done {
             self.models_pending.remove(&name);
+        }
+        if let Some(rx) = &mut self.pg_pending {
+            match rx.try_recv() {
+                Ok(reply) => {
+                    self.pg_log.push(("gateway".into(), reply.into()));
+                    self.pg_pending = None;
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
+                Err(_) => {
+                    self.pg_log
+                        .push(("gateway".into(), "request failed".into()));
+                    self.pg_pending = None;
+                }
+            }
         }
     }
 }
@@ -436,6 +558,7 @@ impl Render for AppRoot {
             (Page::Dashboard, "nav-dashboard", "Dashboard"),
             (Page::ApiKeys, "nav-apikeys", "API Keys"),
             (Page::Mappings, "nav-mappings", "Mappings"),
+            (Page::Playground, "nav-playground", "Playground"),
             (Page::Usage, "nav-usage", "Usage"),
             (Page::Logs, "nav-logs", "Logs"),
             (Page::Settings, "nav-settings", "Settings"),
@@ -572,6 +695,7 @@ impl Render for AppRoot {
                 Page::Dashboard => self.render_dashboard(&snapshot, cx),
                 Page::ApiKeys => self.render_api_keys(&snapshot, cx),
                 Page::Mappings => self.render_mappings(&snapshot, cx),
+                Page::Playground => self.render_playground(&snapshot, cx),
                 Page::Usage => self.render_usage(&snapshot, cx),
                 Page::Logs => self.render_logs(&snapshot, cx),
                 Page::Settings => self.render_settings(&snapshot, cx),
@@ -1240,6 +1364,104 @@ impl AppRoot {
                     .min_h_0()
                     .overflow_y_scroll()
                     .child(rows),
+            )
+            .into_any_element()
+    }
+
+    fn render_playground(
+        &self,
+        _snapshot: &GatewayStatusSnapshot,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let theme = cx.theme().clone();
+
+        let mut log = v_flex().gap_2().p_4();
+        if self.pg_log.is_empty() {
+            log = log.child(
+                div().p_4().child(
+                    Label::new("Send a chat request through the gateway — no HTTP server or API key needed")
+                        .text_sm()
+                        .text_color(theme.muted_foreground),
+                ),
+            );
+        }
+        for (role, text) in &self.pg_log {
+            let is_you = role.as_ref() == "you";
+            log = log.child(
+                v_flex()
+                    .p_3()
+                    .rounded(theme.radius)
+                    .border_1()
+                    .border_color(theme.border)
+                    .bg(if is_you {
+                        theme.accent
+                    } else {
+                        theme.muted.opacity(0.35)
+                    })
+                    .child(
+                        Label::new(role.to_string())
+                            .text_xs()
+                            .font_semibold()
+                            .text_color(theme.muted_foreground),
+                    )
+                    .child(
+                        Label::new(text.to_string())
+                            .text_sm()
+                            .text_color(theme.foreground),
+                    ),
+            );
+        }
+        if self.pg_pending.is_some() {
+            log = log.child(
+                div()
+                    .p_3()
+                    .child(Label::new("…").text_sm().text_color(theme.muted_foreground)),
+            );
+        }
+
+        v_flex()
+            .flex_1()
+            .min_h_0()
+            .child(
+                h_flex()
+                    .p_4()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        Label::new("Playground")
+                            .text_lg()
+                            .font_semibold()
+                            .text_color(theme.foreground),
+                    )
+                    .child(div().flex_1())
+                    .child(div().w(px(280.)).child(Input::new(&self.pg_model_input))),
+            )
+            .child(div().mx_4().h_px().bg(theme.border))
+            .child(
+                v_flex()
+                    .id("pg-scroll")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .child(log),
+            )
+            .child(div().mx_4().h_px().bg(theme.border))
+            .child(
+                h_flex()
+                    .p_4()
+                    .gap_2()
+                    .items_center()
+                    .child(div().flex_1().child(Input::new(&self.pg_msg_input)))
+                    .child(
+                        Button::new("pg-send")
+                            .primary()
+                            .small()
+                            .label("Send")
+                            .icon(IconName::ArrowRight)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.playground_send(window, cx);
+                            })),
+                    ),
             )
             .into_any_element()
     }

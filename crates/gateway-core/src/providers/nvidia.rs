@@ -104,7 +104,32 @@ impl NvidiaProvider {
         let status = res.status().as_u16();
         let text = res.text().await.unwrap_or_default();
         let payload: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
-        if status >= 400 || payload.get("error").is_some() {
+        if status < 400 && payload.get("error").is_none() {
+            return Ok(());
+        }
+        // The smoke model can be retired upstream (410 Gone "end of life") —
+        // a dead smoke model says nothing about the key. Fall back to
+        // GET /models, which still requires a valid key.
+        let lower = text.to_lowercase();
+        if status == 404
+            || status == 410
+            || (status >= 400
+                && (lower.contains("end of life") || lower.contains("no longer available")))
+        {
+            let res = self
+                .view
+                .http
+                .get(
+                    NVIDIA_MODELS_PATH,
+                    &[("authorization", &format!("Bearer {api_key}"))],
+                    self.view.settings.first_token_timeout,
+                )
+                .await?;
+            let status = res.status().as_u16();
+            if status < 400 {
+                return Ok(());
+            }
+            let text = res.text().await.unwrap_or_default();
             anyhow::bail!(
                 "NVIDIA key check failed: HTTP {} {}",
                 status,
@@ -114,7 +139,14 @@ impl NvidiaProvider {
                     .collect::<String>()
             );
         }
-        Ok(())
+        anyhow::bail!(
+            "NVIDIA key check failed: HTTP {} {}",
+            status,
+            redact_secrets_in_text(&text)
+                .chars()
+                .take(500)
+                .collect::<String>()
+        );
     }
 }
 

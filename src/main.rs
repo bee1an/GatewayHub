@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod assets;
+mod cli;
 mod root;
 mod theme;
 
@@ -47,6 +48,9 @@ pub enum MenuAction {
 }
 
 fn main() {
+    if let Some(code) = cli::maybe_run() {
+        std::process::exit(code);
+    }
     let _log_guard = init_logger();
     info!(version = env!("CARGO_PKG_VERSION"), "gatewayhub launch");
 

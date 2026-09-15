@@ -26,7 +26,10 @@ pub struct GatewayService {
     store: ConfigStore,
     config: Arc<RwLock<GatewayHubConfig>>,
     state: Arc<RwLock<GatewayHubState>>,
-    registry: Arc<Registry>,
+    /// Hot-swappable so provider enable/disable from the UI can rebuild
+    /// adapters without restarting the process. A *running* HTTP server
+    /// keeps the Arc it captured at start — restart to apply changes.
+    registry: RwLock<Arc<Registry>>,
     usage_store: Arc<crate::usage_store::UsageStore>,
     server: Mutex<Option<GatewayServer>>,
     /// UI-triggered async work (test_account, checkin, get_account_info) —
@@ -53,7 +56,7 @@ impl GatewayService {
         // sweep) during construction — they need a runtime context.
         let registry = {
             let _guard = ui_rt.enter();
-            Arc::new(Self::build_registry(&store, &config, &state))
+            RwLock::new(Arc::new(Self::build_registry(&store, &config, &state)))
         };
         let usage_store = Arc::new(crate::usage_store::UsageStore::new(
             store.paths().usage_store_path(),
@@ -434,8 +437,24 @@ impl GatewayService {
         &self.store
     }
 
-    pub fn registry(&self) -> &Arc<Registry> {
-        &self.registry
+    pub fn registry(&self) -> Arc<Registry> {
+        self.registry
+            .read()
+            .map(|r| r.clone())
+            .unwrap_or_else(|_| Arc::new(Registry::new(&GatewayHubConfig::default())))
+    }
+
+    /// Rebuild all provider adapters after a config change (enable/disable,
+    /// proxy toggles, settings edits). Provider construction spawns
+    /// background tasks, so run inside the ui runtime.
+    pub fn reload_registry(&self) {
+        let new_registry = {
+            let _guard = self.ui_rt.enter();
+            Arc::new(Self::build_registry(&self.store, &self.config, &self.state))
+        };
+        if let Ok(mut guard) = self.registry.write() {
+            *guard = new_registry;
+        }
     }
 
     pub fn usage_store(&self) -> &Arc<crate::usage_store::UsageStore> {
@@ -480,7 +499,7 @@ impl GatewayService {
         let state = ServerState {
             config: Arc::new(RwLock::new(cfg.server.clone())),
             models: Arc::new(RwLock::new(models)),
-            registry: self.registry.clone(),
+            registry: self.registry(),
             usage: self.usage_store.clone(),
         };
         let server = GatewayServer::start(state)?;
@@ -508,7 +527,7 @@ impl GatewayService {
 
     pub fn status(&self) -> GatewayStatusSnapshot {
         let config = self.config();
-        let providers = self.registry.statuses();
+        let providers = self.registry().statuses();
         let logs: Vec<_> = self
             .state
             .read()

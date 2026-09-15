@@ -80,8 +80,10 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing-appender = { workspace = true }
 gateway-core = { workspace = true }
-tokio = { workspace = true, features = ["sync"] }
+tokio = { workspace = true, features = ["signal", "sync"] }
 uuid = { workspace = true, features = ["v4"] }
+futures.workspace = true
+tokio-util.workspace = true
 
 [dev-dependencies]
 tempfile = "3.23.0"

@@ -2236,6 +2236,7 @@ name = "gatewayhub"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "futures",
  "gateway-core",
  "gpui-kit",
  "rust-embed",
@@ -2245,6 +2246,7 @@ dependencies = [
  "smol",
  "tempfile",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",

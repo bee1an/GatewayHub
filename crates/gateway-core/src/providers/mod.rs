@@ -2,6 +2,8 @@ pub mod codex;
 pub mod codex_auth;
 pub mod codex_convert;
 pub mod codex_stream;
+pub mod gptweb;
+pub mod gptweb_upstream;
 pub mod kiro;
 pub mod kiro_auth;
 pub mod kiro_convert;

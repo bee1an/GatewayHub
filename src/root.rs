@@ -5,7 +5,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use gateway_core::{GatewayService, GatewayStatusSnapshot, ProviderStatus};
+use std::collections::HashMap;
+
+use gateway_core::{AccountTestResult, GatewayService, GatewayStatusSnapshot, ProviderStatus};
 use gpui_kit::component::{
     ActiveTheme, IconName, Sizable, StyledExt, Theme, ThemeMode,
     button::{Button, ButtonVariants},
@@ -28,8 +30,17 @@ enum Page {
 pub struct AppRoot {
     service: Arc<GatewayService>,
     page: Page,
+    /// Provider detail view — set when a dashboard card is clicked.
+    detail: Option<String>,
     /// None = follow the OS appearance (the "System" segment).
     mode_choice: Option<ThemeMode>,
+    /// "provider/accountId" → last test outcome line.
+    test_results: HashMap<String, String>,
+    /// In-flight account tests; drained each render via try_recv.
+    test_pending: HashMap<String, tokio::sync::oneshot::Receiver<AccountTestResult>>,
+    /// provider → fetched model ids (lazy, fetched on detail open).
+    detail_models: HashMap<String, Vec<String>>,
+    models_pending: HashMap<String, tokio::sync::oneshot::Receiver<Vec<String>>>,
 }
 
 impl AppRoot {
@@ -48,7 +59,12 @@ impl AppRoot {
         Self {
             service,
             page: Page::Dashboard,
+            detail: None,
             mode_choice: None,
+            test_results: HashMap::new(),
+            test_pending: HashMap::new(),
+            detail_models: HashMap::new(),
+            models_pending: HashMap::new(),
         }
     }
 
@@ -59,6 +75,83 @@ impl AppRoot {
             tracing::error!(error = %e, "failed to start gateway server");
         }
         cx.notify();
+    }
+
+    /// Kick off provider.list_models + refresh test results when a detail
+    /// page is opened (idempotent — pending tasks are not restarted).
+    fn open_detail(&mut self, provider: &str) {
+        self.detail = Some(provider.to_string());
+        if !self.detail_models.contains_key(provider) && !self.models_pending.contains_key(provider)
+        {
+            let adapter = self.service.registry().provider(provider);
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            self.service.spawn_ui(async move {
+                let models = match adapter {
+                    Some(a) => a.list_models().await.into_iter().map(|m| m.id).collect(),
+                    None => Vec::new(),
+                };
+                let _ = tx.send(models);
+            });
+            self.models_pending.insert(provider.to_string(), rx);
+        }
+    }
+
+    fn test_account(&mut self, provider: &str, account_id: &str) {
+        let key = format!("{provider}/{account_id}");
+        if self.test_pending.contains_key(&key) {
+            return;
+        }
+        let Some(adapter) = self.service.registry().provider(provider) else {
+            self.test_results.insert(key, "provider not loaded".into());
+            return;
+        };
+        let account_id = account_id.to_string();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.service.spawn_ui(async move {
+            let result = adapter.test_account(&account_id).await;
+            let _ = tx.send(result);
+        });
+        self.test_results.insert(key.clone(), "testing…".into());
+        self.test_pending.insert(key, rx);
+    }
+
+    /// Drain completed test/model futures into their result maps.
+    fn drain_pending(&mut self) {
+        let mut done = Vec::new();
+        for (key, rx) in &mut self.test_pending {
+            match rx.try_recv() {
+                Ok(result) => {
+                    self.test_results.insert(
+                        key.clone(),
+                        format!(
+                            "{}{}",
+                            if result.ok { "ok — " } else { "fail — " },
+                            result.message
+                        ),
+                    );
+                    done.push(key.clone());
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
+                Err(_) => done.push(key.clone()),
+            }
+        }
+        for key in done {
+            self.test_pending.remove(&key);
+        }
+        let mut done = Vec::new();
+        for (name, rx) in &mut self.models_pending {
+            match rx.try_recv() {
+                Ok(models) => {
+                    self.detail_models.insert(name.clone(), models);
+                    done.push(name.clone());
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
+                Err(_) => done.push(name.clone()),
+            }
+        }
+        for name in done {
+            self.models_pending.remove(&name);
+        }
     }
 }
 
@@ -120,11 +213,9 @@ fn segmented(
                     d.cursor_pointer().hover(|d| d.bg(theme.list_hover))
                 })
                 .on_click(move |_, window, cx| on_pick(ix, window, cx))
-                .child(
-                    Label::new(label).text_sm().when(sel, |l| {
-                        l.font_medium().text_color(theme.button_primary_foreground)
-                    }),
-                ),
+                .child(Label::new(label).text_sm().when(sel, |l| {
+                    l.font_medium().text_color(theme.button_primary_foreground)
+                })),
         );
     }
     track
@@ -164,7 +255,11 @@ impl Render for AppRoot {
         let theme = cx.theme().clone();
         let snapshot: GatewayStatusSnapshot = self.service.status();
         let running = snapshot.server.running;
-        let ready = snapshot.providers.iter().filter(|p| p.status == "ready").count();
+        let ready = snapshot
+            .providers
+            .iter()
+            .filter(|p| p.status == "ready")
+            .count();
 
         // ---- sidebar ----
         let mut nav = v_flex().gap_px().px_2();
@@ -222,9 +317,9 @@ impl Render for AppRoot {
                         1 => Some(ThemeMode::Dark),
                         _ => None,
                     };
-                    let mode = root
-                        .mode_choice
-                        .unwrap_or_else(|| crate::theme::theme_mode_for_appearance(cx.window_appearance()));
+                    let mode = root.mode_choice.unwrap_or_else(|| {
+                        crate::theme::theme_mode_for_appearance(cx.window_appearance())
+                    });
                     Theme::change(mode, None, cx);
                 });
             },
@@ -272,14 +367,18 @@ impl Render for AppRoot {
             .border_b_1()
             .border_color(theme.border)
             .child(
-                Label::new(if running { "● running" } else { "○ stopped" })
-                    .text_xs()
-                    .font_semibold()
-                    .text_color(if running {
-                        theme.primary
-                    } else {
-                        theme.muted_foreground
-                    }),
+                Label::new(if running {
+                    "● running"
+                } else {
+                    "○ stopped"
+                })
+                .text_xs()
+                .font_semibold()
+                .text_color(if running {
+                    theme.primary
+                } else {
+                    theme.muted_foreground
+                }),
             )
             .child(
                 Label::new(snapshot.server.url.clone())
@@ -293,10 +392,15 @@ impl Render for AppRoot {
                     .text_color(theme.muted_foreground),
             );
 
-        let body = match self.page {
-            Page::Dashboard => self.render_dashboard(&snapshot, cx),
-            Page::Logs => self.render_logs(&snapshot, cx),
-            Page::Settings => self.render_settings(&snapshot, cx),
+        self.drain_pending();
+        let body = if let Some(provider) = self.detail.clone() {
+            self.render_provider_detail(&provider, &snapshot, cx)
+        } else {
+            match self.page {
+                Page::Dashboard => self.render_dashboard(&snapshot, cx),
+                Page::Logs => self.render_logs(&snapshot, cx),
+                Page::Settings => self.render_settings(&snapshot, cx),
+            }
         };
 
         // Columns inside a bare h_flex don't fill its height — items_stretch
@@ -324,20 +428,32 @@ impl Render for AppRoot {
 }
 
 impl AppRoot {
-    fn render_dashboard(&self, snapshot: &GatewayStatusSnapshot, cx: &mut Context<Self>) -> AnyElement {
+    fn render_dashboard(
+        &self,
+        snapshot: &GatewayStatusSnapshot,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = cx.theme().clone();
         let running = snapshot.server.running;
 
         let mut cards = v_flex().gap_2().p_4();
         for p in &snapshot.providers {
+            let name = p.name.clone();
             let mut card = h_flex()
+                .id(SharedString::from(format!("card-{}", p.name)))
                 .items_center()
                 .gap_3()
                 .p_3()
                 .rounded(theme.radius)
                 .border_1()
                 .border_color(theme.border)
-                .bg(theme.muted.opacity(0.35));
+                .bg(theme.muted.opacity(0.35))
+                .cursor_pointer()
+                .hover(|d| d.bg(theme.list_hover))
+                .on_click(cx.listener(move |this, _, _w, cx| {
+                    this.open_detail(&name);
+                    cx.notify();
+                }));
             if let Some(src) = provider_icon(&p.provider_type) {
                 card = card.child(img(src).size_5().rounded_sm());
             }
@@ -375,7 +491,11 @@ impl AppRoot {
                         Button::new("power")
                             .primary()
                             .small()
-                            .label(if running { "Stop gateway" } else { "Start gateway" })
+                            .label(if running {
+                                "Stop gateway"
+                            } else {
+                                "Start gateway"
+                            })
                             .icon(IconName::RotateCw)
                             .on_click(cx.listener(|this, _, _w, cx| {
                                 this.toggle_server(cx);
@@ -384,8 +504,7 @@ impl AppRoot {
                     .child(
                         Label::new(format!(
                             "{} · {} api key(s)",
-                            snapshot.config_path,
-                            snapshot.server.api_keys
+                            snapshot.config_path, snapshot.server.api_keys
                         ))
                         .text_xs()
                         .text_color(theme.muted_foreground),
@@ -446,7 +565,151 @@ impl AppRoot {
             .into_any_element()
     }
 
-    fn render_settings(&self, snapshot: &GatewayStatusSnapshot, cx: &mut Context<Self>) -> AnyElement {
+    fn render_provider_detail(
+        &self,
+        provider: &str,
+        snapshot: &GatewayStatusSnapshot,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let theme = cx.theme().clone();
+        let status = snapshot.providers.iter().find(|p| p.name == provider);
+        let accounts = self.service.accounts(provider);
+        let models = self
+            .detail_models
+            .get(provider)
+            .cloned()
+            .unwrap_or_default();
+
+        let mut rows = v_flex().gap_1p5().p_4();
+        if accounts.is_empty() {
+            rows = rows.child(
+                div().p_4().child(
+                    Label::new("No account files for this provider")
+                        .text_sm()
+                        .text_color(theme.muted_foreground),
+                ),
+            );
+        }
+        for account in &accounts {
+            let key = format!("{provider}/{}", account.id);
+            let result = self.test_results.get(&key).cloned();
+            let label = account
+                .label
+                .clone()
+                .or_else(|| account.email.clone())
+                .unwrap_or_else(|| account.id.clone());
+            let provider_name = provider.to_string();
+            let account_id = account.id.clone();
+            let mut row = h_flex()
+                .items_center()
+                .gap_3()
+                .p_3()
+                .rounded(theme.radius)
+                .border_1()
+                .border_color(theme.border)
+                .bg(theme.muted.opacity(0.35));
+            row = row.child(
+                v_flex()
+                    .child(
+                        Label::new(label)
+                            .text_sm()
+                            .font_medium()
+                            .text_color(theme.foreground),
+                    )
+                    .child(
+                        Label::new(format!(
+                            "{}{}",
+                            if account.enabled {
+                                "enabled"
+                            } else {
+                                "disabled"
+                            },
+                            result.map(|r| format!(" · {r}")).unwrap_or_default()
+                        ))
+                        .text_xs()
+                        .text_color(theme.muted_foreground),
+                    ),
+            );
+            row = row.child(div().flex_1());
+            row = row.child(
+                Button::new(SharedString::from(format!("test-{}", account.id)))
+                    .outline()
+                    .small()
+                    .label("Test")
+                    .on_click(cx.listener(move |this, _, _w, cx| {
+                        this.test_account(&provider_name, &account_id);
+                        cx.notify();
+                    })),
+            );
+            rows = rows.child(row);
+        }
+
+        let mut model_rows = v_flex().gap_1().px_4().pb_4();
+        for m in models.iter().take(30) {
+            model_rows = model_rows.child(
+                Label::new(m.clone())
+                    .text_xs()
+                    .text_color(theme.muted_foreground),
+            );
+        }
+
+        v_flex()
+            .flex_1()
+            .min_h_0()
+            .child(
+                h_flex()
+                    .p_4()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        Button::new("back")
+                            .outline()
+                            .small()
+                            .label("Back")
+                            .icon(IconName::ArrowLeft)
+                            .on_click(cx.listener(|this, _, _w, cx| {
+                                this.detail = None;
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Label::new(provider.to_string())
+                            .text_lg()
+                            .font_semibold()
+                            .text_color(theme.foreground),
+                    )
+                    .child(
+                        Label::new(status.and_then(|p| p.message.clone()).unwrap_or_default())
+                            .text_xs()
+                            .text_color(theme.muted_foreground),
+                    ),
+            )
+            .child(div().mx_4().h_px().bg(theme.border))
+            .child(
+                v_flex()
+                    .id("detail-scroll")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .child(rows)
+                    .child(
+                        h_flex().px_4().pb_2().child(
+                            Label::new(format!("{} model(s)", models.len()))
+                                .text_xs()
+                                .font_semibold()
+                                .text_color(theme.foreground),
+                        ),
+                    )
+                    .child(model_rows),
+            )
+            .into_any_element()
+    }
+
+    fn render_settings(
+        &self,
+        snapshot: &GatewayStatusSnapshot,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = cx.theme().clone();
         let auto_start = self.service.config().server.auto_start;
         let svc = self.service.clone();
@@ -463,14 +726,22 @@ impl AppRoot {
                 h_flex()
                     .items_center()
                     .gap_2()
-                    .child(Label::new("Config").text_sm().text_color(theme.muted_foreground))
+                    .child(
+                        Label::new("Config")
+                            .text_sm()
+                            .text_color(theme.muted_foreground),
+                    )
                     .child(Label::new(snapshot.config_path.clone()).text_sm()),
             )
             .child(
                 h_flex()
                     .items_center()
                     .gap_2()
-                    .child(Label::new("Endpoint").text_sm().text_color(theme.muted_foreground))
+                    .child(
+                        Label::new("Endpoint")
+                            .text_sm()
+                            .text_color(theme.muted_foreground),
+                    )
                     .child(Label::new(snapshot.server.url.clone()).text_sm()),
             )
             .child(

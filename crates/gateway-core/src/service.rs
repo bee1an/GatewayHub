@@ -29,6 +29,10 @@ pub struct GatewayService {
     registry: Arc<Registry>,
     usage_store: Arc<crate::usage_store::UsageStore>,
     server: Mutex<Option<GatewayServer>>,
+    /// UI-triggered async work (test_account, checkin, get_account_info) —
+    /// the HTTP server gets its own thread+runtime; this one serves the
+    /// GPUI frontend which runs on smol, not tokio.
+    ui_rt: tokio::runtime::Handle,
 }
 
 impl GatewayService {
@@ -37,7 +41,20 @@ impl GatewayService {
         let state = store.load_state();
         let config = Arc::new(RwLock::new(config));
         let state = Arc::new(RwLock::new(state));
-        let registry = Arc::new(Self::build_registry(&store, &config, &state));
+        let ui_rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .thread_name("gateway-ui")
+            .build()
+            .expect("ui runtime");
+        // Leak the runtime — it must outlive the service; the process owns it.
+        let ui_rt = Box::leak(Box::new(ui_rt)).handle().clone();
+        // Providers spawn background tasks (e.g. TraeWork hourly check-in
+        // sweep) during construction — they need a runtime context.
+        let registry = {
+            let _guard = ui_rt.enter();
+            Arc::new(Self::build_registry(&store, &config, &state))
+        };
         let usage_store = Arc::new(crate::usage_store::UsageStore::new(
             store.paths().usage_store_path(),
             crate::pricing::PricingTable::new(Some(&store.paths().pricing_path())),
@@ -49,7 +66,17 @@ impl GatewayService {
             registry,
             usage_store,
             server: Mutex::new(None),
+            ui_rt,
         }
+    }
+
+    /// Spawn a future on the UI runtime; adapters use tokio-bound clients.
+    pub fn spawn_ui<F, T>(&self, fut: F) -> tokio::task::JoinHandle<T>
+    where
+        F: std::future::Future<Output = T> + Send + 'static,
+        T: Send + 'static,
+    {
+        self.ui_rt.spawn(fut)
     }
 
     pub fn detect() -> Option<Self> {

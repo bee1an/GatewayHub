@@ -195,6 +195,25 @@ impl GatewayService {
                         ))
                     }
                 },
+                "traework" => match crate::providers::traework::TraeWorkProvider::new(
+                    &pcfg,
+                    accounts,
+                    &pstate,
+                    log,
+                    on_changed,
+                    Some(persist_account),
+                    proxy_url,
+                ) {
+                    Ok(p) => Arc::new(p),
+                    Err(e) => {
+                        warn!(error = %e, "traework provider init failed");
+                        Arc::new(PlaceholderAdapter::new(
+                            "traework",
+                            format!("init failed: {e}"),
+                            pcfg.enabled,
+                        ))
+                    }
+                },
                 "codex" => match crate::providers::codex::CodexProvider::new(
                     &pcfg,
                     accounts,

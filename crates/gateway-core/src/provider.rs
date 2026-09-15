@@ -155,6 +155,15 @@ pub trait ProviderAdapter: Send + Sync {
         anyhow::bail!("Provider {} does not support resetAccount", self.name())
     }
 
+    /// Optional daily check-in (TraeWork checkin_credits).
+    async fn checkin_accounts(
+        &self,
+        _account_id: Option<&str>,
+        _force: bool,
+    ) -> anyhow::Result<Value> {
+        anyhow::bail!("checkin not supported")
+    }
+
     async fn set_account_status(
         &self,
         account_id: &str,

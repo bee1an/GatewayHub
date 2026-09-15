@@ -414,6 +414,7 @@ pub fn openai_json_from_text(
     upstream_usage: Option<&UsageStats>,
     upstream_tool_calls: &[GatewayToolCall],
     account_id: &str,
+    provider: &str,
 ) -> Value {
     let (parsed_text, parsed_calls) = split_inline_tool_calls(text);
     let tool_calls = merge_tool_calls(upstream_tool_calls.to_vec(), parsed_calls);
@@ -427,7 +428,7 @@ pub fn openai_json_from_text(
             crate::types::UsageMeta {
                 account_id: Some(account_id.to_string()),
                 model: Some(model.to_string()),
-                provider: Some("windsurf".into()),
+                provider: Some(provider.to_string()),
             },
         );
     }
@@ -602,6 +603,7 @@ pub fn anthropic_json_from_text(
     upstream_usage: Option<&UsageStats>,
     upstream_tool_calls: &[GatewayToolCall],
     account_id: &str,
+    provider: &str,
 ) -> Value {
     let (parsed_text, parsed_calls) = split_inline_tool_calls(text);
     let tool_calls = merge_tool_calls(upstream_tool_calls.to_vec(), parsed_calls);
@@ -614,7 +616,7 @@ pub fn anthropic_json_from_text(
             crate::types::UsageMeta {
                 account_id: Some(account_id.to_string()),
                 model: Some(model.to_string()),
-                provider: Some("windsurf".into()),
+                provider: Some(provider.to_string()),
             },
         );
     }

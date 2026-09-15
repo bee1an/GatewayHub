@@ -338,6 +338,7 @@ impl WindsurfCore {
                             Some(&result.usage),
                             &result.tool_calls,
                             &account.config.id,
+                            "windsurf",
                         )
                     } else {
                         anthropic_json_from_text(
@@ -348,6 +349,7 @@ impl WindsurfCore {
                             Some(&result.usage),
                             &result.tool_calls,
                             &account.config.id,
+                            "windsurf",
                         )
                     };
                     self.pool.lock().await.report_success(&account.config.id);

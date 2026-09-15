@@ -96,6 +96,7 @@ struct ClientState {
 
 /// Per-account language server process + Connect-RPC endpoint.
 pub struct WindsurfLanguageServerClient {
+    #[allow(dead_code)]
     account_id: String,
     api_key: String,
     api_server_url: String,

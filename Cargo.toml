@@ -81,6 +81,7 @@ tracing-subscriber = { workspace = true }
 tracing-appender = { workspace = true }
 gateway-core = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
+uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
 tempfile = "3.23.0"

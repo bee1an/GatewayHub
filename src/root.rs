@@ -7,11 +7,15 @@ use std::time::Duration;
 
 use std::collections::HashMap;
 
-use gateway_core::{AccountTestResult, GatewayService, GatewayStatusSnapshot, ProviderStatus};
+use gateway_core::{
+    AccountTestResult, ApiKeyEntry, GatewayService, GatewayStatusSnapshot, ModelMapping,
+    ProviderStatus, generate_api_key,
+};
 use gpui_kit::component::{
     ActiveTheme, IconName, Sizable, StyledExt, Theme, ThemeMode,
     button::{Button, ButtonVariants},
     h_flex,
+    input::{Input, InputState},
     label::Label,
     v_flex,
 };
@@ -23,6 +27,8 @@ const APP_NAME: &str = "GatewayHub";
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
     Dashboard,
+    ApiKeys,
+    Mappings,
     Logs,
     Settings,
 }
@@ -41,6 +47,13 @@ pub struct AppRoot {
     /// provider → fetched model ids (lazy, fetched on detail open).
     detail_models: HashMap<String, Vec<String>>,
     models_pending: HashMap<String, tokio::sync::oneshot::Receiver<Vec<String>>>,
+    /// API-key page: name for the next generated key.
+    key_name_input: Entity<InputState>,
+    /// Mapping page inputs.
+    map_alias_input: Entity<InputState>,
+    map_target_input: Entity<InputState>,
+    /// Newly generated key shown once so it can be copied.
+    new_key: Option<String>,
 }
 
 impl AppRoot {
@@ -65,6 +78,15 @@ impl AppRoot {
             test_pending: HashMap::new(),
             detail_models: HashMap::new(),
             models_pending: HashMap::new(),
+            key_name_input: cx
+                .new(|cx| InputState::new(_window, cx).placeholder("key name (e.g. laptop)")),
+            map_alias_input: cx
+                .new(|cx| InputState::new(_window, cx).placeholder("alias (e.g. sonnet)")),
+            map_target_input: cx.new(|cx| {
+                InputState::new(_window, cx)
+                    .placeholder("provider/model (e.g. kiro/claude-sonnet-4)")
+            }),
+            new_key: None,
         }
     }
 
@@ -73,6 +95,112 @@ impl AppRoot {
             self.service.stop_server();
         } else if let Err(e) = self.service.start_server() {
             tracing::error!(error = %e, "failed to start gateway server");
+        }
+        cx.notify();
+    }
+
+    fn add_api_key(&mut self, cx: &mut Context<Self>) {
+        let name = self.key_name_input.read(cx).value().trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+        let key = generate_api_key();
+        let mut cfg = self.service.config();
+        cfg.server.api_keys.push(ApiKeyEntry {
+            id: uuid::Uuid::new_v4().to_string(),
+            key: key.clone(),
+            name,
+            created_at: gateway_core::pool::now_ms(),
+            last_used_at: None,
+            expires_at: None,
+            scopes: None,
+            extra: Default::default(),
+        });
+        if let Err(e) = self.service.save_config(cfg) {
+            tracing::error!(error = %e, "save config failed");
+            return;
+        }
+        self.new_key = Some(key);
+        cx.notify();
+    }
+
+    fn delete_api_key(&mut self, key_id: &str, cx: &mut Context<Self>) {
+        let mut cfg = self.service.config();
+        cfg.server.api_keys.retain(|k| k.id != key_id);
+        if let Err(e) = self.service.save_config(cfg) {
+            tracing::error!(error = %e, "save config failed");
+            return;
+        }
+        cx.notify();
+    }
+
+    fn add_mapping(&mut self, cx: &mut Context<Self>) {
+        let alias = self.map_alias_input.read(cx).value().trim().to_string();
+        let target = self.map_target_input.read(cx).value().trim().to_string();
+        let Some((provider, model)) = target.split_once('/') else {
+            return;
+        };
+        if alias.is_empty() || provider.is_empty() || model.is_empty() {
+            return;
+        }
+        let mut cfg = self.service.config();
+        cfg.model_mappings.push(ModelMapping {
+            alias,
+            provider: provider.to_string(),
+            model: model.to_string(),
+            enabled: true,
+            note: None,
+            extra: Default::default(),
+        });
+        if let Err(e) = self.service.save_config(cfg) {
+            tracing::error!(error = %e, "save config failed");
+            return;
+        }
+        cx.notify();
+    }
+
+    fn toggle_mapping(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let mut cfg = self.service.config();
+        if let Some(m) = cfg.model_mappings.get_mut(ix) {
+            m.enabled = !m.enabled;
+        }
+        if let Err(e) = self.service.save_config(cfg) {
+            tracing::error!(error = %e, "save config failed");
+            return;
+        }
+        cx.notify();
+    }
+
+    fn delete_mapping(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let mut cfg = self.service.config();
+        if ix < cfg.model_mappings.len() {
+            cfg.model_mappings.remove(ix);
+        }
+        if let Err(e) = self.service.save_config(cfg) {
+            tracing::error!(error = %e, "save config failed");
+            return;
+        }
+        cx.notify();
+    }
+
+    fn toggle_account(&mut self, provider: &str, account_id: &str, cx: &mut Context<Self>) {
+        let mut account = self
+            .service
+            .accounts(provider)
+            .into_iter()
+            .find(|a| a.id == account_id);
+        if let Some(acc) = account.as_mut() {
+            acc.enabled = !acc.enabled;
+            if let Err(e) = self.service.store().write_account(provider, acc) {
+                tracing::error!(error = %e, "write account failed");
+            }
+        }
+        cx.notify();
+    }
+
+    fn delete_account(&mut self, provider: &str, account_id: &str, cx: &mut Context<Self>) {
+        if let Err(e) = self.service.store().delete_account(provider, account_id) {
+            tracing::error!(error = %e, "delete account failed");
         }
         cx.notify();
     }
@@ -265,6 +393,8 @@ impl Render for AppRoot {
         let mut nav = v_flex().gap_px().px_2();
         for (page, id, label) in [
             (Page::Dashboard, "nav-dashboard", "Dashboard"),
+            (Page::ApiKeys, "nav-apikeys", "API Keys"),
+            (Page::Mappings, "nav-mappings", "Mappings"),
             (Page::Logs, "nav-logs", "Logs"),
             (Page::Settings, "nav-settings", "Settings"),
         ] {
@@ -398,6 +528,8 @@ impl Render for AppRoot {
         } else {
             match self.page {
                 Page::Dashboard => self.render_dashboard(&snapshot, cx),
+                Page::ApiKeys => self.render_api_keys(&snapshot, cx),
+                Page::Mappings => self.render_mappings(&snapshot, cx),
                 Page::Logs => self.render_logs(&snapshot, cx),
                 Page::Settings => self.render_settings(&snapshot, cx),
             }
@@ -631,6 +763,10 @@ impl AppRoot {
                     ),
             );
             row = row.child(div().flex_1());
+            let provider_name2 = provider_name.clone();
+            let account_id2 = account_id.clone();
+            let provider_name3 = provider_name.clone();
+            let account_id3 = account_id.clone();
             row = row.child(
                 Button::new(SharedString::from(format!("test-{}", account.id)))
                     .outline()
@@ -639,6 +775,24 @@ impl AppRoot {
                     .on_click(cx.listener(move |this, _, _w, cx| {
                         this.test_account(&provider_name, &account_id);
                         cx.notify();
+                    })),
+            );
+            row = row.child(
+                Button::new(SharedString::from(format!("toggle-{}", account.id)))
+                    .outline()
+                    .small()
+                    .label(if account.enabled { "Disable" } else { "Enable" })
+                    .on_click(cx.listener(move |this, _, _w, cx| {
+                        this.toggle_account(&provider_name2, &account_id2, cx);
+                    })),
+            );
+            row = row.child(
+                Button::new(SharedString::from(format!("del-{}", account.id)))
+                    .danger()
+                    .small()
+                    .label("Delete")
+                    .on_click(cx.listener(move |this, _, _w, cx| {
+                        this.delete_account(&provider_name3, &account_id3, cx);
                     })),
             );
             rows = rows.child(row);
@@ -701,6 +855,239 @@ impl AppRoot {
                         ),
                     )
                     .child(model_rows),
+            )
+            .into_any_element()
+    }
+
+    fn render_api_keys(
+        &self,
+        _snapshot: &GatewayStatusSnapshot,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let theme = cx.theme().clone();
+        let cfg = self.service.config();
+
+        let mut rows = v_flex().gap_1p5().p_4();
+        if cfg.server.api_keys.is_empty() {
+            rows = rows.child(
+                div().p_4().child(
+                    Label::new("No API keys — the gateway rejects every request until one exists")
+                        .text_sm()
+                        .text_color(theme.muted_foreground),
+                ),
+            );
+        }
+        for k in &cfg.server.api_keys {
+            let masked = if k.key.len() > 10 {
+                format!("{}…{}", &k.key[..6], &k.key[k.key.len() - 4..])
+            } else {
+                "•••".into()
+            };
+            let id = k.id.clone();
+            rows = rows.child(
+                h_flex()
+                    .items_center()
+                    .gap_3()
+                    .p_3()
+                    .rounded(theme.radius)
+                    .border_1()
+                    .border_color(theme.border)
+                    .bg(theme.muted.opacity(0.35))
+                    .child(
+                        v_flex()
+                            .child(
+                                Label::new(k.name.clone())
+                                    .text_sm()
+                                    .font_medium()
+                                    .text_color(theme.foreground),
+                            )
+                            .child(
+                                Label::new(masked)
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground),
+                            ),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        Button::new(SharedString::from(format!("delkey-{}", k.id)))
+                            .danger()
+                            .small()
+                            .label("Delete")
+                            .on_click(cx.listener(move |this, _, _w, cx| {
+                                this.delete_api_key(&id, cx);
+                            })),
+                    ),
+            );
+        }
+
+        let mut page = v_flex()
+            .flex_1()
+            .min_h_0()
+            .child(
+                h_flex()
+                    .p_4()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        Label::new("API Keys")
+                            .text_lg()
+                            .font_semibold()
+                            .text_color(theme.foreground),
+                    )
+                    .child(div().flex_1())
+                    .child(div().w(px(220.)).child(Input::new(&self.key_name_input)))
+                    .child(
+                        Button::new("gen-key")
+                            .primary()
+                            .small()
+                            .label("Generate")
+                            .icon(IconName::Plus)
+                            .on_click(cx.listener(|this, _, _w, cx| {
+                                this.add_api_key(cx);
+                            })),
+                    ),
+            )
+            .child(div().mx_4().h_px().bg(theme.border))
+            .child(
+                v_flex()
+                    .id("apikeys-scroll")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .child(rows),
+            );
+        if let Some(key) = &self.new_key {
+            let shown = key.clone();
+            page = page.child(
+                h_flex()
+                    .p_3()
+                    .mx_4()
+                    .mb_4()
+                    .rounded(theme.radius)
+                    .bg(theme.accent)
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        Label::new(format!("New key (copy now — shown once): {shown}"))
+                            .text_xs()
+                            .text_color(theme.foreground),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        Button::new("dismiss-key")
+                            .ghost()
+                            .small()
+                            .label("Dismiss")
+                            .on_click(cx.listener(|this, _, _w, cx| {
+                                this.new_key = None;
+                                cx.notify();
+                            })),
+                    ),
+            );
+        }
+        page.into_any_element()
+    }
+
+    fn render_mappings(
+        &self,
+        _snapshot: &GatewayStatusSnapshot,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let theme = cx.theme().clone();
+        let cfg = self.service.config();
+
+        let mut rows = v_flex().gap_1p5().p_4();
+        if cfg.model_mappings.is_empty() {
+            rows = rows.child(
+                div().p_4().child(
+                    Label::new("No mappings — model names pass through to the provider unchanged")
+                        .text_sm()
+                        .text_color(theme.muted_foreground),
+                ),
+            );
+        }
+        for (ix, m) in cfg.model_mappings.iter().enumerate() {
+            rows = rows.child(
+                h_flex()
+                    .items_center()
+                    .gap_3()
+                    .p_3()
+                    .rounded(theme.radius)
+                    .border_1()
+                    .border_color(theme.border)
+                    .bg(theme.muted.opacity(0.35))
+                    .child(
+                        v_flex()
+                            .child(
+                                Label::new(m.alias.clone())
+                                    .text_sm()
+                                    .font_medium()
+                                    .text_color(theme.foreground),
+                            )
+                            .child(
+                                Label::new(format!("→ {}/{}", m.provider, m.model))
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground),
+                            ),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        Button::new(SharedString::from(format!("maptog-{ix}")))
+                            .outline()
+                            .small()
+                            .label(if m.enabled { "Disable" } else { "Enable" })
+                            .on_click(cx.listener(move |this, _, _w, cx| {
+                                this.toggle_mapping(ix, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new(SharedString::from(format!("mapdel-{ix}")))
+                            .danger()
+                            .small()
+                            .label("Delete")
+                            .on_click(cx.listener(move |this, _, _w, cx| {
+                                this.delete_mapping(ix, cx);
+                            })),
+                    ),
+            );
+        }
+
+        v_flex()
+            .flex_1()
+            .min_h_0()
+            .child(
+                h_flex()
+                    .p_4()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        Label::new("Model Mappings")
+                            .text_lg()
+                            .font_semibold()
+                            .text_color(theme.foreground),
+                    )
+                    .child(div().flex_1())
+                    .child(div().w(px(160.)).child(Input::new(&self.map_alias_input)))
+                    .child(div().w(px(240.)).child(Input::new(&self.map_target_input)))
+                    .child(
+                        Button::new("add-map")
+                            .primary()
+                            .small()
+                            .label("Add")
+                            .icon(IconName::Plus)
+                            .on_click(cx.listener(|this, _, _w, cx| {
+                                this.add_mapping(cx);
+                            })),
+                    ),
+            )
+            .child(div().mx_4().h_px().bg(theme.border))
+            .child(
+                v_flex()
+                    .id("mappings-scroll")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .child(rows),
             )
             .into_any_element()
     }

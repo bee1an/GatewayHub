@@ -82,50 +82,50 @@ export default defineConfig({
   },
   shortcuts: {
     'btn-base':
-      'inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-sm)] font-medium border outline-none select-none transition-colors duration-150 ease-out active:not-disabled:brightness-90 focus-visible:ring-1 focus-visible:ring-accent/70 focus-visible:ring-offset-1 focus-visible:ring-offset-pitch disabled:opacity-50',
-    btn: 'btn-base border-charcoal bg-transparent text-steel hover:not-disabled:border-ash hover:not-disabled:text-porcelain hover:not-disabled:bg-graphite',
+      'inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-md)] font-medium border outline-none select-none transition-all duration-150 ease-out active:not-disabled:brightness-90 active:not-disabled:scale-[0.98] focus-visible:ring-1 focus-visible:ring-accent/70 focus-visible:ring-offset-1 focus-visible:ring-offset-pitch disabled:opacity-50',
+    btn: 'btn-base glass-thin border-[var(--glass-border)] text-steel hover:not-disabled:border-[var(--glass-border-strong)] hover:not-disabled:text-porcelain hover:not-disabled:bg-[var(--glass-bg)]',
     'btn-primary':
-      'btn-base bg-accent text-accent-text border-transparent font-semibold hover:not-disabled:brightness-110 active:not-disabled:brightness-95',
+      'btn-base bg-accent text-accent-text border-transparent font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_4px_14px_rgba(0,0,0,0.25)] hover:not-disabled:brightness-110 active:not-disabled:brightness-95',
     'btn-ghost':
-      'btn-base bg-transparent text-storm border-transparent hover:not-disabled:bg-charcoal/60 hover:not-disabled:text-porcelain',
+      'btn-base bg-transparent text-storm border-transparent hover:not-disabled:bg-[var(--glass-bg-thin)] hover:not-disabled:text-porcelain',
     'btn-danger':
       'btn-base bg-transparent text-red border-[color-mix(in_srgb,var(--c-red)_35%,transparent)] hover:not-disabled:bg-[color-mix(in_srgb,var(--c-red)_8%,transparent)] hover:not-disabled:border-[color-mix(in_srgb,var(--c-red)_55%,transparent)]',
-    card: 'rounded-[var(--radius-sm)] bg-graphite border border-[color-mix(in_srgb,var(--c-charcoal)_55%,transparent)]',
+    card: 'rounded-[var(--radius-md)] bg-[var(--glass-bg-thin)] border border-[var(--glass-border)] shadow-[var(--glass-shadow-sm)]',
     'card-elevated':
-      'rounded-[var(--radius-sm)] bg-slate border border-[color-mix(in_srgb,var(--c-ash)_45%,transparent)]',
+      'rounded-[var(--radius-md)] bg-[var(--glass-bg)] border border-[var(--glass-border-strong)] shadow-[var(--glass-shadow-sm)]',
     'card-nested':
-      'rounded-[var(--radius-sm)] bg-pitch p-2 border border-[color-mix(in_srgb,var(--c-charcoal)_60%,transparent)]',
+      'rounded-[var(--radius-sm)] p-2 bg-[var(--glass-bg-thin)] border border-[var(--glass-border)]',
     'input-base':
-      'w-full px-2.5 py-1.5 rounded-[var(--radius-sm)] border border-charcoal bg-pitch text-porcelain text-[13px] outline-none transition-colors duration-150 placeholder:text-fog focus:border-ash focus:ring-1 focus:ring-[color-mix(in_srgb,var(--c-gunmetal)_45%,transparent)]',
+      'w-full px-2.5 py-1.5 rounded-[var(--radius-md)] border border-[var(--glass-border)] bg-[var(--glass-bg-thin)] text-porcelain text-[13px] outline-none transition-all duration-150 placeholder:text-fog focus:border-[var(--glass-border-strong)] focus:bg-[var(--glass-bg)] focus:ring-1 focus:ring-accent/40',
     'section-title': 'text-[15px] font-[590] text-porcelain tracking-[-0.2px]',
     'section-desc': 'text-[12px] text-fog mt-0.5',
     label: 'text-[10px] font-medium uppercase tracking-[0.08em] text-fog',
     badge:
-      'inline-flex items-center gap-1 px-1.5 py-px rounded-[var(--radius-sm)] text-[11px] font-medium bg-gunmetal/40 text-storm',
-    tag: 'inline-flex items-center px-1.5 py-px rounded-[var(--radius-sm)] text-[11px] font-mono bg-charcoal/70 text-storm',
+      'inline-flex items-center gap-1 px-1.5 py-px rounded-[var(--radius-sm)] text-[11px] font-medium bg-[var(--glass-bg-thin)] border border-[var(--glass-border)] text-storm',
+    tag: 'inline-flex items-center px-1.5 py-px rounded-[var(--radius-sm)] text-[11px] font-mono bg-[var(--glass-bg-thin)] border border-[var(--glass-border)] text-storm',
     'stat-card':
-      'rounded-[var(--radius-sm)] bg-graphite px-3 py-2.5 border border-[color-mix(in_srgb,var(--c-charcoal)_50%,transparent)]',
+      'rounded-[var(--radius-md)] px-3 py-2.5 bg-[var(--glass-bg-thin)] border border-[var(--glass-border)] shadow-[var(--glass-shadow-sm)]',
     'stat-card-lg':
-      'rounded-[var(--radius-sm)] bg-graphite px-3 py-3 border border-[color-mix(in_srgb,var(--c-charcoal)_60%,transparent)] flex flex-col gap-1',
-    divider: 'border-t border-[color-mix(in_srgb,var(--c-charcoal)_60%,transparent)]',
-    sec: 'pt-5 mt-5 border-t border-[color-mix(in_srgb,var(--c-charcoal)_55%,transparent)]',
+      'rounded-[var(--radius-md)] px-3 py-3 bg-[var(--glass-bg-thin)] border border-[var(--glass-border)] shadow-[var(--glass-shadow-sm)] flex flex-col gap-1',
+    divider: 'border-t border-[var(--glass-border)]',
+    sec: 'pt-5 mt-5 border-t border-[var(--glass-border)]',
     'sec-desc': 'text-[12px] text-fog mt-1',
     'kv-label': 'text-fog',
     'kv-value': 'text-storm font-mono truncate',
     'rail-btn':
-      'flex items-center justify-center w-10 h-8 rounded-[var(--radius-sm)] text-storm transition-colors duration-100 hover:bg-charcoal/50 hover:text-porcelain outline-none focus-visible:ring-1 focus-visible:ring-accent/60',
+      'flex items-center justify-center w-10 h-8 rounded-[var(--radius-md)] text-storm transition-colors duration-100 hover:bg-[var(--glass-bg)] hover:text-porcelain outline-none focus-visible:ring-1 focus-visible:ring-accent/60',
     'sidebar-item':
-      'flex items-center gap-2 px-2 py-1.5 rounded-[var(--radius-sm)] text-[12px] text-storm transition-colors duration-100 hover:bg-charcoal/40 hover:text-porcelain',
+      'flex items-center gap-2 px-2 py-1.5 rounded-[var(--radius-md)] text-[12px] text-storm transition-colors duration-100 hover:bg-[var(--glass-bg-thin)] hover:text-porcelain',
     'sidebar-item-active':
-      'flex items-center gap-2 px-2 py-1.5 rounded-[var(--radius-sm)] text-[12px] text-porcelain bg-charcoal/60',
+      'flex items-center gap-2 px-2 py-1.5 rounded-[var(--radius-md)] text-[12px] text-porcelain bg-[var(--list-active-bg)] border border-[var(--list-active-border)]',
     'log-row':
-      'flex items-center gap-3 px-3 py-1.5 text-[13px] font-mono border-b border-[color-mix(in_srgb,var(--c-charcoal)_50%,transparent)] hover:bg-[color-mix(in_srgb,var(--c-slate)_50%,transparent)] transition-colors duration-75',
-    'modal-overlay': 'fixed inset-0 bg-pitch/75 animate-fade-in',
+      'flex items-center gap-3 px-3 py-1.5 text-[13px] font-mono border-b border-[var(--glass-border)] hover:bg-[var(--glass-bg-thin)] transition-colors duration-75',
+    'modal-overlay': 'fixed inset-0 bg-pitch/55 backdrop-blur-[6px] animate-fade-in',
     'modal-content':
-      'fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 max-h-[85vh] overflow-y-auto bg-graphite border border-[color-mix(in_srgb,var(--c-ash)_50%,transparent)] rounded-[var(--radius-lg)] shadow-[var(--shadow-xl)] p-5 animate-fade-in',
+      'fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 max-h-[85vh] overflow-y-auto glass-strong border border-[var(--glass-border-strong)] rounded-[var(--radius-lg)] p-5 animate-fade-in',
     'tab-list':
-      'flex gap-0 bg-pitch border border-[color-mix(in_srgb,var(--c-charcoal)_60%,transparent)] rounded-[var(--radius-sm)] p-0.5',
+      'flex gap-0 bg-[var(--glass-bg-thin)] border border-[var(--glass-border)] rounded-[var(--radius-md)] p-0.5',
     'tab-trigger':
-      'flex-1 px-3 py-1 rounded-[var(--radius-sm)] text-[12px] font-medium text-fog transition-colors data-[state=active]:bg-charcoal data-[state=active]:text-porcelain hover:text-storm outline-none focus-visible:ring-1 focus-visible:ring-accent/60 focus-visible:ring-offset-1 focus-visible:ring-offset-pitch'
+      'flex-1 px-3 py-1 rounded-[var(--radius-sm)] text-[12px] font-medium text-fog transition-colors data-[state=active]:bg-[var(--glass-bg-strong)] data-[state=active]:text-porcelain data-[state=active]:shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] hover:text-storm outline-none focus-visible:ring-1 focus-visible:ring-accent/60 focus-visible:ring-offset-1 focus-visible:ring-offset-pitch'
   }
 })

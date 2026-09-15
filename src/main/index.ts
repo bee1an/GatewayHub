@@ -85,7 +85,10 @@ function createWindow(): void {
     // fires only after the first non-empty paint, which in dev happens after
     // the module graph is ready and React has rendered. The background color
     // matches the splash so there is no white flash before the HTML parses.
-    backgroundColor: '#08090a',
+    backgroundColor: process.platform === 'darwin' ? '#00000000' : '#08090a',
+    // macOS window-level material blur — the renderer's translucent surfaces
+    // let the desktop bleed through, matching the liquid-glass pane design.
+    ...(process.platform === 'darwin' ? { vibrancy: 'fullscreen-ui' as const } : {}),
     autoHideMenuBar: true,
     frame: false,
     titleBarStyle: 'hidden',

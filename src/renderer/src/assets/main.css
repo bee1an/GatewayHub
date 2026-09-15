@@ -23,7 +23,8 @@ body,
 }
 
 body {
-  background: var(--c-pitch);
+  background: var(--scene-bg);
+  background-attachment: fixed;
   color: var(--c-porcelain);
   font-family:
     'Geist',
@@ -73,7 +74,7 @@ pre,
 }
 
 ::selection {
-  background: rgba(228, 242, 34, 0.15);
+  background: var(--list-active-bg);
   color: var(--c-porcelain);
 }
 
@@ -189,7 +190,7 @@ pre,
   transform: rotate(45deg);
 }
 .custom-checkbox:focus-visible {
-  box-shadow: 0 0 0 2px rgba(228, 242, 34, 0.25);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-accent) 45%, transparent);
 }
 .custom-checkbox:disabled {
   opacity: 0.4;

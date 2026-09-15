@@ -7,6 +7,7 @@ pub mod apikey;
 pub mod http;
 pub mod paths;
 pub mod pool;
+pub mod pricing;
 pub mod protocol;
 pub mod provider;
 pub mod providers;
@@ -17,6 +18,7 @@ pub mod service;
 pub mod session;
 pub mod store;
 pub mod types;
+pub mod usage_store;
 
 pub use apikey::{generate_api_key, sha256_short};
 pub use paths::GatewayPaths;

@@ -55,6 +55,16 @@ impl GatewayPaths {
     pub fn usage_dir(&self) -> PathBuf {
         self.root.join("usage-store")
     }
+
+    /// `usage-store/v1.json` — daily packed usage/credits/cost data.
+    pub fn usage_store_path(&self) -> PathBuf {
+        self.usage_dir().join("v1.json")
+    }
+
+    /// `pricing.json` — user overrides for the builtin pricing table.
+    pub fn pricing_path(&self) -> PathBuf {
+        self.root.join("pricing.json")
+    }
 }
 
 #[cfg(test)]

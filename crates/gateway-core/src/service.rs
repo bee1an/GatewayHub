@@ -27,6 +27,7 @@ pub struct GatewayService {
     config: Arc<RwLock<GatewayHubConfig>>,
     state: Arc<RwLock<GatewayHubState>>,
     registry: Arc<Registry>,
+    usage_store: Arc<crate::usage_store::UsageStore>,
     server: Mutex<Option<GatewayServer>>,
 }
 
@@ -37,11 +38,16 @@ impl GatewayService {
         let config = Arc::new(RwLock::new(config));
         let state = Arc::new(RwLock::new(state));
         let registry = Arc::new(Self::build_registry(&store, &config, &state));
+        let usage_store = Arc::new(crate::usage_store::UsageStore::new(
+            store.paths().usage_store_path(),
+            crate::pricing::PricingTable::new(Some(&store.paths().pricing_path())),
+        ));
         Self {
             store,
             config,
             state,
             registry,
+            usage_store,
             server: Mutex::new(None),
         }
     }
@@ -213,6 +219,10 @@ impl GatewayService {
         &self.registry
     }
 
+    pub fn usage_store(&self) -> &Arc<crate::usage_store::UsageStore> {
+        &self.usage_store
+    }
+
     pub fn config(&self) -> GatewayHubConfig {
         self.config.read().map(|c| c.clone()).unwrap_or_default()
     }
@@ -249,6 +259,7 @@ impl GatewayService {
             config: Arc::new(RwLock::new(cfg.server.clone())),
             models: Arc::new(RwLock::new(models)),
             registry: self.registry.clone(),
+            usage: self.usage_store.clone(),
         };
         let server = GatewayServer::start(state)?;
         *guard = Some(server);

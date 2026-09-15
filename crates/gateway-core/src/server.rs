@@ -35,6 +35,7 @@ pub struct ServerState {
     /// Live view of enabled model mappings for `/v1/models`.
     pub models: Arc<RwLock<Vec<ModelMapping>>>,
     pub registry: Arc<Registry>,
+    pub usage: Arc<crate::usage_store::UsageStore>,
 }
 
 pub struct GatewayServer {
@@ -310,6 +311,7 @@ fn request_id() -> String {
 }
 
 fn build_context(
+    state: &ServerState,
     headers: &HeaderMap,
     body: &Value,
     key: &ApiKeyEntry,
@@ -317,12 +319,38 @@ fn build_context(
 ) -> GatewayRequestContext {
     let rid = request_id();
     let session = derive_gateway_session(headers, body, key, &rid, format);
+    // `makeUsageSink` port — fire-and-forget record into the usage store.
+    let usage_store = state.usage.clone();
+    let api_format = format;
+    let on_usage: crate::types::UsageSink = Arc::new(move |usage, meta| {
+        let store = usage_store.clone();
+        let input = crate::usage_store::UsageRecordInput {
+            account_id: meta.account_id.clone(),
+            model: meta.model.clone(),
+            api_format: Some(
+                match api_format {
+                    ApiFormat::OpenAi => "openai",
+                    ApiFormat::Anthropic => "anthropic",
+                    ApiFormat::Responses => "responses",
+                }
+                .into(),
+            ),
+            provider: meta.provider.clone(),
+            usage: usage.clone(),
+            timestamp: None,
+        };
+        tokio::spawn(async move {
+            if let Err(e) = store.record(input) {
+                tracing::warn!(error = %e, "usage store record failed");
+            }
+        });
+    });
     GatewayRequestContext {
         request_id: rid,
         session_id: Some(session.id),
         session_source: Some(session.source),
         api_format: format,
-        on_usage: None, // usageStore port lands separately
+        on_usage: Some(on_usage),
         cancel: CancellationToken::new(),
     }
 }
@@ -397,7 +425,7 @@ async fn chat_completions(
     if let Some(deny) = scope_denied(&key, body.get("model").and_then(Value::as_str)) {
         return deny;
     }
-    let ctx = build_context(&headers, &body, &key, ApiFormat::OpenAi);
+    let ctx = build_context(&state, &headers, &body, &key, ApiFormat::OpenAi);
     gateway_response(state.registry.chat_completions(body, &ctx).await)
 }
 
@@ -410,7 +438,7 @@ async fn messages(
     if let Some(deny) = scope_denied(&key, body.get("model").and_then(Value::as_str)) {
         return deny;
     }
-    let ctx = build_context(&headers, &body, &key, ApiFormat::Anthropic);
+    let ctx = build_context(&state, &headers, &body, &key, ApiFormat::Anthropic);
     gateway_response(state.registry.messages(body, &ctx).await)
 }
 
@@ -423,7 +451,7 @@ async fn count_tokens(
     if let Some(deny) = scope_denied(&key, body.get("model").and_then(Value::as_str)) {
         return deny;
     }
-    let ctx = build_context(&headers, &body, &key, ApiFormat::Anthropic);
+    let ctx = build_context(&state, &headers, &body, &key, ApiFormat::Anthropic);
     gateway_response(state.registry.count_tokens(body, &ctx).await)
 }
 
@@ -440,7 +468,7 @@ async fn responses_compat(
         return deny;
     }
     let chat_body = responses_api::responses_request_to_chat(&body);
-    let ctx = build_context(&headers, &chat_body, &key, ApiFormat::Responses);
+    let ctx = build_context(&state, &headers, &chat_body, &key, ApiFormat::Responses);
     match state.registry.chat_completions(chat_body, &ctx).await {
         GatewayResponse::Sse { status, stream } => {
             if status >= 400 {

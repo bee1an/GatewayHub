@@ -43,7 +43,7 @@ export default class ErrorBoundary extends Component<Props, State> {
           <pre
             style={{
               fontSize: '0.75rem',
-              color: '#94a3b8',
+              color: '#928374',
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-all',
               maxWidth: '100%',
@@ -57,9 +57,9 @@ export default class ErrorBoundary extends Component<Props, State> {
             style={{
               padding: '0.5rem 1rem',
               borderRadius: '6px',
-              border: '1px solid #334155',
-              background: '#1e293b',
-              color: '#e2e8f0',
+              border: '1px solid #3e3936',
+              background: '#282828',
+              color: '#ebdbb2',
               cursor: 'pointer',
               fontSize: '0.875rem'
             }}

@@ -364,7 +364,7 @@ export default function Settings(): React.JSX.Element {
           </div>
         </div>
         <div className="mt-3">
-          <pre className="p-3.5 rounded-[var(--radius-sm)] bg-pitch border border-charcoal/60 text-[12px] font-mono text-storm overflow-x-auto whitespace-pre-wrap leading-[1.65]">
+          <pre className="p-3.5 rounded-[var(--radius-md)] bg-[var(--glass-bg-thin)] border border-[var(--glass-border)] text-[12px] font-mono text-storm overflow-x-auto whitespace-pre-wrap leading-[1.65]">
             {snippet}
           </pre>
         </div>

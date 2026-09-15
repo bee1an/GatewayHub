@@ -1,8 +1,6 @@
-//! NVIDIA NIM provider — port of `providers/nvidia/`.
-//! Pure-API-key OpenAI-compatible upstream; no token refresh.
-//! Retry/SSE/pool plumbing lives in `openai_compat`; this file keeps the
-//! nvidia-specific parts: model-catalog filtering, key smoke check,
-//! error classification.
+//! OpenRouter provider — port of `providers/openrouter/`.
+//! Same OpenAI-compat pipeline as nvidia plus `/key` introspection:
+//! free-tier keys are restricted to `:free` catalog models.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -17,31 +15,29 @@ use crate::protocol::{
     anthropic_messages_to_openai, openai_completion_to_anthropic, openai_sse_to_anthropic,
 };
 use crate::provider::ProviderAdapter;
-use crate::providers::openai_compat::{
-    CompatRefresh, CompatSettings, CompatView, BoxFut,
-};
+use crate::providers::openai_compat::{BoxFut, CompatRefresh, CompatSettings, CompatView};
 use crate::types::{
-    AccountFile, AccountRuntimeState, AccountTestResult, AccountStatus, ClassifiedError,
+    AccountFile, AccountRuntimeState, AccountStatus, AccountTestResult, ClassifiedError,
     GatewayRequestContext, GatewayResponse, JsonMap, ProviderModel, ProviderStatus, ResponseKind,
 };
 
-const NVIDIA_BASE_URL: &str = "https://integrate.api.nvidia.com/v1";
-const NVIDIA_MODELS_PATH: &str = "/models";
-const NVIDIA_CHAT_PATH: &str = "/chat/completions";
-const NVIDIA_SMOKE_MODEL: &str = "meta/llama-3.1-8b-instruct";
+const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
+const OPENROUTER_KEY_PATH: &str = "/key";
+const OPENROUTER_MODELS_PATH: &str = "/models";
+const OPENROUTER_FREE_ROUTER_MODEL: &str = "openrouter/free";
 const MODELS_CACHE_TTL_MS: i64 = 30 * 60_000;
 
-pub type NvidiaView = CompatView<NvidiaRefresh>;
+pub type OpenRouterView = CompatView<OpenRouterRefresh>;
 
-pub struct NvidiaProvider {
-    view: Arc<NvidiaView>,
+pub struct OpenRouterProvider {
+    view: Arc<OpenRouterView>,
     enabled: bool,
     display_name: Option<String>,
 }
 
-pub struct NvidiaRefresh;
+pub struct OpenRouterRefresh;
 
-impl NvidiaProvider {
+impl OpenRouterProvider {
     pub fn new(
         provider_config: &crate::types::ProviderConfig,
         account_files: Vec<AccountFile>,
@@ -51,10 +47,10 @@ impl NvidiaProvider {
         persist_account: Option<Arc<dyn Fn(&AccountFile) + Send + Sync>>,
         proxy_url: &str,
     ) -> anyhow::Result<Self> {
-        let settings = nvidia_settings(&provider_config.settings);
+        let settings = openrouter_settings(&provider_config.settings);
         let http = UpstreamHttp::new(settings.base_url.clone(), Some(proxy_url))?;
 
-        let mut pool = AccountPool::new(DefaultBehavior("nvidia"));
+        let mut pool = AccountPool::new(DefaultBehavior("openrouter"));
         pool.set_on_changed(on_changed);
         let mut states = provider_state
             .accounts
@@ -70,52 +66,23 @@ impl NvidiaProvider {
                 settings: Arc::new(settings),
                 persist: persist_account,
                 log,
-                provider: "nvidia",
-                classify: classify_nvidia_error,
-                refresher: NvidiaRefresh,
+                provider: "openrouter",
+                classify: classify_openrouter_error,
+                refresher: OpenRouterRefresh,
             }),
             enabled: provider_config.enabled,
             display_name: provider_config.display_name.clone(),
         })
     }
-
-    /// `checkApiKey` port — 1-token smoke completion.
-    async fn check_api_key(&self, api_key: &str) -> anyhow::Result<()> {
-        let res = self
-            .view
-            .http
-            .post_json(
-                NVIDIA_CHAT_PATH,
-                &json!({
-                    "model": NVIDIA_SMOKE_MODEL,
-                    "max_tokens": 1,
-                    "stream": false,
-                    "messages": [{"role": "user", "content": "Reply OK."}],
-                }),
-                &[
-                    ("authorization", &format!("Bearer {api_key}")),
-                    ("content-type", "application/json"),
-                ],
-                self.view.settings.first_token_timeout,
-            )
-            .await?;
-        let status = res.status().as_u16();
-        let text = res.text().await.unwrap_or_default();
-        let payload: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
-        if status >= 400 || payload.get("error").is_some() {
-            anyhow::bail!(
-                "NVIDIA key check failed: HTTP {} {}",
-                status,
-                redact_secrets_in_text(&text).chars().take(500).collect::<String>()
-            );
-        }
-        Ok(())
-    }
 }
 
-impl CompatRefresh for NvidiaRefresh {
-    /// `maybeRefreshAccountModels` — TTL-guarded `/models` fetch.
-    fn maybe_refresh<'a>(&'a self, view: &'a NvidiaView, account_id: &'a str) -> BoxFut<'a, ()> {
+impl CompatRefresh for OpenRouterRefresh {
+    /// `maybeRefreshAccountModels` — `/key` + `/models` + free-tier filter.
+    fn maybe_refresh<'a>(
+        &'a self,
+        view: &'a OpenRouterView,
+        account_id: &'a str,
+    ) -> BoxFut<'a, ()> {
         Box::pin(async move {
             let (api_key, fresh) = {
                 let pool = view.pool.lock().await;
@@ -134,57 +101,10 @@ impl CompatRefresh for NvidiaRefresh {
                 return;
             }
             let Some(key) = api_key else { return };
-            let res = view
-                .http
-                .get(
-                    NVIDIA_MODELS_PATH,
-                    &[("authorization", &format!("Bearer {key}"))],
-                    Duration::from_secs(30),
-                )
-                .await;
-            match res {
-                Ok(r) => {
-                    let status = r.status().as_u16();
-                    let text = r.text().await.unwrap_or_default();
-                    if status >= 400 {
-                        mark_auth_if(view, account_id, status, &text).await;
-                        return;
-                    }
-                    let payload: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
-                    let mut ids: Vec<String> = payload
-                        .get("data")
-                        .and_then(Value::as_array)
-                        .map(|data| {
-                            data.iter()
-                                .filter_map(|m| m.get("id").and_then(Value::as_str))
-                                .map(|id| id.trim().to_string())
-                                .filter(|id| !id.is_empty() && !is_non_chat_model(id))
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    ids.sort();
-                    ids.dedup();
-                    let mut pool = view.pool.lock().await;
-                    if let Some(acc) = pool.find_mut(account_id) {
-                        acc.state.model_ids = ids;
-                        acc.state.models_cached_at = now_ms();
-                        if acc.config.fields.get("keyLabel").is_none() {
-                            acc.config
-                                .fields
-                                .insert("keyLabel".into(), json!("NVIDIA NIM"));
-                        }
-                        acc.config
-                            .fields
-                            .insert("lastKeyInfoAt".into(), json!(now_ms()));
-                        let config = acc.config.clone();
-                        drop(pool);
-                        if let Some(persist) = &view.persist {
-                            persist(&config);
-                        }
-                    }
-                }
+            match refresh_account_models(view, account_id, &key).await {
+                Ok(()) => {}
                 Err(e) => {
-                    let classified = classify_nvidia_error(0, &e.to_string());
+                    let classified = classify_openrouter_error(0, &e.to_string());
                     if classified.kind == ResponseKind::Auth {
                         let mut pool = view.pool.lock().await;
                         if let Some(acc) = pool.find_mut(account_id) {
@@ -196,7 +116,7 @@ impl CompatRefresh for NvidiaRefresh {
                     }
                     view.log_entry(
                         crate::types::LogLevel::Warn,
-                        format!("NVIDIA model refresh failed: {e}"),
+                        format!("OpenRouter model refresh failed: {e}"),
                         None,
                         None,
                         None,
@@ -209,24 +129,192 @@ impl CompatRefresh for NvidiaRefresh {
     }
 }
 
-async fn mark_auth_if(view: &NvidiaView, account_id: &str, status: u16, text: &str) {
-    let classified = classify_nvidia_error(status, text);
-    if classified.kind != ResponseKind::Auth {
-        return;
-    }
+/// `refreshAccountModels` port — key info → catalog → filtered ids →
+/// persist key metadata back to the account file.
+async fn refresh_account_models(
+    view: &OpenRouterView,
+    account_id: &str,
+    api_key: &str,
+) -> anyhow::Result<()> {
+    let key_info = fetch_key_info(view, api_key).await?;
+    let models = fetch_models(view, api_key).await?;
+    let filtered = filter_models_for_key(&models, &key_info);
+
     let mut pool = view.pool.lock().await;
-    if let Some(acc) = pool.find_mut(account_id) {
-        acc.state.status = AccountStatus::AuthFailed;
-        acc.state.status_reason =
-            Some(redact_secrets_in_text(text).chars().take(200).collect());
-        acc.state.status_updated_at = now_ms();
+    let Some(acc) = pool.find_mut(account_id) else {
+        return Ok(());
+    };
+    acc.state.model_ids = filtered;
+    acc.state.models_cached_at = now_ms();
+    apply_key_info(&mut acc.config, &key_info);
+    let config = acc.config.clone();
+    drop(pool);
+    if let Some(persist) = &view.persist {
+        persist(&config);
+    }
+    Ok(())
+}
+
+/// `/key` → `{ data: { label, limit, limit_remaining, usage, is_free_tier } }`
+async fn fetch_key_info(view: &OpenRouterView, api_key: &str) -> anyhow::Result<Value> {
+    let res = view
+        .http
+        .get(
+            OPENROUTER_KEY_PATH,
+            &[("authorization", &format!("Bearer {api_key}"))],
+            Duration::from_secs(20),
+        )
+        .await?;
+    let status = res.status().as_u16();
+    let text = res.text().await.unwrap_or_default();
+    let payload: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+    if status >= 400 || payload.get("error").is_some() {
+        anyhow::bail!(
+            "OpenRouter key check failed: HTTP {} {}",
+            status,
+            redact_secrets_in_text(&text).chars().take(500).collect::<String>()
+        );
+    }
+    Ok(payload.get("data").cloned().unwrap_or(Value::Null))
+}
+
+async fn fetch_models(view: &OpenRouterView, api_key: &str) -> anyhow::Result<Vec<Value>> {
+    let res = view
+        .http
+        .get(
+            OPENROUTER_MODELS_PATH,
+            &[("authorization", &format!("Bearer {api_key}"))],
+            Duration::from_secs(30),
+        )
+        .await?;
+    let status = res.status().as_u16();
+    let text = res.text().await.unwrap_or_default();
+    let payload: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+    if status >= 400 || payload.get("error").is_some() {
+        anyhow::bail!(
+            "OpenRouter model list failed: HTTP {} {}",
+            status,
+            redact_secrets_in_text(&text).chars().take(500).collect::<String>()
+        );
+    }
+    Ok(payload
+        .get("data")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default())
+}
+
+/// `applyKeyInfo` port — write key metadata back onto the config fields.
+fn apply_key_info(config: &mut AccountFile, key_info: &Value) {
+    if let Some(label) = key_info.get("label").and_then(Value::as_str)
+        && !label.is_empty()
+    {
+        config.fields.insert("keyLabel".into(), json!(label));
+    }
+    config.fields.insert(
+        "isFreeTier".into(),
+        json!(key_info.get("is_free_tier").and_then(Value::as_bool) == Some(true)),
+    );
+    config.fields.insert(
+        "limit".into(),
+        key_info.get("limit").cloned().unwrap_or(Value::Null),
+    );
+    config.fields.insert(
+        "limitRemaining".into(),
+        key_info.get("limit_remaining").cloned().unwrap_or(Value::Null),
+    );
+    config.fields.insert(
+        "usage".into(),
+        json!(key_info.get("usage").and_then(Value::as_f64).unwrap_or(0.0)),
+    );
+    config
+        .fields
+        .insert("lastKeyInfoAt".into(), json!(now_ms()));
+}
+
+/// `filterModelsForKey` port — free-tier keys only see `:free` ids plus the
+/// free router alias.
+fn filter_models_for_key(models: &[Value], key_info: &Value) -> Vec<String> {
+    let is_free_tier = key_info.get("is_free_tier").and_then(Value::as_bool) == Some(true);
+    let mut ids: Vec<String> = models
+        .iter()
+        .filter_map(|m| m.get("id").and_then(Value::as_str))
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty() && (!is_free_tier || is_free_model_id(id)))
+        .collect();
+    if is_free_tier {
+        ids.push(OPENROUTER_FREE_ROUTER_MODEL.into());
+    }
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
+fn is_free_model_id(id: &str) -> bool {
+    id.ends_with(":free") || id == OPENROUTER_FREE_ROUTER_MODEL || id == "openrouter/auto:free"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn free_tier_filters_to_free_models() {
+        let models = vec![
+            json!({"id": "openai/gpt-5"}),
+            json!({"id": "meta/llama-3.1-8b:free"}),
+            json!({"id": "qwen/qwen3-32b:free"}),
+            json!({"id": "anthropic/claude-opus"}),
+        ];
+        let free = filter_models_for_key(&models, &json!({"is_free_tier": true}));
+        assert_eq!(
+            free,
+            vec!["meta/llama-3.1-8b:free", "openrouter/free", "qwen/qwen3-32b:free"]
+        );
+        let paid = filter_models_for_key(&models, &json!({"is_free_tier": false}));
+        assert_eq!(paid.len(), 4);
+        assert!(!paid.contains(&"openrouter/free".to_string()));
+    }
+
+    #[test]
+    fn classify_maps_status_and_body() {
+        assert_eq!(classify_openrouter_error(401, "").kind, ResponseKind::Auth);
+        assert_eq!(
+            classify_openrouter_error(200, "insufficient credit").kind,
+            ResponseKind::Quota
+        );
+        assert_eq!(classify_openrouter_error(429, "").kind, ResponseKind::RateLimit);
+        assert_eq!(
+            classify_openrouter_error(0, "upstream timeout").kind,
+            ResponseKind::Timeout
+        );
+        assert_eq!(
+            classify_openrouter_error(503, "boom").kind,
+            ResponseKind::ServerError
+        );
+    }
+
+    #[test]
+    fn apply_key_info_writes_fields() {
+        let mut file = AccountFile::default();
+        apply_key_info(
+            &mut file,
+            &json!({
+                "label": "personal", "is_free_tier": true,
+                "limit": 10.0, "limit_remaining": 8.5, "usage": 1.5,
+            }),
+        );
+        assert_eq!(file.fields["keyLabel"], "personal");
+        assert_eq!(file.fields["isFreeTier"], true);
+        assert_eq!(file.fields["limitRemaining"], 8.5);
+        assert!(file.fields["lastKeyInfoAt"].as_i64().unwrap_or(0) > 0);
     }
 }
 
 #[async_trait::async_trait]
-impl ProviderAdapter for NvidiaProvider {
+impl ProviderAdapter for OpenRouterProvider {
     fn name(&self) -> &'static str {
-        "nvidia"
+        "openrouter"
     }
 
     async fn list_models(&self) -> Vec<ProviderModel> {
@@ -236,8 +324,8 @@ impl ProviderAdapter for NvidiaProvider {
             .into_iter()
             .map(|id| ProviderModel {
                 id,
-                provider: "nvidia".into(),
-                owned_by: Some("nvidia".into()),
+                provider: "openrouter".into(),
+                owned_by: Some("openrouter".into()),
                 description: None,
             })
             .collect()
@@ -298,31 +386,36 @@ impl ProviderAdapter for NvidiaProvider {
                 ..Default::default()
             };
         };
-        match self.check_api_key(&key).await {
+        match refresh_account_models(&self.view, account_id, &key).await {
             Ok(()) => {
-                NvidiaRefresh
-                    .maybe_refresh(&self.view, account_id)
-                    .await;
-                let models = {
+                let (models, is_free) = {
                     let mut pool = self.view.pool.lock().await;
                     if let Some(acc) = pool.find_mut(account_id) {
                         acc.state.status = AccountStatus::Available;
                         acc.state.status_reason = None;
                         acc.state.status_updated_at = now_ms();
-                        acc.state.model_ids.clone()
+                        (
+                            acc.state.model_ids.clone(),
+                            acc.config
+                                .fields
+                                .get("isFreeTier")
+                                .and_then(Value::as_bool)
+                                .unwrap_or(false),
+                        )
                     } else {
-                        Vec::new()
+                        (Vec::new(), false)
                     }
                 };
                 AccountTestResult {
                     ok: true,
                     account_id: account_id.into(),
                     message: format!(
-                        "NVIDIA key valid, {} model(s) discovered from /models",
-                        models.len()
+                        "OpenRouter key valid, {} {} model(s) available",
+                        models.len(),
+                        if is_free { "free-tier" } else { "paid" }
                     ),
                     models: models.into_iter().take(50).collect(),
-                    auth_type: Some("nvidia-api-key".into()),
+                    auth_type: Some("openrouter-api-key".into()),
                 }
             }
             Err(e) => {
@@ -346,6 +439,54 @@ impl ProviderAdapter for NvidiaProvider {
         }
     }
 
+    /// `getAccountInfo` port — subscription/tier/models + live `/key` info.
+    async fn get_account_info(&self, account_id: &str) -> anyhow::Result<Value> {
+        let (api_key, is_free, limit_remaining) = {
+            let pool = self.view.pool.lock().await;
+            let Some(acc) = pool.find(account_id) else {
+                anyhow::bail!("Account not found");
+            };
+            (
+                acc.config.field_str("apiKey").map(str::to_string),
+                acc.config
+                    .fields
+                    .get("isFreeTier")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                acc.config.fields.get("limitRemaining").cloned(),
+            )
+        };
+        OpenRouterRefresh
+            .maybe_refresh(&self.view, account_id)
+            .await;
+        let mut key_info = Value::Null;
+        if let Some(key) = &api_key
+            && let Ok(info) = fetch_key_info(&self.view, key).await
+        {
+            key_info = info;
+        }
+        let models = self
+            .view
+            .pool
+            .lock()
+            .await
+            .find(account_id)
+            .map(|a| a.state.model_ids.clone())
+            .unwrap_or_default();
+        Ok(json!({
+            "subscription": {
+                "title": "OpenRouter",
+                "type": key_info.get("label").and_then(Value::as_str).unwrap_or("api-key"),
+            },
+            "keyInfo": key_info,
+            "tier": if is_free { "free" } else { "paid" },
+            "limitRemaining": limit_remaining,
+            "models": models.iter().take(100).map(|m| json!({
+                "modelId": m, "modelName": m, "rateMultiplier": 1, "rateUnit": "request",
+            })).collect::<Vec<_>>(),
+        }))
+    }
+
     async fn refresh_account_models(&self, account_id: &str) -> anyhow::Result<Vec<String>> {
         {
             let mut pool = self.view.pool.lock().await;
@@ -355,7 +496,7 @@ impl ProviderAdapter for NvidiaProvider {
                 anyhow::bail!("Account not found");
             }
         }
-        NvidiaRefresh
+        OpenRouterRefresh
             .maybe_refresh(&self.view, account_id)
             .await;
         Ok(self
@@ -394,8 +535,8 @@ impl ProviderAdapter for NvidiaProvider {
             .map(|p| (p.accounts.len(), p.list_models()))
             .unwrap_or_default();
         ProviderStatus {
-            name: "nvidia".into(),
-            provider_type: "nvidia".into(),
+            name: "openrouter".into(),
+            provider_type: "openrouter".into(),
             display_name: self.display_name.clone(),
             enabled: self.enabled,
             configured: accounts > 0,
@@ -409,7 +550,7 @@ impl ProviderAdapter for NvidiaProvider {
             message: if accounts > 0 {
                 Some(format!("{accounts} key(s)"))
             } else {
-                Some("No NVIDIA keys configured".into())
+                Some("No OpenRouter keys configured".into())
             },
             models,
             use_proxy: None,
@@ -418,7 +559,7 @@ impl ProviderAdapter for NvidiaProvider {
     }
 }
 
-fn nvidia_settings(settings: &JsonMap) -> CompatSettings {
+fn openrouter_settings(settings: &JsonMap) -> CompatSettings {
     let secs = |k: &str, default: u64| {
         settings
             .get(k)
@@ -430,7 +571,7 @@ fn nvidia_settings(settings: &JsonMap) -> CompatSettings {
         base_url: settings
             .get("baseUrl")
             .and_then(Value::as_str)
-            .unwrap_or(NVIDIA_BASE_URL)
+            .unwrap_or(OPENROUTER_BASE_URL)
             .to_string(),
         first_token_timeout: Duration::from_secs(secs("firstTokenTimeoutSeconds", 120)),
         streaming_read_timeout: Duration::from_secs(secs("streamingReadTimeoutSeconds", 300)),
@@ -441,13 +582,14 @@ fn nvidia_settings(settings: &JsonMap) -> CompatSettings {
     }
 }
 
-/// `classifyNvidiaError` port.
-pub fn classify_nvidia_error(status: u16, body: &str) -> ClassifiedError {
+/// `classifyOpenRouterError` port.
+pub fn classify_openrouter_error(status: u16, body: &str) -> ClassifiedError {
     let msg = body.to_lowercase();
     let is = |pats: &[&str]| pats.iter().any(|p| msg.contains(p));
     if status == 401
         || status == 403
-        || (is(&["http 401", "http 403"]) || (is(&["invalid"]) && is(&["key"])) || is(&["unauthorized"]))
+        || is(&["http 401", "http 403", "unauthorized"])
+        || (is(&["invalid"]) && is(&["key"]))
     {
         return ClassifiedError {
             kind: ResponseKind::Auth,
@@ -495,15 +637,4 @@ pub fn classify_nvidia_error(status: u16, body: &str) -> ClassifiedError {
         cooldown_ms: 15_000,
         reset_at_iso: None,
     }
-}
-
-fn is_non_chat_model(id: &str) -> bool {
-    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    RE.get_or_init(|| {
-        regex::Regex::new(
-            r"(?:^|[/_.-])(bge|deplot|detector|embed|embedding|fuyu|flux|image|kosmos|multimodal|neva|nvclip|parse|rerank|retriever|reward|video|vision|vila|vl)(?:$|[/_.-])",
-        )
-        .expect("model filter regex")
-    })
-    .is_match(id)
 }

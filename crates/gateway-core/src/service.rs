@@ -10,6 +10,7 @@ use tracing::{info, warn};
 use crate::provider;
 use crate::provider::{PLACEHOLDER_PROVIDERS, PROVIDERS, PlaceholderAdapter};
 use crate::providers::nvidia::NvidiaProvider;
+use crate::providers::openrouter::OpenRouterProvider;
 use crate::registry::Registry;
 use crate::server::{GatewayServer, ServerState};
 use crate::store::ConfigStore;
@@ -126,6 +127,25 @@ impl GatewayService {
                         warn!(error = %e, "nvidia provider init failed");
                         Arc::new(PlaceholderAdapter::new(
                             "nvidia",
+                            format!("init failed: {e}"),
+                            pcfg.enabled,
+                        ))
+                    }
+                },
+                "openrouter" => match OpenRouterProvider::new(
+                    &pcfg,
+                    accounts,
+                    &pstate,
+                    log,
+                    on_changed,
+                    Some(persist_account),
+                    proxy_url,
+                ) {
+                    Ok(p) => Arc::new(p),
+                    Err(e) => {
+                        warn!(error = %e, "openrouter provider init failed");
+                        Arc::new(PlaceholderAdapter::new(
+                            "openrouter",
                             format!("init failed: {e}"),
                             pcfg.enabled,
                         ))

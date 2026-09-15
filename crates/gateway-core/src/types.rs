@@ -156,13 +156,15 @@ impl ProviderConfig {
 pub struct AccountFile {
     #[serde(default)]
     pub id: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
     #[serde(default)]
     pub enabled: bool,
-    #[serde(default)]
+    /// Runtime-only: the source path this account was loaded from.
+    /// Stripped on write like the TS `strip()` (path is never persisted).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     #[serde(flatten)]
     pub fields: JsonMap,

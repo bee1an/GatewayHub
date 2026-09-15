@@ -103,7 +103,7 @@ export function AddNvidiaAccountDialog({
               <div className="space-y-2">
                 <p className="text-[12px] text-fog">{t('addAccount.nvidiaJsonHint')}</p>
                 <textarea
-                  className="w-full min-h-[120px] text-[12px] font-mono bg-pitch rounded-[var(--radius-md)] p-2 text-storm"
+                  className="w-full min-h-[120px] text-[12px] font-mono bg-[var(--glass-bg-thin)] rounded-[var(--radius-md)] p-2 text-storm"
                   value={jsonText}
                   onChange={(e) => setJsonText(e.target.value)}
                   placeholder={t('addAccount.nvidiaJsonPlaceholder')}

@@ -49,7 +49,7 @@ export function AddGeminiWebAccountDialog({
       <div className="space-y-3">
         <p className="text-[12px] text-fog">{t('addAccount.geminiWebJsonHint')}</p>
         <textarea
-          className="w-full min-h-[160px] text-[12px] font-mono bg-pitch rounded-[var(--radius-md)] p-2 text-storm"
+          className="w-full min-h-[160px] text-[12px] font-mono bg-[var(--glass-bg-thin)] rounded-[var(--radius-md)] p-2 text-storm"
           value={jsonText}
           onChange={(e) => setJsonText(e.target.value)}
           placeholder={t('addAccount.geminiWebJsonPlaceholder')}

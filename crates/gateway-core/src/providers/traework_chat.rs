@@ -819,6 +819,7 @@ where
 }
 
 /// `anthropicSseFromEvents` — thinking/text/tool_use block sequencing.
+#[allow(unused_assignments)]
 pub fn anthropic_sse_from_events<S>(
     events: S,
     model: String,

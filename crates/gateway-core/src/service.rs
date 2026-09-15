@@ -214,6 +214,25 @@ impl GatewayService {
                         ))
                     }
                 },
+                "workbuddy" => match crate::providers::workbuddy::WorkBuddyProvider::new(
+                    &pcfg,
+                    accounts,
+                    &pstate,
+                    log,
+                    on_changed,
+                    Some(persist_account),
+                    proxy_url,
+                ) {
+                    Ok(p) => Arc::new(p),
+                    Err(e) => {
+                        warn!(error = %e, "workbuddy provider init failed");
+                        Arc::new(PlaceholderAdapter::new(
+                            "workbuddy",
+                            format!("init failed: {e}"),
+                            pcfg.enabled,
+                        ))
+                    }
+                },
                 "codex" => match crate::providers::codex::CodexProvider::new(
                     &pcfg,
                     accounts,

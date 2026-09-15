@@ -21,3 +21,6 @@ pub mod windsurf;
 pub mod windsurf_cascade;
 pub mod windsurf_connect;
 pub mod windsurf_stream;
+pub mod workbuddy;
+pub mod workbuddy_auth;
+pub mod workbuddy_checkin;

@@ -7,3 +7,4 @@ out
 *.tsbuildinfo
 AGENTS.md
 CLAUDE.md
+/target

@@ -182,7 +182,7 @@ impl AccountFile {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GatewayHubState {
     #[serde(default = "one")]
@@ -195,6 +195,16 @@ pub struct GatewayHubState {
 
 fn one() -> u32 {
     1
+}
+
+impl Default for GatewayHubState {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            providers: JsonMap::new(),
+            extra: JsonMap::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -358,6 +368,135 @@ pub struct ProviderStatus {
     pub models: Vec<String>,
     pub use_proxy: Option<bool>,
     pub accounts: usize,
+}
+
+// ---------------------------------------------------------------------------
+// Runtime request/response surface (not persisted)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ApiFormat {
+    #[serde(rename = "openai")]
+    OpenAi,
+    Anthropic,
+    Responses,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResponseKind {
+    Success,
+    RateLimit,
+    Quota,
+    Auth,
+    ModelError,
+    ServerError,
+    Network,
+    Timeout,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageStats {
+    #[serde(default)]
+    pub input_tokens: u64,
+    #[serde(default)]
+    pub output_tokens: u64,
+    #[serde(default)]
+    pub cache_read_tokens: Option<u64>,
+    #[serde(default)]
+    pub cache_write5m_tokens: Option<u64>,
+    #[serde(default)]
+    pub cache_write1h_tokens: Option<u64>,
+    #[serde(default)]
+    pub credits: Option<f64>,
+    #[serde(default)]
+    pub estimated: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct UsageMeta {
+    pub account_id: Option<String>,
+    pub model: Option<String>,
+    pub provider: Option<String>,
+}
+
+pub type UsageSink = std::sync::Arc<dyn Fn(UsageStats, UsageMeta) + Send + Sync>;
+
+/// Per-request context handed to provider adapters — the Rust twin of
+/// `GatewayRequestContext`. `cancel` is a `CancellationToken` because tokio
+/// drops/abort-scopes are the native equivalent of `AbortSignal`.
+pub struct GatewayRequestContext {
+    pub request_id: String,
+    pub session_id: Option<String>,
+    pub session_source: Option<&'static str>,
+    pub api_format: ApiFormat,
+    pub on_usage: Option<UsageSink>,
+    pub cancel: tokio_util::sync::CancellationToken,
+}
+
+/// A ready-to-write upstream reply. `Sse` items are raw event-stream text
+/// chunks (the upstream passthrough already contains `data:` framing).
+pub enum GatewayResponse {
+    Json {
+        status: u16,
+        body: serde_json::Value,
+    },
+    Sse {
+        status: u16,
+        stream: std::pin::Pin<Box<dyn futures::Stream<Item = String> + Send>>,
+    },
+}
+
+impl GatewayResponse {
+    pub fn json(status: u16, body: serde_json::Value) -> Self {
+        Self::Json { status, body }
+    }
+
+    pub fn error(status: u16, message: impl Into<String>, kind: &str) -> Self {
+        Self::Json {
+            status,
+            body: serde_json::json!({ "error": { "message": message.into(), "type": kind } }),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AccountTestResult {
+    pub ok: bool,
+    pub account_id: String,
+    pub message: String,
+    pub models: Vec<String>,
+    pub auth_type: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProviderModel {
+    pub id: String,
+    pub provider: String,
+    pub owned_by: Option<String>,
+    pub description: Option<String>,
+}
+
+/// Shared classified upstream error driving status transitions.
+#[derive(Debug, Clone)]
+pub struct ClassifiedError {
+    pub kind: ResponseKind,
+    pub cooldown_ms: i64,
+    pub reset_at_iso: Option<String>,
+}
+
+/// Structured logger sink — service provides one per provider; appends to
+/// `state.providers[name].logs` and emits via `tracing`.
+pub type LogSink = std::sync::Arc<dyn Fn(GatewayLogEntry) + Send + Sync>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogLevelFilter {
+    Debug,
+    Info,
+    Warn,
+    Error,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -1,23 +1,30 @@
 //! The OpenAI/Anthropic-compatible HTTP surface, on axum + a dedicated
 //! tokio runtime thread. Ported semantics from the Electron `server.ts`:
 //! API-key auth (constant-time, deny-all when no keys), loopback Host
-//! header check, loopback-only CORS, 8 MiB body limit.
-//! Upstream routing is stubbed (`unavailable`) until providers are ported.
+//! header check, loopback-only CORS, 8 MiB body limit, per-key provider
+//! scopes, and SSE passthrough.
 
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 
-use axum::body::Body;
+use axum::body::{Body, Bytes};
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post};
+use futures::StreamExt;
 use serde_json::{Value, json};
 use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use crate::apikey::safe_equal;
-use crate::types::{GatewayServerConfig, ModelMapping};
+use crate::registry::Registry;
+use crate::session::derive_gateway_session;
+use crate::types::{
+    ApiFormat, ApiKeyEntry, GatewayRequestContext, GatewayResponse, GatewayServerConfig,
+    ModelMapping,
+};
 
 pub const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
 
@@ -26,6 +33,7 @@ pub struct ServerState {
     pub config: Arc<RwLock<GatewayServerConfig>>,
     /// Live view of enabled model mappings for `/v1/models`.
     pub models: Arc<RwLock<Vec<ModelMapping>>>,
+    pub registry: Arc<Registry>,
 }
 
 pub struct GatewayServer {
@@ -103,11 +111,11 @@ async fn serve(
         .route("/health", get(health))
         .route("/", get(root_info))
         .route("/v1/models", get(list_models))
-        .route("/v1/chat/completions", post(unavailable))
-        .route("/v1/messages", post(unavailable))
-        .route("/v1/messages/count_tokens", post(unavailable))
-        .route("/v1/responses", post(unavailable))
-        .route("/responses", post(unavailable))
+        .route("/v1/chat/completions", post(chat_completions))
+        .route("/v1/messages", post(messages))
+        .route("/v1/messages/count_tokens", post(count_tokens))
+        .route("/v1/responses", post(responses_compat))
+        .route("/responses", post(responses_compat))
         .fallback(not_found)
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -129,10 +137,11 @@ async fn serve(
 
 /// Host-header + auth guard applied to every route. `/health` and `/`
 /// stay unauthenticated like the Electron server; everything else needs a
-/// valid key.
+/// valid key. The matched key is stashed in request extensions for scope
+/// checks downstream.
 async fn guard_middleware(
     State(state): State<ServerState>,
-    req: axum::http::Request<Body>,
+    mut req: axum::http::Request<Body>,
     next: axum::middleware::Next,
 ) -> Response {
     let path = req.uri().path().to_string();
@@ -153,7 +162,9 @@ async fn guard_middleware(
     let public = matches!(path.as_str(), "/health" | "/");
     if !public {
         match verify_api_key(&state, req.headers()) {
-            Some(_entry) => {}
+            Some(entry) => {
+                req.extensions_mut().insert(entry);
+            }
             None => {
                 return json_error(
                     StatusCode::UNAUTHORIZED,
@@ -191,7 +202,7 @@ fn check_host_header(state: &ServerState, headers: &HeaderMap) -> bool {
         || host_only.ends_with(".localhost")
 }
 
-fn verify_api_key(state: &ServerState, headers: &HeaderMap) -> Option<()> {
+fn verify_api_key(state: &ServerState, headers: &HeaderMap) -> Option<ApiKeyEntry> {
     let cfg = state.config.read().ok()?;
     if cfg.api_keys.is_empty() {
         return None;
@@ -206,20 +217,42 @@ fn verify_api_key(state: &ServerState, headers: &HeaderMap) -> Option<()> {
         return None;
     }
     let now = now_ms();
-    let mut matched = false;
-    let mut expired = false;
+    let mut matched: Option<ApiKeyEntry> = None;
     for entry in &cfg.api_keys {
         // Run every entry to avoid order-dependent timing.
         if safe_equal(&entry.key, provided) {
             if entry.expires_at.is_some_and(|exp| now > exp) {
-                expired = true;
-            } else {
-                matched = true;
+                continue;
             }
+            matched = Some(entry.clone());
         }
     }
-    let _ = expired;
-    matched.then_some(())
+    matched
+}
+
+/// `checkScope` port — per-key provider allowlist on the raw model string's
+/// `provider/` prefix (alias names with no prefix pass through).
+fn scope_denied(entry: &ApiKeyEntry, model: Option<&str>) -> Option<Response> {
+    let scopes = entry.scopes.as_deref().unwrap_or(&[]);
+    if scopes.is_empty() {
+        return None;
+    }
+    let raw = model.unwrap_or("");
+    let provider = match raw.find('/') {
+        Some(i) if i > 0 => &raw[..i],
+        _ => "",
+    };
+    if provider.is_empty() || scopes.iter().any(|s| s == provider) {
+        return None;
+    }
+    Some(json_error(
+        StatusCode::FORBIDDEN,
+        format!(
+            "API key \"{}\" does not have access to provider \"{provider}\"",
+            entry.name
+        ),
+        "permission_error",
+    ))
 }
 
 fn is_loopback_host(host: &str) -> bool {
@@ -271,13 +304,62 @@ fn apply_cors(state: &ServerState, req_headers: &HeaderMap, out: &mut HeaderMap)
     }
 }
 
+fn request_id() -> String {
+    format!("req_{}", uuid::Uuid::new_v4().simple())
+}
+
+fn build_context(
+    headers: &HeaderMap,
+    body: &Value,
+    key: &ApiKeyEntry,
+    format: ApiFormat,
+) -> GatewayRequestContext {
+    let rid = request_id();
+    let session = derive_gateway_session(headers, body, key, &rid, format);
+    GatewayRequestContext {
+        request_id: rid,
+        session_id: Some(session.id),
+        session_source: Some(session.source),
+        api_format: format,
+        on_usage: None, // usageStore port lands separately
+        cancel: CancellationToken::new(),
+    }
+}
+
+fn gateway_response(resp: GatewayResponse) -> Response {
+    match resp {
+        GatewayResponse::Json { status, body } => {
+            (status_code(status), Json(body)).into_response()
+        }
+        GatewayResponse::Sse { status, stream } => {
+            let byte_stream =
+                stream.map(|s| Ok::<Bytes, std::convert::Infallible>(Bytes::from(s)));
+            Response::builder()
+                .status(status_code(status))
+                .header(header::CONTENT_TYPE, "text/event-stream; charset=utf-8")
+                .header(header::CACHE_CONTROL, "no-cache, no-transform")
+                .header(header::CONNECTION, "keep-alive")
+                .body(Body::from_stream(byte_stream))
+                .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+        }
+    }
+}
+
+fn status_code(status: u16) -> StatusCode {
+    StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
 async fn health() -> Json<Value> {
     Json(json!({ "status": "ok" }))
 }
 
 async fn root_info(State(state): State<ServerState>) -> Json<Value> {
     let (host, port) = {
-        let cfg = state.config.read().map(|c| (c.host.clone(), c.port)).unwrap_or_default();
+        let cfg = state
+            .config
+            .read()
+            .map(|c| (c.host.clone(), c.port))
+            .unwrap_or_default();
         (cfg.0, cfg.1)
     };
     Json(json!({
@@ -289,32 +371,73 @@ async fn root_info(State(state): State<ServerState>) -> Json<Value> {
 }
 
 async fn list_models(State(state): State<ServerState>) -> Json<Value> {
-    let models = state
-        .models
-        .read()
-        .map(|m| m.clone())
-        .unwrap_or_default();
+    let models = state.registry.list_models().await;
     let data: Vec<Value> = models
         .into_iter()
-        .filter(|m| m.enabled)
         .map(|m| {
             json!({
-                "id": m.alias,
+                "id": m.id,
                 "object": "model",
                 "created": 0,
-                "owned_by": m.provider,
+                "owned_by": m.owned_by.unwrap_or_else(|| m.provider.clone()),
+                "description": m.description,
             })
         })
         .collect();
     Json(json!({ "object": "list", "data": data }))
 }
 
-/// Upstream pipeline placeholder — providers land one by one on top of this.
-async fn unavailable() -> Response {
+async fn chat_completions(
+    State(state): State<ServerState>,
+    axum::Extension(key): axum::Extension<ApiKeyEntry>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    if let Some(deny) = scope_denied(&key, body.get("model").and_then(Value::as_str)) {
+        return deny;
+    }
+    let ctx = build_context(&headers, &body, &key, ApiFormat::OpenAi);
+    gateway_response(state.registry.chat_completions(body, &ctx).await)
+}
+
+async fn messages(
+    State(state): State<ServerState>,
+    axum::Extension(key): axum::Extension<ApiKeyEntry>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    if let Some(deny) = scope_denied(&key, body.get("model").and_then(Value::as_str)) {
+        return deny;
+    }
+    let ctx = build_context(&headers, &body, &key, ApiFormat::Anthropic);
+    gateway_response(state.registry.messages(body, &ctx).await)
+}
+
+async fn count_tokens(
+    State(state): State<ServerState>,
+    axum::Extension(key): axum::Extension<ApiKeyEntry>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    if let Some(deny) = scope_denied(&key, body.get("model").and_then(Value::as_str)) {
+        return deny;
+    }
+    let ctx = build_context(&headers, &body, &key, ApiFormat::Anthropic);
+    gateway_response(state.registry.count_tokens(body, &ctx).await)
+}
+
+/// Responses API → translated to chat-completions upstream and back.
+/// `responsesApi` conversion lands with the protocol port; until then this
+/// preserves the endpoint contract.
+async fn responses_compat(
+    State(_state): State<ServerState>,
+    axum::Extension(_key): axum::Extension<ApiKeyEntry>,
+    Json(_body): Json<Value>,
+) -> Response {
     json_error(
-        StatusCode::SERVICE_UNAVAILABLE,
-        "No provider pipeline yet — providers are being ported to the Rust core",
-        "upstream_unavailable",
+        StatusCode::NOT_IMPLEMENTED,
+        "Responses API translation is being ported to the Rust core",
+        "not_implemented",
     )
 }
 
@@ -322,13 +445,14 @@ async fn not_found() -> Response {
     json_error(StatusCode::NOT_FOUND, "Not found", "not_found")
 }
 
-fn json_error(status: StatusCode, message: &str, kind: &str) -> Response {
-    (status, Json(json!({ "error": { "message": message, "type": kind } }))).into_response()
+fn json_error(status: StatusCode, message: impl Into<String>, kind: &str) -> Response {
+    (
+        status,
+        Json(json!({ "error": { "message": message.into(), "type": kind } })),
+    )
+        .into_response()
 }
 
 fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+    crate::pool::now_ms()
 }

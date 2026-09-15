@@ -2,6 +2,33 @@ import { defineConfig, presetWind3, presetIcons } from 'unocss'
 
 export default defineConfig({
   presets: [presetWind3(), presetIcons({ scale: 1.2 })],
+  rules: [
+    [
+      'glass',
+      {
+        background: 'var(--glass-bg)',
+        'backdrop-filter': 'var(--glass-filter)',
+        '-webkit-backdrop-filter': 'var(--glass-filter)',
+        'box-shadow': 'var(--glass-shadow)'
+      }
+    ],
+    [
+      'glass-strong',
+      {
+        background: 'var(--glass-bg-strong)',
+        'backdrop-filter': 'var(--glass-filter)',
+        '-webkit-backdrop-filter': 'var(--glass-filter)',
+        'box-shadow': 'var(--glass-shadow)'
+      }
+    ],
+    [
+      'glass-thin',
+      {
+        background: 'var(--glass-bg-thin)',
+        'box-shadow': 'var(--glass-shadow-sm)'
+      }
+    ]
+  ],
   theme: {
     colors: {
       pitch: 'var(--c-pitch)',

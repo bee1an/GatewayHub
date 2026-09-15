@@ -152,15 +152,9 @@ impl<R: CompatRefresh> CompatView<R> {
                     let status = res.status().as_u16();
                     let text = res.text().await.unwrap_or_default();
                     if status < 400 {
-                        let parsed: Value = serde_json::from_str(&text)
-                            .unwrap_or_else(|_| json!({ "raw": text }));
-                        report_usage(
-                            &ctx.on_usage,
-                            &parsed,
-                            model,
-                            &account,
-                            self.provider,
-                        );
+                        let parsed: Value =
+                            serde_json::from_str(&text).unwrap_or_else(|_| json!({ "raw": text }));
+                        report_usage(&ctx.on_usage, &parsed, model, &account, self.provider);
                         self.pool.lock().await.report_success(&account.config.id);
                         self.log_entry(
                             LogLevel::Info,
@@ -174,8 +168,10 @@ impl<R: CompatRefresh> CompatView<R> {
                         return GatewayResponse::json(200, parsed);
                     }
                     let classified = (self.classify)(status, &text);
-                    last_error =
-                        format!("HTTP {status}: {}", text.chars().take(500).collect::<String>());
+                    last_error = format!(
+                        "HTTP {status}: {}",
+                        text.chars().take(500).collect::<String>()
+                    );
                     self.pool.lock().await.report_failure(
                         &account.config.id,
                         &last_error,
@@ -491,7 +487,8 @@ pub fn report_usage(
 
 pub fn extract_usage_chunk(text: &str) -> Option<Value> {
     for line in text.lines() {
-        if line.starts_with("data: ") && line.contains("\"usage\"")
+        if line.starts_with("data: ")
+            && line.contains("\"usage\"")
             && let Ok(parsed) = serde_json::from_str::<Value>(&line[6..])
             && parsed.get("usage").is_some()
         {

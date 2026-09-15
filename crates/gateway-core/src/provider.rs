@@ -3,7 +3,7 @@
 use serde_json::Value;
 
 use crate::types::{
-    AccountFile, AccountTestResult, AccountStatus, GatewayHubConfig, GatewayRequestContext,
+    AccountFile, AccountStatus, AccountTestResult, GatewayHubConfig, GatewayRequestContext,
     GatewayResponse, JsonMap, ModelMapping, ProviderConfig, ProviderModel, ProviderState,
     ProviderStatus,
 };
@@ -50,7 +50,10 @@ pub fn provider_config(config: &GatewayHubConfig, name: &str) -> ProviderConfig 
 }
 
 fn provider_state<'a>(state: &'a JsonMap, name: &str) -> ProviderState {
-    state.get(name).map(ProviderState::from_value).unwrap_or_default()
+    state
+        .get(name)
+        .map(ProviderState::from_value)
+        .unwrap_or_default()
 }
 
 fn provider_models(state: &ProviderState) -> Vec<String> {
@@ -112,11 +115,7 @@ pub trait ProviderAdapter: Send + Sync {
     fn status(&self) -> ProviderStatus;
     async fn list_models(&self) -> Vec<ProviderModel>;
 
-    async fn chat_completions(
-        &self,
-        body: Value,
-        ctx: &GatewayRequestContext,
-    ) -> GatewayResponse;
+    async fn chat_completions(&self, body: Value, ctx: &GatewayRequestContext) -> GatewayResponse;
 
     async fn messages(&self, body: Value, ctx: &GatewayRequestContext) -> GatewayResponse;
 
@@ -163,10 +162,7 @@ pub trait ProviderAdapter: Send + Sync {
         _reason: Option<String>,
     ) -> anyhow::Result<()> {
         let _ = account_id;
-        anyhow::bail!(
-            "Provider {} does not support setAccountStatus",
-            self.name()
-        )
+        anyhow::bail!("Provider {} does not support setAccountStatus", self.name())
     }
 }
 

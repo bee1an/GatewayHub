@@ -285,10 +285,9 @@ impl UsageStore {
         if let Some(dir) = self.file_path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        let tmp = self.file_path.with_extension(format!(
-            "{}.tmp",
-            uuid::Uuid::new_v4().simple()
-        ));
+        let tmp = self
+            .file_path
+            .with_extension(format!("{}.tmp", uuid::Uuid::new_v4().simple()));
         let body = format!("{}\n", serde_json::to_string(&serialize_store(store))?);
         std::fs::write(&tmp, body)?;
         std::fs::rename(&tmp, &self.file_path)?;
@@ -311,7 +310,10 @@ impl UsageStore {
         let day_key = local_day_key(&ts);
         let updated_at = now_iso();
 
-        let _guard = self.write_lock.lock().map_err(|_| anyhow::anyhow!("usage lock"))?;
+        let _guard = self
+            .write_lock
+            .lock()
+            .map_err(|_| anyhow::anyhow!("usage lock"))?;
         let mut store = self.load_store();
         let entry = store
             .days
@@ -335,7 +337,8 @@ impl UsageStore {
         }
         entry.updated_at = updated_at;
 
-        let cutoff = local_day_key(&(chrono::Local::now() - chrono::Duration::days(RETENTION_DAYS - 1)));
+        let cutoff =
+            local_day_key(&(chrono::Local::now() - chrono::Duration::days(RETENTION_DAYS - 1)));
         store.days.retain(|k, _| k.as_str() >= cutoff.as_str());
         self.persist(&store)
     }
@@ -349,7 +352,10 @@ impl UsageStore {
             .since_key
             .clone()
             .unwrap_or_else(|| local_day_key(&(now - chrono::Duration::days(RETENTION_DAYS - 1))));
-        let until = options.until_key.clone().unwrap_or_else(|| today_key.clone());
+        let until = options
+            .until_key
+            .clone()
+            .unwrap_or_else(|| today_key.clone());
         if since > until {
             return UsageDetail {
                 summary: UsageSummary {
@@ -359,9 +365,17 @@ impl UsageStore {
                 daily: Vec::new(),
             };
         }
-        let account_filter = options.account_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        let account_filter = options
+            .account_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
         let model_filter = options.model.as_deref().map(normalize_model_key);
-        let provider_filter = options.provider.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        let provider_filter = options
+            .provider
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
 
         let mut daily = Vec::new();
         for (day_key, accounts) in &store.days {
@@ -418,7 +432,10 @@ impl UsageStore {
     }
 
     pub fn clear(&self) -> anyhow::Result<()> {
-        let _guard = self.write_lock.lock().map_err(|_| anyhow::anyhow!("usage lock"))?;
+        let _guard = self
+            .write_lock
+            .lock()
+            .map_err(|_| anyhow::anyhow!("usage lock"))?;
         self.persist(&StoreFile {
             days: StoreDays::new(),
         })

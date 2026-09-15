@@ -60,10 +60,7 @@ pub fn derive_gateway_session(
         };
     }
     if let Some(id) = pick(Some(body), BODY_SESSION_KEYS) {
-        return GatewaySessionInfo {
-            id,
-            source: "body",
-        };
+        return GatewaySessionInfo { id, source: "body" };
     }
     for key in HEADER_SESSION_KEYS {
         if let Some(v) = headers.get(*key).and_then(|v| v.to_str().ok())
@@ -132,7 +129,11 @@ fn derive_fallback(body: &Value, api_key: &ApiKeyEntry, api_format: ApiFormat) -
 fn sha256_short_n(input: &str, n: usize) -> String {
     use sha2::Digest;
     let digest = sha2::Sha256::digest(input.as_bytes());
-    digest.iter().take(n / 2).map(|b| format!("{b:02x}")).collect()
+    digest
+        .iter()
+        .take(n / 2)
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 fn find_first_user_text(messages: Option<&Value>) -> String {

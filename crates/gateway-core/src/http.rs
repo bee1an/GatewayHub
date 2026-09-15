@@ -24,6 +24,12 @@ impl UpstreamHttp {
         })
     }
 
+    /// Cloned raw client for providers that build requests outside the
+    /// base-url helpers (absolute URLs, dynamic headers).
+    pub fn client(&self) -> reqwest::Client {
+        self.client.clone()
+    }
+
     pub fn url(&self, path: &str) -> String {
         join_url(&self.base_url, path)
     }
@@ -82,10 +88,7 @@ impl UpstreamHttp {
 fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
     let mut map = HeaderMap::new();
     for (name, value) in pairs {
-        if let (Ok(n), Ok(v)) = (
-            name.parse::<HeaderName>(),
-            value.parse::<HeaderValue>(),
-        ) {
+        if let (Ok(n), Ok(v)) = (name.parse::<HeaderName>(), value.parse::<HeaderValue>()) {
             map.insert(n, v);
         }
     }
@@ -93,7 +96,11 @@ fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
 }
 
 pub fn join_url(base: &str, path: &str) -> String {
-    format!("{}/{}", base.trim_end_matches('/'), path.trim_start_matches('/'))
+    format!(
+        "{}/{}",
+        base.trim_end_matches('/'),
+        path.trim_start_matches('/')
+    )
 }
 
 /// Body text with upstream secrets masked before logging (the TS

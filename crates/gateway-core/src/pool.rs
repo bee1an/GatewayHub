@@ -14,7 +14,9 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
-use crate::types::{AccountFile, AccountRuntimeState, AccountStatus, ClassifiedError, ResponseKind};
+use crate::types::{
+    AccountFile, AccountRuntimeState, AccountStatus, ClassifiedError, ResponseKind,
+};
 
 #[derive(Debug, Clone)]
 pub struct AccountWithState {
@@ -47,8 +49,22 @@ pub trait PoolBehavior: Send + Sync {
     fn is_hard_offline(&self, status: AccountStatus) -> bool {
         matches!(
             status,
-            AccountStatus::AuthFailed | AccountStatus::ManualDisabled | AccountStatus::QuotaExceeded
+            AccountStatus::AuthFailed
+                | AccountStatus::ManualDisabled
+                | AccountStatus::QuotaExceeded
         )
+    }
+
+    /// Status→cooldown mapping hook (TS `resolveCooldown` overrides).
+    /// codex diverts: quota honors an upstream resetAtIso deadline and
+    /// cooling uses `max(1000, cooldownMs || 30_000)` as the backoff base.
+    fn resolve_cooldown(
+        &self,
+        account: &AccountWithState,
+        classified: &ClassifiedError,
+        now: i64,
+    ) -> (AccountStatus, Option<i64>) {
+        default_resolve_cooldown(account, classified, now)
     }
 }
 
@@ -267,7 +283,11 @@ impl<B: PoolBehavior> AccountPool<B> {
         if self.behavior.is_hard_offline(status) {
             return false;
         }
-        if account.state.cooldown_until.is_some_and(|until| now > until) {
+        if account
+            .state
+            .cooldown_until
+            .is_some_and(|until| now > until)
+        {
             return true;
         }
         fastrand::f64() < 0.1
@@ -305,7 +325,7 @@ impl<B: PoolBehavior> AccountPool<B> {
     /// Shared failure-reporting body with the standard status-mapping branch
     /// table (TS `reportFailure` + `resolveCooldown` defaults).
     pub fn report_failure(&mut self, account_id: &str, error: &str, classified: &ClassifiedError) {
-        if let Some(acc) = self.find_mut(account_id) {
+        if let Some(acc) = self.accounts.iter_mut().find(|a| a.config.id == account_id) {
             acc.state.failures += 1;
             acc.state.last_failure_at = now_ms();
             acc.state.last_error = Some(error.to_string());
@@ -314,7 +334,7 @@ impl<B: PoolBehavior> AccountPool<B> {
             acc.state.last_response_kind = Some(kind_str(classified.kind).to_string());
             let now = now_ms();
             let reason: String = error.chars().take(200).collect();
-            let (status, cooldown) = resolve_cooldown(acc, classified, now);
+            let (status, cooldown) = self.behavior.resolve_cooldown(acc, classified, now);
             transition(acc, status, Some(reason), cooldown);
             self.changed();
         }
@@ -324,7 +344,7 @@ impl<B: PoolBehavior> AccountPool<B> {
 /// Default status→cooldown mapping: auth → auth_failed (no cooldown);
 /// quota/rate_limit → classified cooldown; else `cooling` with exponential
 /// backoff (cap 64×).
-fn resolve_cooldown(
+fn default_resolve_cooldown(
     account: &AccountWithState,
     classified: &ClassifiedError,
     now: i64,
@@ -437,6 +457,9 @@ mod tests {
         let listed = pool.list_accounts();
         assert_eq!(listed[0].config.field_str("apiKey"), Some("***"));
         // pool's own copy is untouched
-        assert_eq!(pool.find("a").unwrap().config.field_str("apiKey"), Some("nvapi-xyz"));
+        assert_eq!(
+            pool.find("a").unwrap().config.field_str("apiKey"),
+            Some("nvapi-xyz")
+        );
     }
 }

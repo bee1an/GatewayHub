@@ -21,7 +21,9 @@ impl GatewayPaths {
         {
             return Some(Self::new(PathBuf::from(dir)));
         }
-        Some(Self::new(home::home_dir()?.join(".config").join("gatewayhub")))
+        Some(Self::new(
+            home::home_dir()?.join(".config").join("gatewayhub"),
+        ))
     }
 
     pub fn new(root: PathBuf) -> Self {

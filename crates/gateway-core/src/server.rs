@@ -54,7 +54,10 @@ impl GatewayServer {
     /// callers learn about EADDRINUSE immediately.
     pub fn start(state: ServerState) -> anyhow::Result<Self> {
         let (host, port) = {
-            let cfg = state.config.read().map_err(|_| anyhow::anyhow!("config lock"))?;
+            let cfg = state
+                .config
+                .read()
+                .map_err(|_| anyhow::anyhow!("config lock"))?;
             (cfg.host.clone(), cfg.port)
         };
         let std_listener = std::net::TcpListener::bind((host.as_str(), port))?;
@@ -357,12 +360,9 @@ fn build_context(
 
 fn gateway_response(resp: GatewayResponse) -> Response {
     match resp {
-        GatewayResponse::Json { status, body } => {
-            (status_code(status), Json(body)).into_response()
-        }
+        GatewayResponse::Json { status, body } => (status_code(status), Json(body)).into_response(),
         GatewayResponse::Sse { status, stream } => {
-            let byte_stream =
-                stream.map(|s| Ok::<Bytes, std::convert::Infallible>(Bytes::from(s)));
+            let byte_stream = stream.map(|s| Ok::<Bytes, std::convert::Infallible>(Bytes::from(s)));
             Response::builder()
                 .status(status_code(status))
                 .header(header::CONTENT_TYPE, "text/event-stream; charset=utf-8")
@@ -479,7 +479,10 @@ async fn responses_compat(
                 stream: Box::pin(responses_api::chat_sse_to_responses(stream, body)),
             })
         }
-        GatewayResponse::Json { status, body: parsed } => {
+        GatewayResponse::Json {
+            status,
+            body: parsed,
+        } => {
             if status >= 400 {
                 return gateway_response(GatewayResponse::Json {
                     status,

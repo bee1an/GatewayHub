@@ -41,7 +41,9 @@ fn extract_anthropic_text(value: &Value) -> String {
             .get("text")
             .and_then(Value::as_str)
             .map(str::to_string)
-            .unwrap_or_else(|| extract_anthropic_text(block.get("content").unwrap_or(&Value::Null))),
+            .unwrap_or_else(|| {
+                extract_anthropic_text(block.get("content").unwrap_or(&Value::Null))
+            }),
         other => other.to_string(),
     }
 }
@@ -263,7 +265,9 @@ fn compact_openai_content(parts: Vec<Value>) -> Value {
         .into_iter()
         .filter(|p| {
             p.get("type").and_then(Value::as_str) != Some("text")
-                || p.get("text").and_then(Value::as_str).is_some_and(|t| !t.is_empty())
+                || p.get("text")
+                    .and_then(Value::as_str)
+                    .is_some_and(|t| !t.is_empty())
         })
         .collect();
     if normalized.is_empty() {
@@ -411,7 +415,10 @@ fn openai_usage_to_anthropic(usage: &Value) -> Value {
 }
 
 fn sse_event(event: &str, data: Value) -> String {
-    format!("event: {event}\ndata: {}\n\n", serde_json::to_string(&data).unwrap_or_else(|_| "{}".into()))
+    format!(
+        "event: {event}\ndata: {}\n\n",
+        serde_json::to_string(&data).unwrap_or_else(|_| "{}".into())
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -423,11 +430,22 @@ fn sse_event(event: &str, data: Value) -> String {
 pub struct SseParser {
     buffer: String,
     data: String,
+    event_name: Option<String>,
 }
 
 impl SseParser {
     /// Feed a text chunk; returns completed event data payloads.
     pub fn feed(&mut self, chunk: &str) -> Vec<String> {
+        self.feed_blocks(chunk)
+            .into_iter()
+            .map(|(_, data)| data)
+            .collect()
+    }
+
+    /// Like `feed` but keeps the `event:` field — returns
+    /// `(event_name, data)` pairs for upstreams that name their frames
+    /// (codex `response.*` events).
+    pub fn feed_blocks(&mut self, chunk: &str) -> Vec<(Option<String>, String)> {
         self.buffer.push_str(chunk);
         let mut events = Vec::new();
         while let Some(pos) = self.buffer.find('\n') {
@@ -438,7 +456,7 @@ impl SseParser {
             }
             if line.is_empty() {
                 if !self.data.is_empty() {
-                    events.push(std::mem::take(&mut self.data));
+                    events.push((self.event_name.take(), std::mem::take(&mut self.data)));
                 }
                 continue;
             }
@@ -449,11 +467,15 @@ impl SseParser {
                 Some((f, v)) => (f, v.strip_prefix(' ').unwrap_or(v)),
                 None => (line.as_str(), ""),
             };
-            if field == "data" {
-                if !self.data.is_empty() {
-                    self.data.push('\n');
+            match field {
+                "data" => {
+                    if !self.data.is_empty() {
+                        self.data.push('\n');
+                    }
+                    self.data.push_str(value);
                 }
-                self.data.push_str(value);
+                "event" => self.event_name = Some(value.to_string()),
+                _ => {}
             }
         }
         events
@@ -466,6 +488,42 @@ impl SseParser {
             out.push(std::mem::take(&mut self.data));
         }
         out
+    }
+}
+
+/// `extractText` port (kiro/converters) — pull text out of a chat/anthropic
+/// content value (string, parts array, or {text} object).
+pub fn extract_text(content: &Value) -> String {
+    match content {
+        Value::Null => String::new(),
+        Value::String(s) => s.clone(),
+        Value::Array(parts) => parts
+            .iter()
+            .map(|part| match part {
+                Value::String(s) => s.clone(),
+                Value::Object(o) => match o.get("type").and_then(Value::as_str) {
+                    Some("text") => o
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                    Some("tool_result") => extract_text(o.get("content").unwrap_or(&Value::Null)),
+                    _ => o
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                },
+                _ => String::new(),
+            })
+            .collect::<Vec<_>>()
+            .join(""),
+        Value::Object(o) => o
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        other => other.to_string(),
     }
 }
 
@@ -565,9 +623,8 @@ impl AnthropicSseTransformer {
         self.ensure_message(out);
         self.close_text_block(out);
         if !self.tool_calls.is_empty() {
-            let calls: Vec<(u64, ToolCallAcc)> = std::mem::take(&mut self.tool_calls)
-                .into_iter()
-                .collect();
+            let calls: Vec<(u64, ToolCallAcc)> =
+                std::mem::take(&mut self.tool_calls).into_iter().collect();
             for (index, call) in calls {
                 let tool_index = self.block_index;
                 self.block_index += 1;
@@ -812,7 +869,10 @@ mod tests {
         assert_eq!(out["messages"][0]["role"], "system");
         assert_eq!(out["messages"][1]["content"], "hi");
         // assistant: text + tool_calls
-        assert_eq!(out["messages"][2]["tool_calls"][0]["function"]["name"], "bash");
+        assert_eq!(
+            out["messages"][2]["tool_calls"][0]["function"]["name"],
+            "bash"
+        );
         // tool result becomes role:tool then user text
         assert_eq!(out["messages"][3]["role"], "tool");
         assert_eq!(out["messages"][3]["tool_call_id"], "t1");

@@ -57,7 +57,11 @@ impl OpenRouterProvider {
             .iter()
             .map(|(k, v)| (k.clone(), AccountRuntimeState::from_value(v)))
             .collect();
-        pool.reload(account_files, &mut states, provider_state.current_account_index);
+        pool.reload(
+            account_files,
+            &mut states,
+            provider_state.current_account_index,
+        );
 
         Ok(Self {
             view: Arc::new(CompatView {
@@ -92,10 +96,7 @@ impl CompatRefresh for OpenRouterRefresh {
                 let fresh = acc.state.models_cached_at > 0
                     && now_ms() - acc.state.models_cached_at < MODELS_CACHE_TTL_MS
                     && !acc.state.model_ids.is_empty();
-                (
-                    acc.config.field_str("apiKey").map(str::to_string),
-                    fresh,
-                )
+                (acc.config.field_str("apiKey").map(str::to_string), fresh)
             };
             if fresh {
                 return;
@@ -172,7 +173,10 @@ async fn fetch_key_info(view: &OpenRouterView, api_key: &str) -> anyhow::Result<
         anyhow::bail!(
             "OpenRouter key check failed: HTTP {} {}",
             status,
-            redact_secrets_in_text(&text).chars().take(500).collect::<String>()
+            redact_secrets_in_text(&text)
+                .chars()
+                .take(500)
+                .collect::<String>()
         );
     }
     Ok(payload.get("data").cloned().unwrap_or(Value::Null))
@@ -194,7 +198,10 @@ async fn fetch_models(view: &OpenRouterView, api_key: &str) -> anyhow::Result<Ve
         anyhow::bail!(
             "OpenRouter model list failed: HTTP {} {}",
             status,
-            redact_secrets_in_text(&text).chars().take(500).collect::<String>()
+            redact_secrets_in_text(&text)
+                .chars()
+                .take(500)
+                .collect::<String>()
         );
     }
     Ok(payload
@@ -221,7 +228,10 @@ fn apply_key_info(config: &mut AccountFile, key_info: &Value) {
     );
     config.fields.insert(
         "limitRemaining".into(),
-        key_info.get("limit_remaining").cloned().unwrap_or(Value::Null),
+        key_info
+            .get("limit_remaining")
+            .cloned()
+            .unwrap_or(Value::Null),
     );
     config.fields.insert(
         "usage".into(),
@@ -269,7 +279,11 @@ mod tests {
         let free = filter_models_for_key(&models, &json!({"is_free_tier": true}));
         assert_eq!(
             free,
-            vec!["meta/llama-3.1-8b:free", "openrouter/free", "qwen/qwen3-32b:free"]
+            vec![
+                "meta/llama-3.1-8b:free",
+                "openrouter/free",
+                "qwen/qwen3-32b:free"
+            ]
         );
         let paid = filter_models_for_key(&models, &json!({"is_free_tier": false}));
         assert_eq!(paid.len(), 4);
@@ -283,7 +297,10 @@ mod tests {
             classify_openrouter_error(200, "insufficient credit").kind,
             ResponseKind::Quota
         );
-        assert_eq!(classify_openrouter_error(429, "").kind, ResponseKind::RateLimit);
+        assert_eq!(
+            classify_openrouter_error(429, "").kind,
+            ResponseKind::RateLimit
+        );
         assert_eq!(
             classify_openrouter_error(0, "upstream timeout").kind,
             ResponseKind::Timeout
@@ -362,12 +379,13 @@ impl ProviderAdapter for OpenRouterProvider {
         }
         let response = self.view.non_stream_proxy(&model, &openai_body, ctx).await;
         match response {
-            GatewayResponse::Json { status, body: parsed } if status < 400 => {
-                GatewayResponse::json(
-                    status,
-                    openai_completion_to_anthropic(&parsed, &model, &body),
-                )
-            }
+            GatewayResponse::Json {
+                status,
+                body: parsed,
+            } if status < 400 => GatewayResponse::json(
+                status,
+                openai_completion_to_anthropic(&parsed, &model, &body),
+            ),
             other => other,
         }
     }
@@ -416,6 +434,7 @@ impl ProviderAdapter for OpenRouterProvider {
                     ),
                     models: models.into_iter().take(50).collect(),
                     auth_type: Some("openrouter-api-key".into()),
+                    ..Default::default()
                 }
             }
             Err(e) => {

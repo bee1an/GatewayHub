@@ -114,7 +114,10 @@ fn input_to_messages(input: &Value) -> Vec<Value> {
         if !item.is_object() {
             continue;
         }
-        let ty = item.get("type").and_then(Value::as_str).unwrap_or("message");
+        let ty = item
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("message");
         if ty == "message" || item.get("role").is_some() {
             messages.extend(message_to_chat(item));
         } else if ty == "function_call" {
@@ -205,7 +208,9 @@ fn compact_parts(parts: Vec<Value>) -> Value {
         .into_iter()
         .filter(|p| {
             p.get("type").and_then(Value::as_str) != Some("text")
-                || p.get("text").and_then(Value::as_str).is_some_and(|t| !t.is_empty())
+                || p.get("text")
+                    .and_then(Value::as_str)
+                    .is_some_and(|t| !t.is_empty())
         })
         .collect();
     if normalized.is_empty() {
@@ -229,9 +234,7 @@ fn compact_parts(parts: Vec<Value>) -> Value {
 fn tool_choice_to_chat(choice: &Value) -> Option<Value> {
     match choice {
         Value::Null => None,
-        Value::String(s) if matches!(s.as_str(), "auto" | "required" | "none") => {
-            Some(json!(s))
-        }
+        Value::String(s) if matches!(s.as_str(), "auto" | "required" | "none") => Some(json!(s)),
         Value::Object(_) => {
             if choice.get("type").and_then(Value::as_str) == Some("function")
                 && choice.get("name").is_some()
@@ -464,7 +467,7 @@ fn numeric(value: Option<&Value>) -> u64 {
         .unwrap_or(0)
 }
 
-fn now_secs() -> i64 {
+pub fn now_secs() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -1037,7 +1040,10 @@ mod tests {
             "stream": true,
         });
         let out = responses_request_to_chat(&body);
-        assert_eq!(out["messages"][0], json!({"role": "system", "content": "be brief"}));
+        assert_eq!(
+            out["messages"][0],
+            json!({"role": "system", "content": "be brief"})
+        );
         assert_eq!(out["messages"][1]["content"], "hi");
         assert_eq!(out["messages"][2]["tool_calls"][0]["id"], "c1");
         assert_eq!(out["messages"][3]["role"], "tool");
@@ -1054,7 +1060,10 @@ mod tests {
             "choices": [{"message": {"role": "assistant", "content": "hi there"}, "finish_reason": "stop"}],
             "usage": {"prompt_tokens": 4, "completion_tokens": 2, "total_tokens": 6},
         });
-        let resp = chat_completion_to_responses(&completion, &json!({"model": "m", "instructions": "sys"}));
+        let resp = chat_completion_to_responses(
+            &completion,
+            &json!({"model": "m", "instructions": "sys"}),
+        );
         assert_eq!(resp["object"], "response");
         assert_eq!(resp["status"], "completed");
         assert_eq!(resp["output_text"], "hi there");

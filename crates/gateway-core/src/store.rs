@@ -56,7 +56,7 @@ impl ConfigStore {
                 }
                 GatewayHubState::default()
             }
-            }
+        }
     }
 
     pub fn save_state(&self, state: &GatewayHubState) -> Result<()> {
@@ -135,7 +135,9 @@ impl ConfigStore {
         else {
             return Ok(false);
         };
-        let Some(path) = acc.path else { return Ok(false) };
+        let Some(path) = acc.path else {
+            return Ok(false);
+        };
         match fs::remove_file(&path) {
             Ok(()) => Ok(true),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
@@ -216,10 +218,7 @@ mod tests {
         store.save_config(&cfg).unwrap();
         let loaded = store.load_config();
         assert_eq!(loaded.server.port, 9741);
-        assert_eq!(
-            loaded.providers["kiro"]["settings"]["maxRetries"],
-            json!(2)
-        );
+        assert_eq!(loaded.providers["kiro"]["settings"]["maxRetries"], json!(2));
     }
 
     #[test]

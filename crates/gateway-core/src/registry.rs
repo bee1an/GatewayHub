@@ -59,7 +59,10 @@ impl Registry {
 
     /// `resolve(model)` port: alias map → `provider/model` prefix → error.
     /// Colon-before-slash is rejected to match the colon-notation guard.
-    pub fn resolve(&self, model: &str) -> anyhow::Result<(Arc<dyn ProviderAdapter>, String, String)> {
+    pub fn resolve(
+        &self,
+        model: &str,
+    ) -> anyhow::Result<(Arc<dyn ProviderAdapter>, String, String)> {
         let raw = model;
         let slash = raw.find('/');
         if raw.contains(':') && (slash.is_none() || raw.find(':').unwrap() < slash.unwrap()) {
@@ -136,20 +139,21 @@ impl Registry {
         }
     }
 
-    pub async fn count_tokens(&self, mut body: Value, ctx: &GatewayRequestContext) -> GatewayResponse {
+    pub async fn count_tokens(
+        &self,
+        mut body: Value,
+        ctx: &GatewayRequestContext,
+    ) -> GatewayResponse {
         match self.resolve(body.get("model").and_then(Value::as_str).unwrap_or("")) {
             Ok((provider, model, _)) => {
                 body["model"] = Value::String(model);
-                provider
-                    .count_tokens(body, ctx)
-                    .await
-                    .unwrap_or_else(|| {
-                        GatewayResponse::error(
-                            501,
-                            "count_tokens is not implemented for this provider",
-                            "not_implemented",
-                        )
-                    })
+                provider.count_tokens(body, ctx).await.unwrap_or_else(|| {
+                    GatewayResponse::error(
+                        501,
+                        "count_tokens is not implemented for this provider",
+                        "not_implemented",
+                    )
+                })
             }
             Err(e) => GatewayResponse::error(400, e.to_string(), "invalid_request_error"),
         }

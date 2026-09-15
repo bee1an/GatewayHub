@@ -75,8 +75,8 @@ impl GatewayService {
                 .unwrap_or_default();
             let accounts = store.scan_accounts(name);
             let route = pcfg.route_name.clone().unwrap_or_else(|| name.to_string());
-            let use_proxy = provider::PROXY_CAPABLE.contains(name)
-                && pcfg.use_proxy.unwrap_or(false);
+            let use_proxy =
+                provider::PROXY_CAPABLE.contains(name) && pcfg.use_proxy.unwrap_or(false);
             let proxy_url = if use_proxy { global_proxy.as_str() } else { "" };
 
             // Shared sinks — the TS `onStateChanged` + `persistAccount` +
@@ -133,6 +133,25 @@ impl GatewayService {
                         warn!(error = %e, "nvidia provider init failed");
                         Arc::new(PlaceholderAdapter::new(
                             "nvidia",
+                            format!("init failed: {e}"),
+                            pcfg.enabled,
+                        ))
+                    }
+                },
+                "codex" => match crate::providers::codex::CodexProvider::new(
+                    &pcfg,
+                    accounts,
+                    &pstate,
+                    log,
+                    on_changed,
+                    Some(persist_account),
+                    proxy_url,
+                ) {
+                    Ok(p) => Arc::new(p),
+                    Err(e) => {
+                        warn!(error = %e, "codex provider init failed");
+                        Arc::new(PlaceholderAdapter::new(
+                            "codex",
                             format!("init failed: {e}"),
                             pcfg.enabled,
                         ))
@@ -244,7 +263,10 @@ impl GatewayService {
     }
 
     pub fn start_server(&self) -> Result<()> {
-        let mut guard = self.server.lock().map_err(|_| anyhow::anyhow!("server lock"))?;
+        let mut guard = self
+            .server
+            .lock()
+            .map_err(|_| anyhow::anyhow!("server lock"))?;
         if guard.is_some() {
             return Ok(());
         }

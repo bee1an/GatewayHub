@@ -17,11 +17,9 @@ use crate::protocol::{
     anthropic_messages_to_openai, openai_completion_to_anthropic, openai_sse_to_anthropic,
 };
 use crate::provider::ProviderAdapter;
-use crate::providers::openai_compat::{
-    CompatRefresh, CompatSettings, CompatView, BoxFut,
-};
+use crate::providers::openai_compat::{BoxFut, CompatRefresh, CompatSettings, CompatView};
 use crate::types::{
-    AccountFile, AccountRuntimeState, AccountTestResult, AccountStatus, ClassifiedError,
+    AccountFile, AccountRuntimeState, AccountStatus, AccountTestResult, ClassifiedError,
     GatewayRequestContext, GatewayResponse, JsonMap, ProviderModel, ProviderStatus, ResponseKind,
 };
 
@@ -61,7 +59,11 @@ impl NvidiaProvider {
             .iter()
             .map(|(k, v)| (k.clone(), AccountRuntimeState::from_value(v)))
             .collect();
-        pool.reload(account_files, &mut states, provider_state.current_account_index);
+        pool.reload(
+            account_files,
+            &mut states,
+            provider_state.current_account_index,
+        );
 
         Ok(Self {
             view: Arc::new(CompatView {
@@ -106,7 +108,10 @@ impl NvidiaProvider {
             anyhow::bail!(
                 "NVIDIA key check failed: HTTP {} {}",
                 status,
-                redact_secrets_in_text(&text).chars().take(500).collect::<String>()
+                redact_secrets_in_text(&text)
+                    .chars()
+                    .take(500)
+                    .collect::<String>()
             );
         }
         Ok(())
@@ -125,10 +130,7 @@ impl CompatRefresh for NvidiaRefresh {
                 let fresh = acc.state.models_cached_at > 0
                     && now_ms() - acc.state.models_cached_at < MODELS_CACHE_TTL_MS
                     && !acc.state.model_ids.is_empty();
-                (
-                    acc.config.field_str("apiKey").map(str::to_string),
-                    fresh,
-                )
+                (acc.config.field_str("apiKey").map(str::to_string), fresh)
             };
             if fresh {
                 return;
@@ -217,8 +219,7 @@ async fn mark_auth_if(view: &NvidiaView, account_id: &str, status: u16, text: &s
     let mut pool = view.pool.lock().await;
     if let Some(acc) = pool.find_mut(account_id) {
         acc.state.status = AccountStatus::AuthFailed;
-        acc.state.status_reason =
-            Some(redact_secrets_in_text(text).chars().take(200).collect());
+        acc.state.status_reason = Some(redact_secrets_in_text(text).chars().take(200).collect());
         acc.state.status_updated_at = now_ms();
     }
 }
@@ -274,12 +275,13 @@ impl ProviderAdapter for NvidiaProvider {
         }
         let response = self.view.non_stream_proxy(&model, &openai_body, ctx).await;
         match response {
-            GatewayResponse::Json { status, body: parsed } if status < 400 => {
-                GatewayResponse::json(
-                    status,
-                    openai_completion_to_anthropic(&parsed, &model, &body),
-                )
-            }
+            GatewayResponse::Json {
+                status,
+                body: parsed,
+            } if status < 400 => GatewayResponse::json(
+                status,
+                openai_completion_to_anthropic(&parsed, &model, &body),
+            ),
             other => other,
         }
     }
@@ -300,9 +302,7 @@ impl ProviderAdapter for NvidiaProvider {
         };
         match self.check_api_key(&key).await {
             Ok(()) => {
-                NvidiaRefresh
-                    .maybe_refresh(&self.view, account_id)
-                    .await;
+                NvidiaRefresh.maybe_refresh(&self.view, account_id).await;
                 let models = {
                     let mut pool = self.view.pool.lock().await;
                     if let Some(acc) = pool.find_mut(account_id) {
@@ -323,6 +323,7 @@ impl ProviderAdapter for NvidiaProvider {
                     ),
                     models: models.into_iter().take(50).collect(),
                     auth_type: Some("nvidia-api-key".into()),
+                    ..Default::default()
                 }
             }
             Err(e) => {
@@ -355,9 +356,7 @@ impl ProviderAdapter for NvidiaProvider {
                 anyhow::bail!("Account not found");
             }
         }
-        NvidiaRefresh
-            .maybe_refresh(&self.view, account_id)
-            .await;
+        NvidiaRefresh.maybe_refresh(&self.view, account_id).await;
         Ok(self
             .view
             .pool
@@ -447,7 +446,9 @@ pub fn classify_nvidia_error(status: u16, body: &str) -> ClassifiedError {
     let is = |pats: &[&str]| pats.iter().any(|p| msg.contains(p));
     if status == 401
         || status == 403
-        || (is(&["http 401", "http 403"]) || (is(&["invalid"]) && is(&["key"])) || is(&["unauthorized"]))
+        || (is(&["http 401", "http 403"])
+            || (is(&["invalid"]) && is(&["key"]))
+            || is(&["unauthorized"]))
     {
         return ClassifiedError {
             kind: ResponseKind::Auth,

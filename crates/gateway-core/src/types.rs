@@ -471,6 +471,7 @@ pub struct AccountTestResult {
     pub message: String,
     pub models: Vec<String>,
     pub auth_type: Option<String>,
+    pub expires_at: Option<String>,
 }
 
 #[derive(Debug, Clone)]

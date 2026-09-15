@@ -9,8 +9,8 @@ use std::time::Duration;
 use futures::{Stream, StreamExt};
 use serde_json::{Value, json};
 
-use crate::types::UsageStats;
 use crate::providers::kiro_convert::{anthropic_input_tokens, estimate_tokens};
+use crate::types::UsageStats;
 
 const PARSER_BUFFER_SOFT_LIMIT: usize = 1024 * 1024;
 const DEDUPE_MIN_LENGTH: usize = 32;
@@ -164,7 +164,10 @@ impl AwsEventStreamParser {
                         .and_then(Value::as_str)
                         .map(str::to_string)
                         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
-                    data.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
+                    data.get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
                 ));
                 self.current_inputs = Vec::new();
                 self.append_tool_input(data.get("input"));
@@ -199,9 +202,13 @@ impl AwsEventStreamParser {
                     _ => None,
                 }
             }
-            "usage" => Some(KiroEvent::Usage(data.get("usage").cloned().unwrap_or(Value::Null))),
+            "usage" => Some(KiroEvent::Usage(
+                data.get("usage").cloned().unwrap_or(Value::Null),
+            )),
             "context_usage" => Some(KiroEvent::ContextUsage(
-                data.get("contextUsagePercentage").cloned().unwrap_or(Value::Null),
+                data.get("contextUsagePercentage")
+                    .cloned()
+                    .unwrap_or(Value::Null),
             )),
             _ => None,
         }
@@ -252,7 +259,11 @@ impl ThinkingTagParser {
         let mut text = format!("{}{}", self.carry, content);
         self.carry.clear();
         while !text.is_empty() {
-            let tag = if self.in_thinking { "</thinking>" } else { "<thinking>" };
+            let tag = if self.in_thinking {
+                "</thinking>"
+            } else {
+                "<thinking>"
+            };
             match text.find(tag) {
                 None => {
                     let carry = tag_prefix_suffix(&text, tag);
@@ -407,11 +418,25 @@ pub fn extract_upstream_usage(raw: &Value) -> Option<UsageStats> {
     }
     let input = pick_number(raw, &["input_tokens", "inputTokens", "prompt_tokens"]);
     let output = pick_number(raw, &["output_tokens", "outputTokens", "completion_tokens"]);
-    let cache_read = pick_number(raw, &["cache_read_input_tokens", "cacheReadInputTokens", "cached_tokens"]);
-    let creation = raw.get("cache_creation").or_else(|| raw.get("cacheCreation"));
-    let w5m = creation.and_then(|c| pick_number(c, &["ephemeral_5m_input_tokens", "ephemeral5mInputTokens"]));
-    let w1h = creation.and_then(|c| pick_number(c, &["ephemeral_1h_input_tokens", "ephemeral1hInputTokens"]));
-    let creation_total = pick_number(raw, &["cache_creation_input_tokens", "cacheCreationInputTokens"]);
+    let cache_read = pick_number(
+        raw,
+        &[
+            "cache_read_input_tokens",
+            "cacheReadInputTokens",
+            "cached_tokens",
+        ],
+    );
+    let creation = raw
+        .get("cache_creation")
+        .or_else(|| raw.get("cacheCreation"));
+    let w5m = creation
+        .and_then(|c| pick_number(c, &["ephemeral_5m_input_tokens", "ephemeral5mInputTokens"]));
+    let w1h = creation
+        .and_then(|c| pick_number(c, &["ephemeral_1h_input_tokens", "ephemeral1hInputTokens"]));
+    let creation_total = pick_number(
+        raw,
+        &["cache_creation_input_tokens", "cacheCreationInputTokens"],
+    );
     if input.is_none() && output.is_none() && cache_read.is_none() && creation_total.is_none() {
         return None;
     }
@@ -482,10 +507,16 @@ fn safe_json(v: &Value) -> Value {
 }
 
 fn sse_data(v: &Value) -> String {
-    format!("data: {}\n\n", serde_json::to_string(v).unwrap_or_else(|_| "{}".into()))
+    format!(
+        "data: {}\n\n",
+        serde_json::to_string(v).unwrap_or_else(|_| "{}".into())
+    )
 }
 fn sse_event(event: &str, data: &Value) -> String {
-    format!("event: {event}\ndata: {}\n\n", serde_json::to_string(data).unwrap_or_else(|_| "{}".into()))
+    format!(
+        "event: {event}\ndata: {}\n\n",
+        serde_json::to_string(data).unwrap_or_else(|_| "{}".into())
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -535,7 +566,11 @@ fn dedupe_tool_calls(tools: Vec<Value>) -> Vec<Value> {
             let merged = merge_tool_input(entry.2.clone(), next_input.clone());
             let prefer_new = next_input.as_object().map(|o| o.len()).unwrap_or(0)
                 > entry.2.as_object().map(|o| o.len()).unwrap_or(0);
-            entry.1 = if prefer_new { tool.clone() } else { entry.1.clone() };
+            entry.1 = if prefer_new {
+                tool.clone()
+            } else {
+                entry.1.clone()
+            };
             entry.2 = merged;
         } else {
             order.push(identity.clone());
@@ -622,7 +657,10 @@ fn merge_tool_input(target: Value, patch: Value) -> Value {
     for (k, v) in p {
         match (t.get(&k).cloned(), v) {
             (Some(Value::Object(prev)), Value::Object(next)) => {
-                t.insert(k, merge_tool_input(Value::Object(prev), Value::Object(next)));
+                t.insert(
+                    k,
+                    merge_tool_input(Value::Object(prev), Value::Object(next)),
+                );
             }
             (Some(Value::String(prev)), Value::String(next)) => {
                 t.insert(k, Value::String(merge_string_fragment(&prev, &next)));

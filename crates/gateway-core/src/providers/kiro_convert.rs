@@ -70,9 +70,16 @@ pub fn normalize_kiro_model_id(model: &str) -> String {
 }
 
 /// `buildKiroPayloadFromOpenAI`.
-pub fn build_kiro_payload_from_openai(body: &Value, model: &str, profile_arn: &str) -> anyhow::Result<Value> {
+pub fn build_kiro_payload_from_openai(
+    body: &Value,
+    model: &str,
+    profile_arn: &str,
+) -> anyhow::Result<Value> {
     let (system, mut messages) = openai_messages_to_unified(
-        body.get("messages").and_then(Value::as_array).cloned().unwrap_or_default(),
+        body.get("messages")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
     );
     let tools = openai_tools_to_unified(body.get("tools"));
     build_kiro_payload(
@@ -86,7 +93,11 @@ pub fn build_kiro_payload_from_openai(body: &Value, model: &str, profile_arn: &s
 }
 
 /// `buildKiroPayloadFromAnthropic`.
-pub fn build_kiro_payload_from_anthropic(body: &Value, model: &str, profile_arn: &str) -> anyhow::Result<Value> {
+pub fn build_kiro_payload_from_anthropic(
+    body: &Value,
+    model: &str,
+    profile_arn: &str,
+) -> anyhow::Result<Value> {
     let system = match body.get("system") {
         Some(Value::String(s)) => s.clone(),
         other => extract_text(other.unwrap_or(&Value::Null)),
@@ -98,7 +109,11 @@ pub fn build_kiro_payload_from_anthropic(body: &Value, model: &str, profile_arn:
         .unwrap_or_default()
         .iter()
         .map(|msg| UnifiedMessage {
-            role: msg.get("role").and_then(Value::as_str).unwrap_or("user").to_string(),
+            role: msg
+                .get("role")
+                .and_then(Value::as_str)
+                .unwrap_or("user")
+                .to_string(),
             content: extract_text(msg.get("content").unwrap_or(&Value::Null)),
             tool_calls: extract_tool_uses(msg.get("content").unwrap_or(&Value::Null)),
             tool_results: extract_tool_results(msg.get("content").unwrap_or(&Value::Null)),
@@ -139,7 +154,11 @@ fn build_kiro_payload(
             && prev.role == m.role
         {
             alt.push(UnifiedMessage {
-                role: if prev.role == "user" { "assistant".into() } else { "user".into() },
+                role: if prev.role == "user" {
+                    "assistant".into()
+                } else {
+                    "user".into()
+                },
                 content: EMPTY_MESSAGE_PLACEHOLDER.into(),
                 ..Default::default()
             });
@@ -217,7 +236,11 @@ fn build_kiro_payload(
         results = extract_tool_results(&json!(current.content));
     }
     let tool_results = tool_results_to_kiro(&results);
-    if !tool_results.is_empty() && context.get("tools").is_some_and(|t| !t.as_array().is_none_or(|a| a.is_empty())) {
+    if !tool_results.is_empty()
+        && context
+            .get("tools")
+            .is_some_and(|t| !t.as_array().is_none_or(|a| a.is_empty()))
+    {
         context["toolResults"] = Value::Array(tool_results);
     }
     if context.as_object().is_some_and(|o| !o.is_empty()) {
@@ -293,7 +316,11 @@ fn openai_messages_to_unified(messages: Vec<Value>) -> (String, Vec<UnifiedMessa
         });
     }
     (
-        system.into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\n"),
+        system
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n"),
         result,
     )
 }
@@ -306,7 +333,11 @@ fn openai_tools_to_unified(tools: Option<&Value>) -> Vec<UnifiedTool> {
                 .map(|tool| {
                     let f = tool.get("function").unwrap_or(tool);
                     UnifiedTool {
-                        name: f.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
+                        name: f
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string(),
                         description: f
                             .get("description")
                             .and_then(Value::as_str)
@@ -335,19 +366,27 @@ fn anthropic_tools_to_unified(tools: Option<&Value>) -> Vec<UnifiedTool> {
         .and_then(Value::as_array)
         .map(|arr| {
             arr.iter()
-                .filter(|t| {
-                    t.get("type").is_none() || t.get("input_schema").is_some()
-                })
+                .filter(|t| t.get("type").is_none() || t.get("input_schema").is_some())
                 .map(|tool| UnifiedTool {
-                    name: tool.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
+                    name: tool
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
                     description: tool
                         .get("description")
                         .and_then(Value::as_str)
                         .map(str::to_string)
                         .unwrap_or_else(|| {
-                            format!("Tool: {}", tool.get("name").and_then(Value::as_str).unwrap_or(""))
+                            format!(
+                                "Tool: {}",
+                                tool.get("name").and_then(Value::as_str).unwrap_or("")
+                            )
                         }),
-                    input_schema: tool.get("input_schema").cloned().unwrap_or_else(|| json!({})),
+                    input_schema: tool
+                        .get("input_schema")
+                        .cloned()
+                        .unwrap_or_else(|| json!({})),
                 })
                 .filter(|t| !t.name.is_empty())
                 .collect()

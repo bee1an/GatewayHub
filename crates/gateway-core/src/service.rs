@@ -157,6 +157,25 @@ impl GatewayService {
                         ))
                     }
                 },
+                "windsurf" => match crate::providers::windsurf::WindsurfProvider::new(
+                    &pcfg,
+                    accounts,
+                    &pstate,
+                    log,
+                    on_changed,
+                    Some(persist_account),
+                    proxy_url,
+                ) {
+                    Ok(p) => Arc::new(p),
+                    Err(e) => {
+                        warn!(error = %e, "windsurf provider init failed");
+                        Arc::new(PlaceholderAdapter::new(
+                            "windsurf",
+                            format!("init failed: {e}"),
+                            pcfg.enabled,
+                        ))
+                    }
+                },
                 "codex" => match crate::providers::codex::CodexProvider::new(
                     &pcfg,
                     accounts,

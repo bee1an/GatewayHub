@@ -39,7 +39,10 @@ pub fn machine_fingerprint() -> String {
     let who = std::env::var("USER")
         .or_else(|_| std::env::var("USERNAME"))
         .unwrap_or_else(|_| "unknown".into());
-    format!("{:x}", sha2::Sha256::digest(format!("{host}-{who}-gatewayhub")))
+    format!(
+        "{:x}",
+        sha2::Sha256::digest(format!("{host}-{who}-gatewayhub"))
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,11 +108,7 @@ impl KiroAuth {
         };
         let sso_region = {
             let r = field("region");
-            if !r.is_empty() {
-                r
-            } else {
-                region.to_string()
-            }
+            if !r.is_empty() { r } else { region.to_string() }
         };
         let api_region = api_region
             .map(str::to_string)
@@ -328,7 +327,10 @@ impl KiroAuth {
             ),
             ("x-amzn-codewhisperer-optout".into(), "true".into()),
             ("x-amzn-kiro-agent-mode".into(), "vibe".into()),
-            ("amz-sdk-invocation-id".into(), uuid::Uuid::new_v4().to_string()),
+            (
+                "amz-sdk-invocation-id".into(),
+                uuid::Uuid::new_v4().to_string(),
+            ),
             ("amz-sdk-request".into(), "attempt=1; max=3".into()),
         ]
     }

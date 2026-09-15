@@ -81,8 +81,7 @@ impl crate::pool::PoolBehavior for KiroBehavior {
         } else {
             account.state.model_ids.clone()
         };
-        list.iter()
-            .any(|m| normalize_kiro_model_id(m) == model)
+        list.iter().any(|m| normalize_kiro_model_id(m) == model)
     }
     fn seed_models(&self) -> Vec<String> {
         FALLBACK_MODELS.iter().map(|s| s.to_string()).collect()
@@ -146,11 +145,12 @@ impl KiroRequestLimiter {
     async fn acquire(
         &self,
         body: &Value,
-    ) -> (tokio::sync::SemaphorePermit<'_>, Option<tokio::sync::SemaphorePermit<'_>>) {
-        let is_large = serde_json::to_string(body)
-            .map(|s| s.len())
-            .unwrap_or(0)
-            > self.large_prompt_bytes;
+    ) -> (
+        tokio::sync::SemaphorePermit<'_>,
+        Option<tokio::sync::SemaphorePermit<'_>>,
+    ) {
+        let is_large =
+            serde_json::to_string(body).map(|s| s.len()).unwrap_or(0) > self.large_prompt_bytes;
         // large requests hold both slots (TS limiter semantics)
         let normal = if is_large {
             Some(self.slots.acquire().await.expect("slots closed"))
@@ -206,7 +206,11 @@ impl KiroProvider {
             .iter()
             .map(|(k, v)| (k.clone(), AccountRuntimeState::from_value(v)))
             .collect();
-        pool.reload(account_files, &mut states, provider_state.current_account_index);
+        pool.reload(
+            account_files,
+            &mut states,
+            provider_state.current_account_index,
+        );
 
         Ok(Self {
             core: Arc::new(KiroCore {
@@ -308,7 +312,10 @@ impl KiroCore {
             self.http.client(),
             Some(on_change),
         )?);
-        self.auths.lock().await.insert(account_id.to_string(), auth.clone());
+        self.auths
+            .lock()
+            .await
+            .insert(account_id.to_string(), auth.clone());
         Ok(auth)
     }
 
@@ -462,9 +469,23 @@ impl KiroCore {
                         self.settings.streaming_read_timeout,
                     );
                     let result = if format == "openai" {
-                        openai_json_from_kiro(events, model, body, ctx.on_usage.as_ref(), &account.config.id).await
+                        openai_json_from_kiro(
+                            events,
+                            model,
+                            body,
+                            ctx.on_usage.as_ref(),
+                            &account.config.id,
+                        )
+                        .await
                     } else {
-                        anthropic_json_from_kiro(events, model, body, ctx.on_usage.as_ref(), &account.config.id).await
+                        anthropic_json_from_kiro(
+                            events,
+                            model,
+                            body,
+                            ctx.on_usage.as_ref(),
+                            &account.config.id,
+                        )
+                        .await
                     };
                     match result {
                         Ok(parsed) => {
@@ -499,7 +520,11 @@ impl KiroCore {
                 }
                 Err(e) => {
                     if ctx.cancel.is_cancelled() {
-                        return GatewayResponse::error(499, "Client aborted request", "client_aborted");
+                        return GatewayResponse::error(
+                            499,
+                            "Client aborted request",
+                            "client_aborted",
+                        );
                     }
                     last_error = e.to_string();
                     let classified = classify_kiro_error(&last_error);
@@ -528,7 +553,11 @@ impl KiroCore {
         }
         let message = format!(
             "Kiro request failed: {}",
-            if last_error.is_empty() { "No available accounts".into() } else { last_error }
+            if last_error.is_empty() {
+                "No available accounts".into()
+            } else {
+                last_error
+            }
         );
         GatewayResponse::error(502, message, "gateway_error")
     }
@@ -649,7 +678,9 @@ impl KiroCore {
             && let Some((at, models)) = self.models_cache.lock().await.get(account_id)
             && now_ms() - *at < MODELS_CACHE_TTL_MS
         {
-            return Ok(json!({ "models": models.iter().map(|m| json!({"modelId": m, "modelName": m})).collect::<Vec<_>>() }));
+            return Ok(
+                json!({ "models": models.iter().map(|m| json!({"modelId": m, "modelName": m})).collect::<Vec<_>>() }),
+            );
         }
         let auth = self.ensure_auth(account_id).await?;
         let mut params = vec![("origin", "AI_EDITOR")];
@@ -693,7 +724,9 @@ impl KiroCore {
                     None,
                     None,
                 );
-                Ok(json!({ "models": FALLBACK_MODELS.iter().map(|m| json!({"modelId": m, "modelName": m})).collect::<Vec<_>>() }))
+                Ok(
+                    json!({ "models": FALLBACK_MODELS.iter().map(|m| json!({"modelId": m, "modelName": m})).collect::<Vec<_>>() }),
+                )
             }
         }
     }
@@ -755,32 +788,56 @@ impl ProviderAdapter for KiroProvider {
 
     async fn chat_completions(&self, body: Value, ctx: &GatewayRequestContext) -> GatewayResponse {
         let model = normalize_kiro_model_id(
-            body.get("model").and_then(Value::as_str).unwrap_or(DEFAULT_KIRO_MODEL),
+            body.get("model")
+                .and_then(Value::as_str)
+                .unwrap_or(DEFAULT_KIRO_MODEL),
         );
         let stream = body.get("stream").and_then(Value::as_bool) != Some(false);
         if stream {
             return GatewayResponse::Sse {
                 status: 200,
-                stream: Box::pin(self.core.clone().stream("openai", model.clone(), model, body, ctx)),
+                stream: Box::pin(self.core.clone().stream(
+                    "openai",
+                    model.clone(),
+                    model,
+                    body,
+                    ctx,
+                )),
             };
         }
-        self.core.non_stream("openai", &model, &model, &body, ctx).await
+        self.core
+            .non_stream("openai", &model, &model, &body, ctx)
+            .await
     }
 
     async fn messages(&self, body: Value, ctx: &GatewayRequestContext) -> GatewayResponse {
         let model = normalize_kiro_model_id(
-            body.get("model").and_then(Value::as_str).unwrap_or(DEFAULT_KIRO_MODEL),
+            body.get("model")
+                .and_then(Value::as_str)
+                .unwrap_or(DEFAULT_KIRO_MODEL),
         );
         if body.get("stream").and_then(Value::as_bool) == Some(true) {
             return GatewayResponse::Sse {
                 status: 200,
-                stream: Box::pin(self.core.clone().stream("anthropic", model.clone(), model, body, ctx)),
+                stream: Box::pin(self.core.clone().stream(
+                    "anthropic",
+                    model.clone(),
+                    model,
+                    body,
+                    ctx,
+                )),
             };
         }
-        self.core.non_stream("anthropic", &model, &model, &body, ctx).await
+        self.core
+            .non_stream("anthropic", &model, &model, &body, ctx)
+            .await
     }
 
-    async fn count_tokens(&self, body: Value, _ctx: &GatewayRequestContext) -> Option<GatewayResponse> {
+    async fn count_tokens(
+        &self,
+        body: Value,
+        _ctx: &GatewayRequestContext,
+    ) -> Option<GatewayResponse> {
         Some(GatewayResponse::json(
             200,
             json!({ "input_tokens": anthropic_input_tokens(&body) }),
@@ -869,7 +926,9 @@ impl ProviderAdapter for KiroProvider {
         let usage_fut = async {
             let arn = auth.profile_arn().await;
             if arn.is_empty() {
-                return Err(anyhow::anyhow!("profileArn is not available for this account"));
+                return Err(anyhow::anyhow!(
+                    "profileArn is not available for this account"
+                ));
             }
             auth.api_get(
                 "/getUsageLimits",
@@ -999,32 +1058,60 @@ pub fn classify_kiro_error(raw: &str) -> ClassifiedError {
         || msg.contains("token refresh failed")
         || msg.contains("failed to obtain kiro access token")
     {
-        return ClassifiedError { kind: ResponseKind::Auth, cooldown_ms: 0, reset_at_iso: None };
+        return ClassifiedError {
+            kind: ResponseKind::Auth,
+            cooldown_ms: 0,
+            reset_at_iso: None,
+        };
     }
     if status == 401 || status == 403 {
-        return ClassifiedError { kind: ResponseKind::Auth, cooldown_ms: 0, reset_at_iso: None };
+        return ClassifiedError {
+            kind: ResponseKind::Auth,
+            cooldown_ms: 0,
+            reset_at_iso: None,
+        };
     }
     if status == 429 {
         if regex::Regex::new(r"monthly|quota|usage limit|overage cap|monthly limit|throttling")
             .unwrap()
             .is_match(&msg)
         {
-            return ClassifiedError { kind: ResponseKind::Quota, cooldown_ms: 60 * 60_000, reset_at_iso: None };
+            return ClassifiedError {
+                kind: ResponseKind::Quota,
+                cooldown_ms: 60 * 60_000,
+                reset_at_iso: None,
+            };
         }
-        return ClassifiedError { kind: ResponseKind::RateLimit, cooldown_ms: 60_000, reset_at_iso: None };
+        return ClassifiedError {
+            kind: ResponseKind::RateLimit,
+            cooldown_ms: 60_000,
+            reset_at_iso: None,
+        };
     }
     if status == 400
         && (msg.contains("invalid_model_id")
             || msg.contains("invalid model id")
             || msg.contains("select a different model"))
     {
-        return ClassifiedError { kind: ResponseKind::ModelError, cooldown_ms: 0, reset_at_iso: None };
+        return ClassifiedError {
+            kind: ResponseKind::ModelError,
+            cooldown_ms: 0,
+            reset_at_iso: None,
+        };
     }
     if (500..600).contains(&status) {
-        return ClassifiedError { kind: ResponseKind::ServerError, cooldown_ms: 30_000, reset_at_iso: None };
+        return ClassifiedError {
+            kind: ResponseKind::ServerError,
+            cooldown_ms: 30_000,
+            reset_at_iso: None,
+        };
     }
     if msg.contains("first token timeout") || msg.contains("timeout") {
-        return ClassifiedError { kind: ResponseKind::Timeout, cooldown_ms: 30_000, reset_at_iso: None };
+        return ClassifiedError {
+            kind: ResponseKind::Timeout,
+            cooldown_ms: 30_000,
+            reset_at_iso: None,
+        };
     }
     if msg.contains("fetch failed")
         || msg.contains("econnrefused")
@@ -1032,9 +1119,17 @@ pub fn classify_kiro_error(raw: &str) -> ClassifiedError {
         || msg.contains("enotfound")
         || msg.contains("network")
     {
-        return ClassifiedError { kind: ResponseKind::Network, cooldown_ms: 15_000, reset_at_iso: None };
+        return ClassifiedError {
+            kind: ResponseKind::Network,
+            cooldown_ms: 15_000,
+            reset_at_iso: None,
+        };
     }
-    ClassifiedError { kind: ResponseKind::ServerError, cooldown_ms: 30_000, reset_at_iso: None }
+    ClassifiedError {
+        kind: ResponseKind::ServerError,
+        cooldown_ms: 30_000,
+        reset_at_iso: None,
+    }
 }
 
 fn kiro_settings(settings: &JsonMap) -> KiroSettings {

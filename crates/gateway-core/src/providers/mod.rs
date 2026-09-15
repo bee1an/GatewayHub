@@ -9,3 +9,7 @@ pub mod kiro_stream;
 pub mod nvidia;
 pub mod openai_compat;
 pub mod openrouter;
+pub mod windsurf;
+pub mod windsurf_cascade;
+pub mod windsurf_connect;
+pub mod windsurf_stream;

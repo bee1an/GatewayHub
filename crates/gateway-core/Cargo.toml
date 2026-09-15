@@ -36,6 +36,7 @@ base64 = { workspace = true }
 aes = "0.9.3"
 cbc = "0.2.1"
 cipher = { version = "0.5.2", features = ["block-padding"] }
+sha1 = "0.11.0"
 
 [dev-dependencies]
 tempfile = "3.23.0"

@@ -252,6 +252,27 @@ impl GatewayService {
                         ))
                     }
                 },
+                "geminiweb" | "geminiWeb" => {
+                    match crate::providers::geminiweb::GeminiWebProvider::new(
+                        &pcfg,
+                        accounts,
+                        &pstate,
+                        log,
+                        on_changed,
+                        Some(persist_account),
+                        proxy_url,
+                    ) {
+                        Ok(p) => Arc::new(p),
+                        Err(e) => {
+                            warn!(error = %e, "geminiweb provider init failed");
+                            Arc::new(PlaceholderAdapter::new(
+                                "geminiWeb",
+                                format!("init failed: {e}"),
+                                pcfg.enabled,
+                            ))
+                        }
+                    }
+                }
                 "grokweb" | "grokWeb" => match crate::providers::grokweb::GrokWebProvider::new(
                     &pcfg,
                     accounts,

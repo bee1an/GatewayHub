@@ -56,14 +56,14 @@ type UsageDetail = {
 }
 
 const SLICE_COLORS = [
-  '#5b9dff', // aether
-  '#22d3ee', // cyan
-  '#34d399', // emerald
-  '#a78bfa', // violet
-  '#f59e0b', // warning
-  '#f472b6', // amethyst-ish
-  '#94a3b8', // steel
-  '#fb7185'
+  '#83a598', // aether
+  '#8ec07c', // cyan
+  '#b8bb26', // emerald
+  '#d3869b', // violet
+  '#fabd2f', // warning
+  '#b16286', // amethyst-ish
+  '#a89984', // steel
+  '#fb4934'
 ]
 
 type Range = '7d' | '30d'
@@ -280,13 +280,13 @@ export default function Usage(props: UsageProps = {}): React.JSX.Element {
                     />
                   )}
                   {showCredits ? (
-                    <Bar dataKey="credits" fill="#a78bfa" />
+                    <Bar dataKey="credits" fill="#d3869b" />
                   ) : (
                     <>
-                      <Bar dataKey="input" stackId="t" fill="#5b9dff" />
-                      <Bar dataKey="cacheRead" stackId="t" fill="#22d3ee" />
-                      <Bar dataKey="cacheWrite" stackId="t" fill="#a78bfa" />
-                      <Bar dataKey="output" stackId="t" fill="#34d399" />
+                      <Bar dataKey="input" stackId="t" fill="#83a598" />
+                      <Bar dataKey="cacheRead" stackId="t" fill="#8ec07c" />
+                      <Bar dataKey="cacheWrite" stackId="t" fill="#d3869b" />
+                      <Bar dataKey="output" stackId="t" fill="#b8bb26" />
                     </>
                   )}
                 </BarChart>
@@ -321,7 +321,7 @@ export default function Usage(props: UsageProps = {}): React.JSX.Element {
                   <Line
                     type="monotone"
                     dataKey="cost"
-                    stroke="#22d3ee"
+                    stroke="#8ec07c"
                     strokeWidth={2}
                     dot={false}
                   />

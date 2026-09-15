@@ -64,7 +64,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
           <SelectPrimitive.Content
             position="popper"
             sideOffset={4}
-            className="z-50 min-w-[var(--radix-select-trigger-width)] max-h-[240px] overflow-hidden rounded-[var(--radius-md)] bg-slate border border-charcoal shadow-[var(--shadow-xl)] animate-in fade-in-0 zoom-in-95"
+            className="z-50 min-w-[var(--radix-select-trigger-width)] max-h-[240px] overflow-hidden rounded-[var(--radius-md)] glass-strong border border-[var(--glass-border-strong)] animate-in fade-in-0 zoom-in-95"
           >
             <SelectPrimitive.Viewport className="p-1">
               {options.map((opt) => (
@@ -97,7 +97,7 @@ function SelectItem({
     <SelectPrimitive.Item
       value={value}
       disabled={disabled}
-      className={`relative flex items-center px-2 py-1.5 rounded-[var(--radius-sm)] text-[12px] text-steel outline-none select-none cursor-default data-[highlighted]:bg-charcoal data-[highlighted]:text-porcelain data-[disabled]:opacity-40 data-[disabled]:pointer-events-none ${mono ? 'font-mono' : ''}`}
+      className={`relative flex items-center px-2 py-1.5 rounded-[var(--radius-sm)] text-[12px] text-steel outline-none select-none cursor-default data-[highlighted]:bg-[var(--glass-bg)] data-[highlighted]:text-porcelain data-[disabled]:opacity-40 data-[disabled]:pointer-events-none ${mono ? 'font-mono' : ''}`}
     >
       <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
       <SelectPrimitive.ItemIndicator className="ml-auto pl-2">

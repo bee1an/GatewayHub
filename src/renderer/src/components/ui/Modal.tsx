@@ -30,7 +30,7 @@ export function Modal({
             {showClose && (
               <Dialog.Close
                 aria-label={t('common.close') || 'Close'}
-                className="text-fog hover:text-porcelain transition-colors p-1 rounded-[var(--radius-sm)] hover:bg-charcoal outline-none focus-visible:ring-1 focus-visible:ring-accent/60 focus-visible:ring-offset-1 focus-visible:ring-offset-pitch"
+                className="text-fog hover:text-porcelain transition-colors p-1 rounded-[var(--radius-sm)] hover:bg-[var(--glass-bg)] outline-none focus-visible:ring-1 focus-visible:ring-accent/60 focus-visible:ring-offset-1 focus-visible:ring-offset-pitch"
               >
                 <span className="i-ph-x text-[14px] block" aria-hidden="true" />
               </Dialog.Close>

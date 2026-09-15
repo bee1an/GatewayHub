@@ -19,7 +19,7 @@ export function TooltipWrapper({
           <Tooltip.Content
             side={side}
             sideOffset={4}
-            className="pointer-events-none px-2 py-1 rounded-[4px] bg-charcoal text-porcelain text-[12px] font-medium shadow-[var(--shadow-sm)] z-50 animate-in fade-in-0 zoom-in-95 max-w-[280px] break-words"
+            className="pointer-events-none px-2 py-1 rounded-[var(--radius-md)] glass-strong border border-[var(--glass-border)] text-porcelain text-[12px] font-medium z-50 animate-in fade-in-0 zoom-in-95 max-w-[280px] break-words"
           >
             {content}
             <Tooltip.Arrow className="fill-charcoal" />

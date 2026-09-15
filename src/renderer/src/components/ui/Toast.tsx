@@ -17,9 +17,10 @@ export function ToastProvider({ children }: { children: ReactNode }): React.JSX.
         closeButton
         toastOptions={{
           classNames: {
-            toast: '!bg-graphite !border-charcoal !text-porcelain',
+            toast:
+              '!bg-[var(--glass-bg-strong)] !backdrop-blur-[18px] !border-[var(--glass-border-strong)] !text-porcelain',
             description: '!text-fog',
-            closeButton: '!bg-charcoal !border-gunmetal !text-porcelain'
+            closeButton: '!bg-[var(--glass-bg)] !border-[var(--glass-border)] !text-porcelain'
           }
         }}
       />

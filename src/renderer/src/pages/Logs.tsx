@@ -619,7 +619,7 @@ function RequestTracePanel({
   }
 
   return (
-    <div className="fixed inset-y-0 right-0 z-40 flex w-[560px] max-w-[80vw] flex-col border-l border-charcoal bg-graphite shadow-2xl">
+    <div className="fixed inset-y-0 right-0 z-40 flex w-[560px] max-w-[80vw] flex-col border-l border-[var(--glass-border-strong)] glass-strong">
       <div className="flex shrink-0 items-center gap-2 border-b border-charcoal/60 px-4 py-2.5">
         <span className="i-ph-timeline text-[14px] text-storm" aria-hidden="true" />
         <span className="text-[13px] font-medium text-porcelain">{t('logs.trace')}</span>

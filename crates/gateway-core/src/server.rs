@@ -20,6 +20,7 @@ use tracing::info;
 
 use crate::apikey::safe_equal;
 use crate::registry::Registry;
+use crate::responses_api;
 use crate::session::derive_gateway_session;
 use crate::types::{
     ApiFormat, ApiKeyEntry, GatewayRequestContext, GatewayResponse, GatewayServerConfig,
@@ -426,19 +427,43 @@ async fn count_tokens(
     gateway_response(state.registry.count_tokens(body, &ctx).await)
 }
 
-/// Responses API → translated to chat-completions upstream and back.
-/// `responsesApi` conversion lands with the protocol port; until then this
-/// preserves the endpoint contract.
+/// `/v1/responses` + `/responses` — the TS `toResponsesGatewayResponse`
+/// flow: convert the request down to chat-completions, dispatch, wrap the
+/// response (JSON or SSE) back up into Responses-API shape.
 async fn responses_compat(
-    State(_state): State<ServerState>,
-    axum::Extension(_key): axum::Extension<ApiKeyEntry>,
-    Json(_body): Json<Value>,
+    State(state): State<ServerState>,
+    axum::Extension(key): axum::Extension<ApiKeyEntry>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
 ) -> Response {
-    json_error(
-        StatusCode::NOT_IMPLEMENTED,
-        "Responses API translation is being ported to the Rust core",
-        "not_implemented",
-    )
+    if let Some(deny) = scope_denied(&key, body.get("model").and_then(Value::as_str)) {
+        return deny;
+    }
+    let chat_body = responses_api::responses_request_to_chat(&body);
+    let ctx = build_context(&headers, &chat_body, &key, ApiFormat::Responses);
+    match state.registry.chat_completions(chat_body, &ctx).await {
+        GatewayResponse::Sse { status, stream } => {
+            if status >= 400 {
+                return gateway_response(GatewayResponse::Sse { status, stream });
+            }
+            gateway_response(GatewayResponse::Sse {
+                status,
+                stream: Box::pin(responses_api::chat_sse_to_responses(stream, body)),
+            })
+        }
+        GatewayResponse::Json { status, body: parsed } => {
+            if status >= 400 {
+                return gateway_response(GatewayResponse::Json {
+                    status,
+                    body: parsed,
+                });
+            }
+            gateway_response(GatewayResponse::Json {
+                status,
+                body: responses_api::chat_completion_to_responses(&parsed, &body),
+            })
+        }
+    }
 }
 
 async fn not_found() -> Response {

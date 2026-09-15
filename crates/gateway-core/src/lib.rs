@@ -11,6 +11,7 @@ pub mod protocol;
 pub mod provider;
 pub mod providers;
 pub mod registry;
+pub mod responses_api;
 pub mod server;
 pub mod service;
 pub mod session;

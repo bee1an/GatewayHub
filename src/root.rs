@@ -1,31 +1,34 @@
 //! Root view: translucent sidebar rail + distinct glass content pane —
 //! the liquid-glass shell from the Electron layout, rebuilt on gpui-kit.
+//!
+//! Page bodies live in `root/pages/*` — `impl AppRoot` blocks only.
 
+mod pages;
+
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
-
-use std::collections::HashMap;
 
 use gateway_core::{
     AccountTestResult, ApiKeyEntry, GatewayService, GatewayStatusSnapshot, ModelMapping,
     ProviderStatus, generate_api_key,
 };
+use gpui_kit::assets::IconName;
 use gpui_kit::component::{
-    ActiveTheme, IconName, Sizable, StyledExt, Theme, ThemeMode,
-    button::{Button, ButtonVariants},
-    h_flex,
-    input::{Input, InputState},
-    label::Label,
-    v_flex,
+    ActiveTheme, Icon, StyledExt, Theme, ThemeMode, h_flex, input::InputState, label::Label, v_flex,
 };
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
-const APP_NAME: &str = "GatewayHub";
+/// Content column width — the Electron layout centers `max-w-4xl` (896px)
+/// inside the glass pane.
+pub(crate) const PAGE_MAX_W: f32 = 896.;
+/// Provider detail pages were `max-w-5xl` in the Electron layout.
+pub(crate) const DETAIL_MAX_W: f32 = 1024.;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Page {
+pub(crate) enum Page {
     Dashboard,
     ApiKeys,
     Mappings,
@@ -36,34 +39,34 @@ enum Page {
 }
 
 pub struct AppRoot {
-    service: Arc<GatewayService>,
-    page: Page,
-    /// Provider detail view — set when a dashboard card is clicked.
-    detail: Option<String>,
+    pub(crate) service: Arc<GatewayService>,
+    pub(crate) page: Page,
+    /// Provider detail view — set when a sidebar provider row is clicked.
+    pub(crate) detail: Option<String>,
     /// None = follow the OS appearance (the "System" segment).
-    mode_choice: Option<ThemeMode>,
+    pub(crate) mode_choice: Option<ThemeMode>,
     /// "provider/accountId" → last test outcome line.
-    test_results: HashMap<String, String>,
+    pub(crate) test_results: HashMap<String, String>,
     /// In-flight account tests; drained each render via try_recv.
-    test_pending: HashMap<String, tokio::sync::oneshot::Receiver<AccountTestResult>>,
+    pub(crate) test_pending: HashMap<String, tokio::sync::oneshot::Receiver<AccountTestResult>>,
     /// provider → fetched model ids (lazy, fetched on detail open).
-    detail_models: HashMap<String, Vec<String>>,
-    models_pending: HashMap<String, tokio::sync::oneshot::Receiver<Vec<String>>>,
+    pub(crate) detail_models: HashMap<String, Vec<String>>,
+    pub(crate) models_pending: HashMap<String, tokio::sync::oneshot::Receiver<Vec<String>>>,
     /// API-key page: name for the next generated key.
-    key_name_input: Entity<InputState>,
+    pub(crate) key_name_input: Entity<InputState>,
     /// Mapping page inputs.
-    map_alias_input: Entity<InputState>,
-    map_target_input: Entity<InputState>,
+    pub(crate) map_alias_input: Entity<InputState>,
+    pub(crate) map_target_input: Entity<InputState>,
     /// Newly generated key shown once so it can be copied.
-    new_key: Option<String>,
+    pub(crate) new_key: Option<String>,
     /// Provider detail: paste-an-account-JSON import box + last result.
-    import_input: Entity<InputState>,
-    import_result: Option<String>,
+    pub(crate) import_input: Entity<InputState>,
+    pub(crate) import_result: Option<String>,
     /// Playground: model + prompt inputs, transcript, in-flight reply.
-    pg_model_input: Entity<InputState>,
-    pg_msg_input: Entity<InputState>,
-    pg_log: Vec<(SharedString, SharedString)>,
-    pg_pending: Option<tokio::sync::oneshot::Receiver<String>>,
+    pub(crate) pg_model_input: Entity<InputState>,
+    pub(crate) pg_msg_input: Entity<InputState>,
+    pub(crate) pg_log: Vec<(SharedString, SharedString)>,
+    pub(crate) pg_pending: Option<tokio::sync::oneshot::Receiver<String>>,
 }
 
 impl AppRoot {
@@ -108,7 +111,7 @@ impl AppRoot {
         }
     }
 
-    fn toggle_server(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn toggle_server(&mut self, cx: &mut Context<Self>) {
         if self.service.server_running() {
             self.service.stop_server();
         } else if let Err(e) = self.service.start_server() {
@@ -203,7 +206,12 @@ impl AppRoot {
 
     /// Provider-level enable / proxy toggles — config write + registry
     /// rebuild so the change takes effect for new requests.
-    fn toggle_provider_flag(&mut self, provider: &str, flag: &'static str, cx: &mut Context<Self>) {
+    pub(crate) fn toggle_provider_flag(
+        &mut self,
+        provider: &str,
+        flag: &'static str,
+        cx: &mut Context<Self>,
+    ) {
         let mut cfg = self.service.config();
         let entry = cfg
             .providers
@@ -280,9 +288,9 @@ impl AppRoot {
         cx.notify();
     }
 
-    /// Kick off provider.list_models + refresh test results when a detail
-    /// page is opened (idempotent — pending tasks are not restarted).
-    fn open_detail(&mut self, provider: &str) {
+    /// Kick off provider.list_models when a detail page is opened
+    /// (idempotent — pending tasks are not restarted).
+    pub(crate) fn open_detail(&mut self, provider: &str) {
         self.detail = Some(provider.to_string());
         if !self.detail_models.contains_key(provider) && !self.models_pending.contains_key(provider)
         {
@@ -299,7 +307,7 @@ impl AppRoot {
         }
     }
 
-    fn test_account(&mut self, provider: &str, account_id: &str) {
+    pub(crate) fn test_account(&mut self, provider: &str, account_id: &str) {
         let key = format!("{provider}/{account_id}");
         if self.test_pending.contains_key(&key) {
             return;
@@ -393,7 +401,7 @@ impl AppRoot {
     }
 
     /// Drain completed test/model futures into their result maps.
-    fn drain_pending(&mut self) {
+    pub(crate) fn drain_pending(&mut self) {
         let mut done = Vec::new();
         for (key, rx) in &mut self.test_pending {
             match rx.try_recv() {
@@ -446,7 +454,11 @@ impl AppRoot {
     }
 }
 
-fn provider_icon(provider: &str) -> Option<&'static str> {
+// ---------------------------------------------------------------------------
+// shared chrome — used by the shell and the page bodies
+// ---------------------------------------------------------------------------
+
+pub(crate) fn provider_icon(provider: &str) -> Option<&'static str> {
     Some(match provider {
         "trae" | "traework" => "providers/trae-icon.png",
         "workbuddy" => "providers/workbuddy-icon.png",
@@ -462,13 +474,46 @@ fn provider_icon(provider: &str) -> Option<&'static str> {
     })
 }
 
-fn status_label(p: &ProviderStatus) -> &'static str {
+pub(crate) fn status_label(p: &ProviderStatus) -> &'static str {
     match p.status {
         "ready" => "ready",
         "placeholder" => "soon",
         "error" => "error",
         _ => "off",
     }
+}
+
+/// `PageHeader` — title + description, same shape as the Electron component.
+pub(crate) fn page_header(title: &str, desc: &str, cx: &App) -> impl IntoElement {
+    let theme = cx.theme().clone();
+    v_flex()
+        .gap_0p5()
+        .pt_5()
+        .pb_4()
+        .child(
+            Label::new(title.to_string())
+                .text_lg()
+                .font_semibold()
+                .text_color(theme.foreground),
+        )
+        .child(
+            Label::new(desc.to_string())
+                .text_xs()
+                .text_color(theme.muted_foreground),
+        )
+}
+
+/// Card row chrome shared by account/key/mapping lists.
+pub(crate) fn list_row(cx: &App) -> gpui_kit::Div {
+    let theme = cx.theme().clone();
+    h_flex()
+        .items_center()
+        .gap_3()
+        .p_3()
+        .rounded(theme.radius)
+        .border_1()
+        .border_color(theme.border)
+        .bg(theme.muted.opacity(0.35))
 }
 
 /// Segmented control (Light / Dark / System) — the NSSegmentedControl idiom,
@@ -504,7 +549,7 @@ fn segmented(
                     d.cursor_pointer().hover(|d| d.bg(theme.list_hover))
                 })
                 .on_click(move |_, window, cx| on_pick(ix, window, cx))
-                .child(Label::new(label).text_sm().when(sel, |l| {
+                .child(Label::new(label).text_xs().when(sel, |l| {
                     l.font_medium().text_color(theme.button_primary_foreground)
                 })),
         );
@@ -512,8 +557,11 @@ fn segmented(
     track
 }
 
+/// Sidebar nav item — 40px icon lane + 12px label, brass-tint active state,
+/// matching the Electron `navItemClass` (rounded-md, border on active only).
 fn nav_item(
     id: &'static str,
+    icon: IconName,
     label: &'static str,
     active: bool,
     cx: &App,
@@ -521,17 +569,32 @@ fn nav_item(
     let theme = cx.theme().clone();
     div()
         .id(id)
-        .h_7()
+        .py_1p5()
         .px_2()
         .flex()
         .items_center()
+        .gap_2()
         .rounded(theme.radius)
         .cursor_pointer()
-        .when(active, |d| d.bg(theme.list_active))
-        .when(!active, |d| d.hover(|d| d.bg(theme.list_hover)))
+        .border_1()
+        .when(active, |d| {
+            d.bg(theme.list_active)
+                .border_color(theme.list_active_border)
+        })
+        .when(!active, |d| {
+            d.border_color(gpui::transparent_black())
+                .hover(|d| d.bg(theme.list_hover))
+        })
+        .child(div().w(px(40.)).flex_none().flex().justify_center().child(
+            Icon::new(icon).size(px(15.)).text_color(if active {
+                theme.foreground
+            } else {
+                theme.muted_foreground
+            }),
+        ))
         .child(
             Label::new(label)
-                .text_sm()
+                .text_xs()
                 .when(active, |l| l.font_medium())
                 .text_color(if active {
                     theme.foreground
@@ -539,6 +602,53 @@ fn nav_item(
                     theme.muted_foreground
                 }),
         )
+}
+
+/// Sidebar provider row — logo in the same 40px lane; unconfigured accounts
+/// dim to 45% like the Electron `opacity-45` rule.
+fn provider_nav_item(
+    p: &ProviderStatus,
+    active: bool,
+    cx: &App,
+) -> gpui_kit::Stateful<gpui_kit::Div> {
+    let theme = cx.theme().clone();
+    let row = div()
+        .id(SharedString::from(format!("nav-p-{}", p.name)))
+        .py_1p5()
+        .px_2()
+        .flex()
+        .items_center()
+        .gap_2()
+        .rounded(theme.radius)
+        .cursor_pointer()
+        .border_1()
+        .when(active, |d| {
+            d.bg(theme.list_active)
+                .border_color(theme.list_active_border)
+        })
+        .when(!active, |d| {
+            d.border_color(gpui::transparent_black())
+                .hover(|d| d.bg(theme.list_hover))
+        });
+    let mut icon_lane = div().w(px(40.)).flex_none().flex().justify_center();
+    if let Some(src) = provider_icon(&p.provider_type) {
+        icon_lane = icon_lane.child(
+            img(src)
+                .size_4()
+                .rounded_sm()
+                .when(!p.configured, |i| i.opacity(0.45)),
+        );
+    }
+    row.child(icon_lane).child(
+        Label::new(p.display_name.clone().unwrap_or_else(|| p.name.clone()))
+            .text_xs()
+            .when(active, |l| l.font_medium())
+            .text_color(if active {
+                theme.foreground
+            } else {
+                theme.muted_foreground
+            }),
+    )
 }
 
 impl Render for AppRoot {
@@ -549,50 +659,72 @@ impl Render for AppRoot {
         let ready = snapshot
             .providers
             .iter()
-            .filter(|p| p.status == "ready")
+            .filter(|p| p.enabled && p.status == "ready")
+            .count();
+        let errors = snapshot
+            .logs
+            .iter()
+            .filter(|l| l.level == gateway_core::LogLevel::Error)
             .count();
 
-        // ---- sidebar ----
+        // ---- sidebar: 148px rail, mark centered in the 72px lane ----
         let mut nav = v_flex().gap_px().px_2();
-        for (page, id, label) in [
-            (Page::Dashboard, "nav-dashboard", "Dashboard"),
-            (Page::ApiKeys, "nav-apikeys", "API Keys"),
-            (Page::Mappings, "nav-mappings", "Mappings"),
-            (Page::Playground, "nav-playground", "Playground"),
-            (Page::Usage, "nav-usage", "Usage"),
-            (Page::Logs, "nav-logs", "Logs"),
-            (Page::Settings, "nav-settings", "Settings"),
+        for (page, id, icon, label) in [
+            (
+                Page::Dashboard,
+                "nav-dashboard",
+                IconName::LayoutDashboard,
+                "Dashboard",
+            ),
+            (Page::ApiKeys, "nav-apikeys", IconName::Key, "API Keys"),
+            (
+                Page::Mappings,
+                "nav-mappings",
+                IconName::ArrowLeftRight,
+                "Mappings",
+            ),
+            (
+                Page::Playground,
+                "nav-playground",
+                IconName::MessageCircle,
+                "Playground",
+            ),
+            (Page::Usage, "nav-usage", IconName::ChartPie, "Usage"),
+            (Page::Logs, "nav-logs", IconName::List, "Logs"),
+            (
+                Page::Settings,
+                "nav-settings",
+                IconName::Settings,
+                "Settings",
+            ),
         ] {
-            let active = self.page == page;
-            nav = nav.child(nav_item(id, label, active, cx).on_click(cx.listener(
+            let active = self.detail.is_none() && self.page == page;
+            nav = nav.child(nav_item(id, icon, label, active, cx).on_click(cx.listener(
                 move |this, _, _w, cx| {
                     this.page = page;
+                    this.detail = None;
                     cx.notify();
                 },
             )));
         }
 
         let mut providers = v_flex().gap_px().px_2();
-        for p in snapshot.providers.iter().filter(|p| p.enabled) {
-            let mut row = h_flex()
-                .h_7()
-                .px_2()
-                .items_center()
-                .gap_2()
-                .rounded(theme.radius);
-            if let Some(src) = provider_icon(&p.provider_type) {
-                row = row.child(img(src).size_4().rounded_sm());
+        for p in snapshot
+            .providers
+            .iter()
+            .filter(|p| p.enabled || p.status != "disabled")
+        {
+            if p.status == "placeholder" {
+                continue;
             }
-            row = row.child(
-                Label::new(p.display_name.clone().unwrap_or_else(|| p.name.clone()))
-                    .text_sm()
-                    .text_color(theme.foreground),
-            );
-            row = row.child(div().flex_1());
-            if !p.configured {
-                row = row.child(Label::new("—").text_xs().text_color(theme.muted_foreground));
-            }
-            providers = providers.child(row);
+            let active = self.detail.as_deref() == Some(p.name.as_str());
+            let name = p.name.clone();
+            providers = providers.child(provider_nav_item(p, active, cx).on_click(cx.listener(
+                move |this, _, _w, cx| {
+                    this.open_detail(&name);
+                    cx.notify();
+                },
+            )));
         }
 
         let sel_ix = match self.mode_choice {
@@ -622,24 +754,18 @@ impl Render for AppRoot {
         );
 
         let sidebar = v_flex()
-            .w_48()
+            .w(px(148.))
             .h_full()
             .child(
-                // traffic-light offset (~56px) doubles as the drag strip —
-                // a platform boundary, so physical px is intentional here
-                h_flex()
-                    .h(px(56.))
-                    .items_end()
-                    .gap_2()
-                    .pb_2()
-                    .pl_3()
-                    .child(img("gatewayhub-mark.png").size_5().rounded_sm())
-                    .child(
-                        Label::new(APP_NAME)
-                            .text_sm()
-                            .font_semibold()
-                            .text_color(theme.foreground),
-                    ),
+                // 64px header keeps the mark below the traffic lights,
+                // anchored to the 72px rail center like the Electron rail.
+                div().h(px(64.)).flex().items_end().pb_2().child(
+                    div()
+                        .w(px(72.))
+                        .flex()
+                        .justify_center()
+                        .child(img("gatewayhub-mark.png").size(px(18.)).rounded(px(3.))),
+                ),
             )
             .child(nav)
             .child(div().my_2().mx_2().h_px().bg(theme.border))
@@ -653,7 +779,7 @@ impl Render for AppRoot {
             )
             .child(h_flex().p_2().items_center().child(theme_seg));
 
-        // ---- content pane ----
+        // ---- status strip: 10px mono-ish, matches the Electron StatusStrip ----
         let status_strip = h_flex()
             .h_10()
             .items_center()
@@ -682,28 +808,47 @@ impl Render for AppRoot {
             )
             .child(div().flex_1())
             .child(
-                Label::new(format!("{ready}/{} providers", snapshot.providers.len()))
+                Label::new(format!("{ready}/{}", snapshot.providers.len()))
+                    .text_xs()
+                    .text_color(theme.muted_foreground),
+            )
+            .child(
+                Label::new(format!("{errors} err"))
+                    .text_xs()
+                    .text_color(if errors > 0 {
+                        theme.danger
+                    } else {
+                        theme.muted_foreground
+                    }),
+            )
+            .child(
+                Label::new(format!("v{}", env!("CARGO_PKG_VERSION")))
                     .text_xs()
                     .text_color(theme.muted_foreground),
             );
 
         self.drain_pending();
-        let body = if let Some(provider) = self.detail.clone() {
-            self.render_provider_detail(&provider, &snapshot, cx)
+        let (body, max_w) = if let Some(provider) = self.detail.clone() {
+            (
+                self.render_provider_detail(&provider, &snapshot, cx),
+                DETAIL_MAX_W,
+            )
         } else {
-            match self.page {
-                Page::Dashboard => self.render_dashboard(&snapshot, cx),
-                Page::ApiKeys => self.render_api_keys(&snapshot, cx),
-                Page::Mappings => self.render_mappings(&snapshot, cx),
-                Page::Playground => self.render_playground(&snapshot, cx),
-                Page::Usage => self.render_usage(&snapshot, cx),
-                Page::Logs => self.render_logs(&snapshot, cx),
-                Page::Settings => self.render_settings(&snapshot, cx),
-            }
+            (
+                match self.page {
+                    Page::Dashboard => self.render_dashboard(&snapshot, cx),
+                    Page::ApiKeys => self.render_api_keys(&snapshot, cx),
+                    Page::Mappings => self.render_mappings(&snapshot, cx),
+                    Page::Playground => self.render_playground(&snapshot, cx),
+                    Page::Usage => self.render_usage(&snapshot, cx),
+                    Page::Logs => self.render_logs(&snapshot, cx),
+                    Page::Settings => self.render_settings(&snapshot, cx),
+                },
+                PAGE_MAX_W,
+            )
         };
 
-        // Columns inside a bare h_flex don't fill its height — items_stretch
-        // is required for the sidebar and pane to span the window.
+        // ---- glass pane + specular top edge + centered page column ----
         h_flex()
             .items_stretch()
             .size_full()
@@ -715,814 +860,32 @@ impl Render for AppRoot {
                     .flex_1()
                     .h_full()
                     .rounded(theme.radius_lg)
-                    .bg(theme.group_box)
+                    .bg(theme.group_box.opacity(0.88))
                     .border_1()
                     .border_color(theme.border)
                     .shadow_lg()
                     .overflow_hidden()
+                    .child(
+                        // specular top edge — the 1px highlight that reads as glass
+                        div().h_px().bg(gpui::white().opacity(0.08)),
+                    )
                     .child(status_strip)
-                    .child(body),
-            )
-    }
-}
-
-impl AppRoot {
-    fn render_dashboard(
-        &self,
-        snapshot: &GatewayStatusSnapshot,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let theme = cx.theme().clone();
-        let running = snapshot.server.running;
-
-        let mut cards = v_flex().gap_2().p_4();
-        for p in &snapshot.providers {
-            let name = p.name.clone();
-            let mut card = h_flex()
-                .id(SharedString::from(format!("card-{}", p.name)))
-                .items_center()
-                .gap_3()
-                .p_3()
-                .rounded(theme.radius)
-                .border_1()
-                .border_color(theme.border)
-                .bg(theme.muted.opacity(0.35))
-                .cursor_pointer()
-                .hover(|d| d.bg(theme.list_hover))
-                .on_click(cx.listener(move |this, _, _w, cx| {
-                    this.open_detail(&name);
-                    cx.notify();
-                }));
-            if let Some(src) = provider_icon(&p.provider_type) {
-                card = card.child(img(src).size_5().rounded_sm());
-            }
-            card = card.child(
-                v_flex()
                     .child(
-                        Label::new(p.display_name.clone().unwrap_or_else(|| p.name.clone()))
-                            .text_sm()
-                            .font_medium()
-                            .text_color(theme.foreground),
-                    )
-                    .child(
-                        Label::new(format!(
-                            "{} · {} account(s) · {} model(s)",
-                            status_label(p),
-                            p.accounts,
-                            p.models.len()
-                        ))
-                        .text_xs()
-                        .text_color(theme.muted_foreground),
-                    ),
-            );
-            cards = cards.child(card);
-        }
-
-        v_flex()
-            .flex_1()
-            .min_h_0()
-            .child(
-                h_flex()
-                    .p_4()
-                    .items_center()
-                    .gap_3()
-                    .child(
-                        Button::new("power")
-                            .primary()
-                            .small()
-                            .label(if running {
-                                "Stop gateway"
-                            } else {
-                                "Start gateway"
-                            })
-                            .icon(IconName::RotateCw)
-                            .on_click(cx.listener(|this, _, _w, cx| {
-                                this.toggle_server(cx);
-                            })),
-                    )
-                    .child(
-                        Label::new(format!(
-                            "{} · {} api key(s)",
-                            snapshot.config_path, snapshot.server.api_keys
-                        ))
-                        .text_xs()
-                        .text_color(theme.muted_foreground),
-                    ),
-            )
-            .child(div().mx_4().h_px().bg(theme.border))
-            .child(
-                v_flex()
-                    .id("dashboard-cards")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .child(cards),
-            )
-            .into_any_element()
-    }
-
-    fn render_logs(&self, snapshot: &GatewayStatusSnapshot, cx: &mut Context<Self>) -> AnyElement {
-        let theme = cx.theme().clone();
-        let mut list = v_flex().p_2();
-        if snapshot.logs.is_empty() {
-            list = list.child(
-                div().p_4().child(
-                    Label::new("No log entries yet")
-                        .text_sm()
-                        .text_color(theme.muted_foreground),
-                ),
-            );
-        }
-        for entry in snapshot.logs.iter().rev().take(200) {
-            list = list.child(
-                h_flex()
-                    .px_3()
-                    .py_1()
-                    .gap_2()
-                    .items_baseline()
-                    .border_b_1()
-                    .border_color(theme.table_row_border)
-                    .child(
-                        Label::new(format!("{:?}", entry.level).to_lowercase())
-                            .text_xs()
-                            .text_color(theme.muted_foreground),
-                    )
-                    .child(
-                        Label::new(entry.provider.clone().unwrap_or_default())
-                            .text_xs()
-                            .text_color(theme.muted_foreground),
-                    )
-                    .child(Label::new(entry.message.clone()).text_xs()),
-            );
-        }
-        v_flex()
-            .id("logs-list")
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scroll()
-            .child(list)
-            .into_any_element()
-    }
-
-    fn render_provider_detail(
-        &self,
-        provider: &str,
-        snapshot: &GatewayStatusSnapshot,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let theme = cx.theme().clone();
-        let status = snapshot.providers.iter().find(|p| p.name == provider);
-        let accounts = self.service.accounts(provider);
-        let models = self
-            .detail_models
-            .get(provider)
-            .cloned()
-            .unwrap_or_default();
-
-        let mut rows = v_flex().gap_1p5().p_4();
-        if accounts.is_empty() {
-            rows = rows.child(
-                div().p_4().child(
-                    Label::new("No account files for this provider")
-                        .text_sm()
-                        .text_color(theme.muted_foreground),
-                ),
-            );
-        }
-        for account in &accounts {
-            let key = format!("{provider}/{}", account.id);
-            let result = self.test_results.get(&key).cloned();
-            let label = account
-                .label
-                .clone()
-                .or_else(|| account.email.clone())
-                .unwrap_or_else(|| account.id.clone());
-            let provider_name = provider.to_string();
-            let account_id = account.id.clone();
-            let mut row = h_flex()
-                .items_center()
-                .gap_3()
-                .p_3()
-                .rounded(theme.radius)
-                .border_1()
-                .border_color(theme.border)
-                .bg(theme.muted.opacity(0.35));
-            row = row.child(
-                v_flex()
-                    .child(
-                        Label::new(label)
-                            .text_sm()
-                            .font_medium()
-                            .text_color(theme.foreground),
-                    )
-                    .child(
-                        Label::new(format!(
-                            "{}{}",
-                            if account.enabled {
-                                "enabled"
-                            } else {
-                                "disabled"
-                            },
-                            result.map(|r| format!(" · {r}")).unwrap_or_default()
-                        ))
-                        .text_xs()
-                        .text_color(theme.muted_foreground),
-                    ),
-            );
-            row = row.child(div().flex_1());
-            let provider_name2 = provider_name.clone();
-            let account_id2 = account_id.clone();
-            let provider_name3 = provider_name.clone();
-            let account_id3 = account_id.clone();
-            row = row.child(
-                Button::new(SharedString::from(format!("test-{}", account.id)))
-                    .outline()
-                    .small()
-                    .label("Test")
-                    .on_click(cx.listener(move |this, _, _w, cx| {
-                        this.test_account(&provider_name, &account_id);
-                        cx.notify();
-                    })),
-            );
-            row = row.child(
-                Button::new(SharedString::from(format!("toggle-{}", account.id)))
-                    .outline()
-                    .small()
-                    .label(if account.enabled { "Disable" } else { "Enable" })
-                    .on_click(cx.listener(move |this, _, _w, cx| {
-                        this.toggle_account(&provider_name2, &account_id2, cx);
-                    })),
-            );
-            row = row.child(
-                Button::new(SharedString::from(format!("del-{}", account.id)))
-                    .danger()
-                    .small()
-                    .label("Delete")
-                    .on_click(cx.listener(move |this, _, _w, cx| {
-                        this.delete_account(&provider_name3, &account_id3, cx);
-                    })),
-            );
-            rows = rows.child(row);
-        }
-
-        let mut model_rows = v_flex().gap_1().px_4().pb_4();
-        for m in models.iter().take(30) {
-            model_rows = model_rows.child(
-                Label::new(m.clone())
-                    .text_xs()
-                    .text_color(theme.muted_foreground),
-            );
-        }
-
-        v_flex()
-            .flex_1()
-            .min_h_0()
-            .child(
-                h_flex()
-                    .p_4()
-                    .items_center()
-                    .gap_3()
-                    .child(
-                        Button::new("back")
-                            .outline()
-                            .small()
-                            .label("Back")
-                            .icon(IconName::ArrowLeft)
-                            .on_click(cx.listener(|this, _, _w, cx| {
-                                this.detail = None;
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Label::new(provider.to_string())
-                            .text_lg()
-                            .font_semibold()
-                            .text_color(theme.foreground),
-                    )
-                    .child(
-                        Label::new(status.and_then(|p| p.message.clone()).unwrap_or_default())
-                            .text_xs()
-                            .text_color(theme.muted_foreground),
-                    ),
-            )
-            .child(div().mx_4().h_px().bg(theme.border))
-            .child(
-                v_flex()
-                    .id("detail-scroll")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .child(rows)
-                    .child(
-                        h_flex().px_4().pb_2().child(
-                            Label::new(format!("{} model(s)", models.len()))
-                                .text_xs()
-                                .font_semibold()
-                                .text_color(theme.foreground),
-                        ),
-                    )
-                    .child(model_rows),
-            )
-            .into_any_element()
-    }
-
-    fn render_api_keys(
-        &self,
-        _snapshot: &GatewayStatusSnapshot,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let theme = cx.theme().clone();
-        let cfg = self.service.config();
-
-        let mut rows = v_flex().gap_1p5().p_4();
-        if cfg.server.api_keys.is_empty() {
-            rows = rows.child(
-                div().p_4().child(
-                    Label::new("No API keys — the gateway rejects every request until one exists")
-                        .text_sm()
-                        .text_color(theme.muted_foreground),
-                ),
-            );
-        }
-        for k in &cfg.server.api_keys {
-            let masked = if k.key.len() > 10 {
-                format!("{}…{}", &k.key[..6], &k.key[k.key.len() - 4..])
-            } else {
-                "•••".into()
-            };
-            let id = k.id.clone();
-            rows = rows.child(
-                h_flex()
-                    .items_center()
-                    .gap_3()
-                    .p_3()
-                    .rounded(theme.radius)
-                    .border_1()
-                    .border_color(theme.border)
-                    .bg(theme.muted.opacity(0.35))
-                    .child(
-                        v_flex()
+                        div()
+                            .id("page-scroll")
+                            .flex_1()
+                            .min_h_0()
+                            .overflow_y_scroll()
                             .child(
-                                Label::new(k.name.clone())
-                                    .text_sm()
-                                    .font_medium()
-                                    .text_color(theme.foreground),
-                            )
-                            .child(
-                                Label::new(masked)
-                                    .text_xs()
-                                    .text_color(theme.muted_foreground),
+                                div()
+                                    .mx_auto()
+                                    .w_full()
+                                    .max_w(px(max_w))
+                                    .px_6()
+                                    .pb_6()
+                                    .child(body),
                             ),
-                    )
-                    .child(div().flex_1())
-                    .child(
-                        Button::new(SharedString::from(format!("delkey-{}", k.id)))
-                            .danger()
-                            .small()
-                            .label("Delete")
-                            .on_click(cx.listener(move |this, _, _w, cx| {
-                                this.delete_api_key(&id, cx);
-                            })),
-                    ),
-            );
-        }
-
-        let mut page = v_flex()
-            .flex_1()
-            .min_h_0()
-            .child(
-                h_flex()
-                    .p_4()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        Label::new("API Keys")
-                            .text_lg()
-                            .font_semibold()
-                            .text_color(theme.foreground),
-                    )
-                    .child(div().flex_1())
-                    .child(div().w(px(220.)).child(Input::new(&self.key_name_input)))
-                    .child(
-                        Button::new("gen-key")
-                            .primary()
-                            .small()
-                            .label("Generate")
-                            .icon(IconName::Plus)
-                            .on_click(cx.listener(|this, _, _w, cx| {
-                                this.add_api_key(cx);
-                            })),
                     ),
             )
-            .child(div().mx_4().h_px().bg(theme.border))
-            .child(
-                v_flex()
-                    .id("apikeys-scroll")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .child(rows),
-            );
-        if let Some(key) = &self.new_key {
-            let shown = key.clone();
-            page = page.child(
-                h_flex()
-                    .p_3()
-                    .mx_4()
-                    .mb_4()
-                    .rounded(theme.radius)
-                    .bg(theme.accent)
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        Label::new(format!("New key (copy now — shown once): {shown}"))
-                            .text_xs()
-                            .text_color(theme.foreground),
-                    )
-                    .child(div().flex_1())
-                    .child(
-                        Button::new("dismiss-key")
-                            .ghost()
-                            .small()
-                            .label("Dismiss")
-                            .on_click(cx.listener(|this, _, _w, cx| {
-                                this.new_key = None;
-                                cx.notify();
-                            })),
-                    ),
-            );
-        }
-        page.into_any_element()
-    }
-
-    fn render_mappings(
-        &self,
-        _snapshot: &GatewayStatusSnapshot,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let theme = cx.theme().clone();
-        let cfg = self.service.config();
-
-        let mut rows = v_flex().gap_1p5().p_4();
-        if cfg.model_mappings.is_empty() {
-            rows = rows.child(
-                div().p_4().child(
-                    Label::new("No mappings — model names pass through to the provider unchanged")
-                        .text_sm()
-                        .text_color(theme.muted_foreground),
-                ),
-            );
-        }
-        for (ix, m) in cfg.model_mappings.iter().enumerate() {
-            rows = rows.child(
-                h_flex()
-                    .items_center()
-                    .gap_3()
-                    .p_3()
-                    .rounded(theme.radius)
-                    .border_1()
-                    .border_color(theme.border)
-                    .bg(theme.muted.opacity(0.35))
-                    .child(
-                        v_flex()
-                            .child(
-                                Label::new(m.alias.clone())
-                                    .text_sm()
-                                    .font_medium()
-                                    .text_color(theme.foreground),
-                            )
-                            .child(
-                                Label::new(format!("→ {}/{}", m.provider, m.model))
-                                    .text_xs()
-                                    .text_color(theme.muted_foreground),
-                            ),
-                    )
-                    .child(div().flex_1())
-                    .child(
-                        Button::new(SharedString::from(format!("maptog-{ix}")))
-                            .outline()
-                            .small()
-                            .label(if m.enabled { "Disable" } else { "Enable" })
-                            .on_click(cx.listener(move |this, _, _w, cx| {
-                                this.toggle_mapping(ix, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new(SharedString::from(format!("mapdel-{ix}")))
-                            .danger()
-                            .small()
-                            .label("Delete")
-                            .on_click(cx.listener(move |this, _, _w, cx| {
-                                this.delete_mapping(ix, cx);
-                            })),
-                    ),
-            );
-        }
-
-        v_flex()
-            .flex_1()
-            .min_h_0()
-            .child(
-                h_flex()
-                    .p_4()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        Label::new("Model Mappings")
-                            .text_lg()
-                            .font_semibold()
-                            .text_color(theme.foreground),
-                    )
-                    .child(div().flex_1())
-                    .child(div().w(px(160.)).child(Input::new(&self.map_alias_input)))
-                    .child(div().w(px(240.)).child(Input::new(&self.map_target_input)))
-                    .child(
-                        Button::new("add-map")
-                            .primary()
-                            .small()
-                            .label("Add")
-                            .icon(IconName::Plus)
-                            .on_click(cx.listener(|this, _, _w, cx| {
-                                this.add_mapping(cx);
-                            })),
-                    ),
-            )
-            .child(div().mx_4().h_px().bg(theme.border))
-            .child(
-                v_flex()
-                    .id("mappings-scroll")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .child(rows),
-            )
-            .into_any_element()
-    }
-
-    fn render_usage(
-        &self,
-        _snapshot: &GatewayStatusSnapshot,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let theme = cx.theme().clone();
-        let detail = self
-            .service
-            .usage_store()
-            .read(&gateway_core::usage_store::UsageReadOptions::default());
-        let sum = &detail.summary;
-
-        let stat = |label: &str, value: String| {
-            v_flex()
-                .p_3()
-                .rounded(theme.radius)
-                .border_1()
-                .border_color(theme.border)
-                .bg(theme.muted.opacity(0.35))
-                .child(
-                    Label::new(label.to_string())
-                        .text_xs()
-                        .text_color(theme.muted_foreground),
-                )
-                .child(
-                    Label::new(value)
-                        .text_lg()
-                        .font_semibold()
-                        .text_color(theme.foreground),
-                )
-        };
-        let cost = |c: Option<f64>| c.map(|v| format!("${v:.4}")).unwrap_or_else(|| "—".into());
-
-        let stats = h_flex()
-            .p_4()
-            .gap_3()
-            .child(stat("today tokens", format!("{}", sum.today_tokens)))
-            .child(stat("today requests", format!("{}", sum.today_requests)))
-            .child(stat("today cost", cost(sum.today_cost_usd)))
-            .child(stat("30d tokens", format!("{}", sum.last30days_tokens)))
-            .child(stat("30d cost", cost(sum.last30days_cost_usd)));
-
-        let mut rows = v_flex().gap_px().px_4().pb_4();
-        if detail.daily.is_empty() {
-            rows = rows.child(
-                div().p_4().child(
-                    Label::new("No usage recorded yet")
-                        .text_sm()
-                        .text_color(theme.muted_foreground),
-                ),
-            );
-        }
-        for e in &detail.daily {
-            rows = rows.child(
-                h_flex()
-                    .px_3()
-                    .py_1p5()
-                    .gap_3()
-                    .items_baseline()
-                    .border_b_1()
-                    .border_color(theme.table_row_border)
-                    .child(Label::new(e.date.clone()).text_xs())
-                    .child(
-                        Label::new(format!(
-                            "{}/{}",
-                            e.provider.clone().unwrap_or_default(),
-                            e.model
-                        ))
-                        .text_xs()
-                        .text_color(theme.muted_foreground),
-                    )
-                    .child(div().flex_1())
-                    .child(
-                        Label::new(format!(
-                            "in {} out {} req {}",
-                            e.input_tokens, e.output_tokens, e.requests
-                        ))
-                        .text_xs()
-                        .text_color(theme.muted_foreground),
-                    )
-                    .child(Label::new(cost(e.cost_usd)).text_xs()),
-            );
-        }
-
-        v_flex()
-            .flex_1()
-            .min_h_0()
-            .child(
-                h_flex().p_4().items_center().child(
-                    Label::new("Usage")
-                        .text_lg()
-                        .font_semibold()
-                        .text_color(theme.foreground),
-                ),
-            )
-            .child(div().mx_4().h_px().bg(theme.border))
-            .child(stats)
-            .child(div().mx_4().h_px().bg(theme.border))
-            .child(
-                v_flex()
-                    .id("usage-scroll")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .child(rows),
-            )
-            .into_any_element()
-    }
-
-    fn render_playground(
-        &self,
-        _snapshot: &GatewayStatusSnapshot,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let theme = cx.theme().clone();
-
-        let mut log = v_flex().gap_2().p_4();
-        if self.pg_log.is_empty() {
-            log = log.child(
-                div().p_4().child(
-                    Label::new("Send a chat request through the gateway — no HTTP server or API key needed")
-                        .text_sm()
-                        .text_color(theme.muted_foreground),
-                ),
-            );
-        }
-        for (role, text) in &self.pg_log {
-            let is_you = role.as_ref() == "you";
-            log = log.child(
-                v_flex()
-                    .p_3()
-                    .rounded(theme.radius)
-                    .border_1()
-                    .border_color(theme.border)
-                    .bg(if is_you {
-                        theme.accent
-                    } else {
-                        theme.muted.opacity(0.35)
-                    })
-                    .child(
-                        Label::new(role.to_string())
-                            .text_xs()
-                            .font_semibold()
-                            .text_color(theme.muted_foreground),
-                    )
-                    .child(
-                        Label::new(text.to_string())
-                            .text_sm()
-                            .text_color(theme.foreground),
-                    ),
-            );
-        }
-        if self.pg_pending.is_some() {
-            log = log.child(
-                div()
-                    .p_3()
-                    .child(Label::new("…").text_sm().text_color(theme.muted_foreground)),
-            );
-        }
-
-        v_flex()
-            .flex_1()
-            .min_h_0()
-            .child(
-                h_flex()
-                    .p_4()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        Label::new("Playground")
-                            .text_lg()
-                            .font_semibold()
-                            .text_color(theme.foreground),
-                    )
-                    .child(div().flex_1())
-                    .child(div().w(px(280.)).child(Input::new(&self.pg_model_input))),
-            )
-            .child(div().mx_4().h_px().bg(theme.border))
-            .child(
-                v_flex()
-                    .id("pg-scroll")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .child(log),
-            )
-            .child(div().mx_4().h_px().bg(theme.border))
-            .child(
-                h_flex()
-                    .p_4()
-                    .gap_2()
-                    .items_center()
-                    .child(div().flex_1().child(Input::new(&self.pg_msg_input)))
-                    .child(
-                        Button::new("pg-send")
-                            .primary()
-                            .small()
-                            .label("Send")
-                            .icon(IconName::ArrowRight)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.playground_send(window, cx);
-                            })),
-                    ),
-            )
-            .into_any_element()
-    }
-
-    fn render_settings(
-        &self,
-        snapshot: &GatewayStatusSnapshot,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let theme = cx.theme().clone();
-        let auto_start = self.service.config().server.auto_start;
-        let svc = self.service.clone();
-        v_flex()
-            .p_4()
-            .gap_3()
-            .child(
-                Label::new("Settings")
-                    .text_lg()
-                    .font_semibold()
-                    .text_color(theme.foreground),
-            )
-            .child(
-                h_flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        Label::new("Config")
-                            .text_sm()
-                            .text_color(theme.muted_foreground),
-                    )
-                    .child(Label::new(snapshot.config_path.clone()).text_sm()),
-            )
-            .child(
-                h_flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        Label::new("Endpoint")
-                            .text_sm()
-                            .text_color(theme.muted_foreground),
-                    )
-                    .child(Label::new(snapshot.server.url.clone()).text_sm()),
-            )
-            .child(
-                Button::new("autostart")
-                    .outline()
-                    .small()
-                    .label(if auto_start {
-                        "Autostart: on"
-                    } else {
-                        "Autostart: off"
-                    })
-                    .on_click(cx.listener(move |_this, _, _w, cx| {
-                        let mut cfg = svc.config();
-                        cfg.server.auto_start = !cfg.server.auto_start;
-                        if let Err(e) = svc.save_config(cfg) {
-                            tracing::error!(error = %e, "save config failed");
-                        }
-                        cx.notify();
-                    })),
-            )
-            .into_any_element()
     }
 }

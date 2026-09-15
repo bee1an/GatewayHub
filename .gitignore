@@ -1,3 +1,27 @@
+# build
 /target
+out/
+dist/
+
+# os
 .DS_Store
+
+# env / secrets — never commit real credentials
+.env
+.env.*
+
+# logs & temp
 *.log*
+*.tmp
+*.tsbuildinfo
+
+# node leftovers (pre-gpui era)
+node_modules/
+.pnpm-store/
+.eslintcache
+
+# editor
+.idea/
+
+# agent-facing docs kept local
+CLAUDE.md

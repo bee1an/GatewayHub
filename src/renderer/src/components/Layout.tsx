@@ -17,7 +17,7 @@ function StatusStrip(): React.JSX.Element {
   const errors = (data?.logs ?? []).filter((l: any) => l.level === 'error').length
 
   return (
-    <div className="h-10 shrink-0 flex items-center gap-4 px-5 border-b border-[color-mix(in_srgb,var(--c-charcoal)_60%,transparent)] [-webkit-app-region:drag] select-none">
+    <div className="h-10 shrink-0 flex items-center gap-4 px-5 border-b border-[var(--glass-border)] [-webkit-app-region:drag] select-none">
       <span
         className={`font-mono text-[10px] font-semibold uppercase tracking-[0.12em] ${running ? 'text-accent' : 'text-fog'}`}
       >
@@ -45,12 +45,14 @@ export default function Layout(): React.JSX.Element {
   const isGatewayRoute = location.pathname.startsWith('/gateway/')
 
   return (
-    <div className="h-full flex justify-center bg-pitch">
-      <div className="app-shell h-full w-full max-w-[1500px] flex border-x border-charcoal/50">
+    <div className="h-full flex justify-center">
+      <div className="app-shell h-full w-full max-w-[1500px] flex gap-3 p-3">
         <Sidebar />
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="relative flex-1 flex flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[var(--glass-border-strong)] bg-[var(--pane-bg)] shadow-[var(--glass-shadow)]">
+          {/* specular top edge — the 1px highlight that reads as glass */}
+          <div className="pointer-events-none absolute top-0 left-0 right-0 h-px bg-[var(--glass-specular)] z-10" />
           <StatusStrip />
-          <main className="app-main flex-1 overflow-y-auto bg-pitch">
+          <main className="app-main flex-1 overflow-y-auto">
             <div
               className={`page-col mx-auto px-6 pb-5 ${isGatewayRoute ? 'max-w-5xl' : 'max-w-4xl'}`}
               style={{ '--page-mw': isGatewayRoute ? '64rem' : '56rem' } as React.CSSProperties}

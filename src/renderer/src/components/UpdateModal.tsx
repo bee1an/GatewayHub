@@ -29,8 +29,8 @@ export function UpdateModal({
   return (
     <Modal open={open} onOpenChange={onOpenChange} title={t('updater.title')} width="420px">
       <div className="space-y-4">
-        <div className="flex items-center gap-3 rounded-[var(--radius-md)] bg-slate p-3">
-          <div className="flex items-center justify-center w-9 h-9 rounded-[var(--radius-md)] bg-charcoal">
+        <div className="flex items-center gap-3 rounded-[var(--radius-md)] glass-thin border border-[var(--glass-border)] p-3">
+          <div className="flex items-center justify-center w-9 h-9 rounded-[var(--radius-md)] bg-[var(--glass-bg)]">
             <span className="i-ph-arrow-circle-up-bold text-emerald text-lg" />
           </div>
           <div className="flex-1 flex items-center justify-between">
@@ -50,7 +50,7 @@ export function UpdateModal({
 
         {typeof updateInfo.releaseNotes === 'string' && updateInfo.releaseNotes.length > 0 && (
           <div
-            className="max-h-40 overflow-y-auto rounded-[var(--radius-md)] bg-pitch border border-charcoal/60 p-3 text-[12px] text-steel leading-relaxed [&_p]:my-1 [&_ul]:list-disc [&_ul]:pl-4 [&_ul]:my-1 [&_li]:my-0.5 [&_a]:text-accent [&_a]:underline"
+            className="max-h-40 overflow-y-auto rounded-[var(--radius-md)] bg-[var(--glass-bg-thin)] border border-[var(--glass-border)] p-3 text-[12px] text-steel leading-relaxed [&_p]:my-1 [&_ul]:list-disc [&_ul]:pl-4 [&_ul]:my-1 [&_li]:my-0.5 [&_a]:text-accent [&_a]:underline"
             onClick={(e) => {
               const target = (e.target as HTMLElement).closest('a')
               if (!target) return
@@ -64,7 +64,7 @@ export function UpdateModal({
           />
         )}
 
-        <div className="rounded-[var(--radius-md)] bg-pitch border border-charcoal/60 p-3 text-[11px] text-fog leading-relaxed">
+        <div className="rounded-[var(--radius-md)] bg-[var(--glass-bg-thin)] border border-[var(--glass-border)] p-3 text-[11px] text-fog leading-relaxed">
           {isBrew ? t('updater.brewHint') : t('updater.manualHint')}
         </div>
 

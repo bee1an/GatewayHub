@@ -65,7 +65,7 @@ export function UpgradeProgress(): React.JSX.Element {
       <div className="flex-1 min-h-0 flex flex-col gap-3 px-5 pb-5">
         {/* 顶部标题区 */}
         <div className="flex items-center gap-3 shrink-0">
-          <div className="flex items-center justify-center w-9 h-9 rounded-[var(--radius-md)] bg-charcoal">
+          <div className="flex items-center justify-center w-9 h-9 rounded-[var(--radius-md)] bg-[var(--glass-bg)]">
             <span className={iconClass} />
           </div>
           <div className="flex flex-col">
@@ -77,7 +77,7 @@ export function UpgradeProgress(): React.JSX.Element {
         {/* 可滚动日志区 —— flex-1 占据剩余空间，min-h-0 保证可收缩，min-h-[60px] 保底避免被错误框/按钮挤没 */}
         <div
           ref={logRef}
-          className="flex-1 min-h-[60px] overflow-y-auto rounded-[var(--radius-md)] bg-slate border border-charcoal/60 p-2 text-[10px] font-mono text-steel leading-snug whitespace-pre-wrap break-all"
+          className="flex-1 min-h-[60px] overflow-y-auto rounded-[var(--radius-md)] glass-thin border border-[var(--glass-border)] p-2 text-[10px] font-mono text-steel leading-snug whitespace-pre-wrap break-all"
         >
           {logLines.length === 0 ? (
             <span className="text-fog">{t('updater.progress.preparing')}</span>

@@ -70,11 +70,7 @@ pub fn normalize_trae_model(input: &str) -> String {
 
 /// `buildTraeIdeHeaders`.
 pub fn build_trae_ide_headers(token: &str, ide_version: &str) -> Vec<(String, String)> {
-    let device = match std::env::consts::OS {
-        "macos" => "mac",
-        "windows" => "windows",
-        _ => "linux",
-    };
+    let device = "mac";
     vec![
         ("authorization".into(), format!("Cloud-IDE-JWT {token}")),
         ("x-cloudide-token".into(), token.to_string()),

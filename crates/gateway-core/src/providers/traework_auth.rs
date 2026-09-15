@@ -108,23 +108,12 @@ pub fn build_traework_headers(
     account: Option<&AccountFile>,
 ) -> Vec<(String, String)> {
     let request_id = uuid::Uuid::new_v4().to_string();
-    let device_type = match std::env::consts::OS {
-        "macos" => "mac",
-        "windows" => "windows",
-        _ => "linux",
-    };
+    let device_type = "mac";
     let device_brand = account
         .and_then(|a| field(a, "deviceBrand"))
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| match std::env::consts::OS {
-            "macos" => "Mac".into(),
-            other => other.to_string(),
-        });
-    let device_cpu = if std::env::consts::OS == "macos" {
-        "Apple"
-    } else {
-        "Intel"
-    };
+        .unwrap_or_else(|| "Mac".into());
+    let device_cpu = "Apple";
     let os_version = account
         .and_then(|a| field(a, "osVersion"))
         .filter(|s| !s.is_empty())

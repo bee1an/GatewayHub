@@ -36,9 +36,7 @@ pub fn machine_fingerprint() -> String {
     let host = hostname::get()
         .map(|h| h.to_string_lossy().into_owned())
         .unwrap_or_else(|_| "unknown".into());
-    let who = std::env::var("USER")
-        .or_else(|_| std::env::var("USERNAME"))
-        .unwrap_or_else(|_| "unknown".into());
+    let who = std::env::var("USER").unwrap_or_else(|_| "unknown".into());
     format!(
         "{:x}",
         sha2::Sha256::digest(format!("{host}-{who}-gatewayhub"))

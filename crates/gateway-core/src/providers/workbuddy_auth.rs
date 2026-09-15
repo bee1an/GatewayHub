@@ -430,7 +430,6 @@ fn candidate_product_json_paths(product_json_path: &str) -> Vec<String> {
     if !product_json_path.trim().is_empty() {
         paths.push(product_json_path.trim().to_string());
     }
-    #[cfg(target_os = "macos")]
     {
         paths.push(
             "/Applications/WorkBuddy.app/Contents/Resources/app.asar.unpacked/cli/product.json"

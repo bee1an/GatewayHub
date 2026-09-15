@@ -55,6 +55,12 @@ pub trait PoolBehavior: Send + Sync {
         )
     }
 
+    /// Probabilistic early-retry chance while an account sits in cooldown
+    /// (TS `probabilisticRetryChance`; 0.1 everywhere except kiro).
+    fn retry_chance(&self) -> f64 {
+        0.1
+    }
+
     /// Status→cooldown mapping hook (TS `resolveCooldown` overrides).
     /// codex diverts: quota honors an upstream resetAtIso deadline and
     /// cooling uses `max(1000, cooldownMs || 30_000)` as the backoff base.
@@ -290,7 +296,7 @@ impl<B: PoolBehavior> AccountPool<B> {
         {
             return true;
         }
-        fastrand::f64() < 0.1
+        fastrand::f64() < self.behavior.retry_chance()
     }
 
     pub fn has_model(&self, account_id: &str, model: &str) -> bool {

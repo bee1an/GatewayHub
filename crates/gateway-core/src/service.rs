@@ -138,6 +138,25 @@ impl GatewayService {
                         ))
                     }
                 },
+                "kiro" => match crate::providers::kiro::KiroProvider::new(
+                    &pcfg,
+                    accounts,
+                    &pstate,
+                    log,
+                    on_changed,
+                    Some(persist_account),
+                    proxy_url,
+                ) {
+                    Ok(p) => Arc::new(p),
+                    Err(e) => {
+                        warn!(error = %e, "kiro provider init failed");
+                        Arc::new(PlaceholderAdapter::new(
+                            "kiro",
+                            format!("init failed: {e}"),
+                            pcfg.enabled,
+                        ))
+                    }
+                },
                 "codex" => match crate::providers::codex::CodexProvider::new(
                     &pcfg,
                     accounts,

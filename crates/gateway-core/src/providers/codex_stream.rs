@@ -432,20 +432,23 @@ where
                 Ok(CodexEvent::ToolUseStart { id: call_id, item_id, name }) => {
                     current_tool_index += 1;
                     tool_calls.push((call_id.clone(), item_id, name.clone(), String::new()));
+                    let mut delta = json!({
+                        "tool_calls": [{
+                            "index": current_tool_index,
+                            "id": call_id,
+                            "type": "function",
+                            "function": {"name": name, "arguments": ""},
+                        }],
+                    });
+                    if first {
+                        delta["role"] = json!("assistant");
+                    }
                     yield sse_data(&json!({
                         "id": id, "object": "chat.completion.chunk", "created": created,
                         "model": model,
                         "choices": [{
                             "index": 0,
-                            "delta": {
-                                "role": if first { json!("assistant") } else { Value::Null },
-                                "tool_calls": [{
-                                    "index": current_tool_index,
-                                    "id": call_id,
-                                    "type": "function",
-                                    "function": {"name": name, "arguments": ""},
-                                }],
-                            },
+                            "delta": delta,
                             "finish_reason": null,
                         }],
                     }));

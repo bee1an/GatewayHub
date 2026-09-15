@@ -22,11 +22,11 @@ const COLLAPSED_KEY = 'gatewayhub-sidebar-collapsed'
 
 function navItemClass(active: boolean, collapsed: boolean): string {
   const base = collapsed
-    ? 'flex items-center justify-center w-10 h-8 rounded-[var(--radius-sm)]'
-    : 'flex items-center gap-2 px-2 py-1.5 rounded-[var(--radius-sm)]'
+    ? 'flex items-center justify-center w-10 h-8 rounded-[var(--radius-md)]'
+    : 'flex items-center gap-2 px-2 py-1.5 rounded-[var(--radius-md)]'
   const state = active
-    ? 'text-porcelain bg-charcoal/60'
-    : 'text-storm hover:text-porcelain hover:bg-charcoal/40'
+    ? 'text-porcelain bg-[var(--list-active-bg)] border border-[var(--list-active-border)]'
+    : 'text-storm hover:text-porcelain hover:bg-[var(--glass-bg-thin)] border border-transparent'
   return `${base} text-[12px] transition-colors duration-100 ${state}`
 }
 
@@ -184,11 +184,11 @@ export default function Sidebar(): React.JSX.Element {
   }
 
   const footerBtn =
-    'flex items-center justify-center w-7 h-7 rounded-[var(--radius-sm)] text-storm transition-colors duration-100 hover:bg-charcoal/50 hover:text-porcelain outline-none focus-visible:ring-1 focus-visible:ring-accent/60'
+    'flex items-center justify-center w-7 h-7 rounded-[var(--radius-md)] text-storm transition-colors duration-100 hover:bg-[var(--glass-bg)] hover:text-porcelain outline-none focus-visible:ring-1 focus-visible:ring-accent/60'
 
   return (
     <aside
-      className={`${collapsed ? 'w-[72px]' : 'w-[148px]'} shrink-0 flex flex-col border-r border-charcoal bg-graphite overflow-y-auto select-none transition-[width] duration-150`}
+      className={`${collapsed ? 'w-[72px]' : 'w-[148px]'} shrink-0 flex flex-col overflow-y-auto select-none transition-[width] duration-150`}
     >
       {/* macOS traffic lights sit at top-left ~70px; the 64px header keeps the
           mark below them, anchored to the same 72px rail center in both
@@ -251,7 +251,7 @@ export default function Sidebar(): React.JSX.Element {
 
         {providers.length > 0 && (
           <div
-            className={`${collapsed ? 'w-5' : 'mx-2'} my-2 border-t border-charcoal/60`}
+            className={`${collapsed ? 'w-5' : 'mx-2'} my-2 border-t border-[var(--glass-border)]`}
             aria-hidden="true"
           />
         )}
@@ -294,7 +294,7 @@ export default function Sidebar(): React.JSX.Element {
         })}
 
         <div
-          className={`${collapsed ? 'w-5' : 'mx-2'} my-2 border-t border-charcoal/60`}
+          className={`${collapsed ? 'w-5' : 'mx-2'} my-2 border-t border-[var(--glass-border)]`}
           aria-hidden="true"
         />
 

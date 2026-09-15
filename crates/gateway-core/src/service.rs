@@ -233,6 +233,25 @@ impl GatewayService {
                         ))
                     }
                 },
+                "qoder" => match crate::providers::qoder::QoderProvider::new(
+                    &pcfg,
+                    accounts,
+                    &pstate,
+                    log,
+                    on_changed,
+                    Some(persist_account),
+                    proxy_url,
+                ) {
+                    Ok(p) => Arc::new(p),
+                    Err(e) => {
+                        warn!(error = %e, "qoder provider init failed");
+                        Arc::new(PlaceholderAdapter::new(
+                            "qoder",
+                            format!("init failed: {e}"),
+                            pcfg.enabled,
+                        ))
+                    }
+                },
                 "codex" => match crate::providers::codex::CodexProvider::new(
                     &pcfg,
                     accounts,

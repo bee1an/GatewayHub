@@ -177,8 +177,10 @@ impl AppRoot {
                             .band(|(d, _)| d[5..].to_string())
                             .value(|(_, v)| *v as f64)
                             .tick_margin(5)
-                            .value_axis(true)
-                            .value_tick_count(3),
+                            // No value axis — token counts render as
+                            // unreadable 8-digit ticks; the hover tooltip
+                            // carries the exact number instead.
+                            .grid(false),
                     ),
                 ),
         );

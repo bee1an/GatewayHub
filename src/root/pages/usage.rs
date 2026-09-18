@@ -141,6 +141,9 @@ impl AppRoot {
         );
 
         // ---- breakdown table ----
+        // Column geometry is shared by the header row and every data row
+        // (same px_4 / gap_3 / fixed lanes), so the header stays aligned
+        // with the virtualized rows below it.
         let head_cell = |text: &str, w: Option<f32>| {
             let label = Label::new(text)
                 .text_xs()
@@ -234,16 +237,26 @@ impl AppRoot {
                 )
                 .into_any_element()
         } else {
+            // Header rides inside the card (single surface, single border);
+            // the hairline under it separates it from the virtualized rows.
             div()
                 .flex_1()
                 .min_h_0()
-                .child(card_uniform_list(
-                    "usage-list",
-                    total,
-                    &self.usage_scroll,
-                    render_row,
-                    cx,
-                ))
+                .child(
+                    card(cx).h_full().overflow_hidden().child(
+                        v_flex()
+                            .h_full()
+                            .min_h_0()
+                            .child(header)
+                            .child(div().flex_1().min_h_0().child(card_uniform_list(
+                                "usage-list",
+                                total,
+                                &self.usage_scroll,
+                                render_row,
+                                cx,
+                            ))),
+                    ),
+                )
                 .into_any_element()
         };
 
@@ -267,7 +280,6 @@ impl AppRoot {
                         None,
                         cx,
                     )))
-                    .child(div().flex_none().child(header))
                     .child(table),
             )
             .into_any_element()

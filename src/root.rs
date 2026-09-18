@@ -1029,10 +1029,27 @@ impl AppRoot {
         cx: &mut Context<Self>,
     ) {
         let key = format!("{provider}/{account_id}");
+        let lang = self.lang;
+        // Already claimed today — the daily check-in is idempotent, so skip
+        // the upstream round-trip entirely (manual clicks used force=true,
+        // which re-verified upstream on every tap and looked like a bug).
+        let checked_today = self
+            .account_states
+            .get(provider)
+            .and_then(|m| m.get(account_id))
+            .and_then(|s| s.checkin.as_ref())
+            .and_then(|c| c.last_day.as_deref())
+            .map(|day| day == crate::root::pages::detail::cn_today())
+            .unwrap_or(false);
+        if checked_today {
+            self.checkin_results
+                .insert(key, t(lang, "checked_in_today").into());
+            cx.notify();
+            return;
+        }
         if !self.checkin_pending.insert(key.clone()) {
             return;
         }
-        let lang = self.lang;
         let Some(adapter) = self.service.registry().provider(provider) else {
             self.checkin_pending.remove(&key);
             self.checkin_results
@@ -1045,7 +1062,7 @@ impl AppRoot {
         let svc = service.clone();
         let name2 = name.clone();
         let handle = service.spawn_ui(async move {
-            let result = adapter.checkin_accounts(Some(&aid), true).await;
+            let result = adapter.checkin_accounts(Some(&aid), false).await;
             (result, svc.account_states(&name2))
         });
         cx.spawn(async move |this, cx| {

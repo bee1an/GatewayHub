@@ -28,7 +28,7 @@ use crate::root::{
 pub(crate) const CHECKIN_PROVIDERS: &[&str] = &["traework", "workbuddy"];
 
 /// YYYY-MM-DD in Asia/Shanghai — same day key the checkin state stores.
-fn cn_today() -> String {
+pub(crate) fn cn_today() -> String {
     chrono::DateTime::from_timestamp_millis(gateway_core::pool::now_ms())
         .map(|d| {
             d.with_timezone(&chrono::FixedOffset::east_opt(8 * 3600).unwrap())

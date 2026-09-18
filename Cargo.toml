@@ -102,6 +102,7 @@ strip = true
 [package.metadata.bundle]
 name = "GatewayHub"
 identifier = "dev.gatewayhub.app"
+icon = ["build/icon.icns"]
 copyright = "Copyright © 2026 bee. All rights reserved."
 category = "public.app-category.developer-tools"
 osx_minimum_system_version = "12.0"

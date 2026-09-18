@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none">
+  <!-- Keep the source square and unmasked; macOS applies its own icon mask. -->
+  <rect width="256" height="256" fill="#F3E2CC"/>
+
+  <!-- One deliberately loose contour: head, body, and all eight arms. -->
+  <path
+    d="M128 35
+       C86 33 59 58 57 98
+       C56 112 59 123 61 132
+
+       C53 125 45 120 35 122
+       C21 124 15 138 24 149
+       C33 160 51 151 69 145
+
+       C57 151 42 158 36 169
+       C29 181 38 193 51 191
+       C65 189 73 171 82 157
+
+       C74 174 63 193 69 204
+       C75 216 90 214 99 202
+       C108 190 106 176 106 165
+
+       C105 184 98 205 106 216
+       C114 227 128 222 132 209
+       C136 196 130 181 128 169
+
+       C132 186 132 209 143 216
+       C155 224 168 214 166 200
+       C165 186 153 174 147 164
+
+       C158 178 170 197 184 196
+       C198 195 204 181 195 170
+       C187 160 174 157 164 154
+
+       C179 157 196 169 208 161
+       C219 154 215 139 203 135
+       C192 131 181 138 174 144
+
+       C184 133 197 125 198 108
+       C201 65 173 37 128 35Z"
+    stroke="#111111"
+    stroke-width="7"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!-- Uneven ink dots instead of polished mascot eyes. -->
+  <path fill="#111111" d="M99 94c4-1 8 2 8 7 0 5-4 8-8 8-5-1-8-4-8-8 0-4 3-7 8-7Zm58-2c5 0 8 3 8 7 0 5-4 8-9 8-4-1-7-4-7-8 0-4 3-7 8-7Z"/>
+</svg>

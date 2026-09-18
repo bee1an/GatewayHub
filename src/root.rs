@@ -1850,7 +1850,7 @@ impl Render for AppRoot {
                     theme.muted_foreground
                 })
                 .into_any_element(),
-            "Settings".into(),
+            t(lang, "nav_settings").into(),
             settings_active,
             collapsed,
             cx,

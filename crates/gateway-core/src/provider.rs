@@ -12,7 +12,6 @@ use crate::types::{
 pub const PROVIDERS: &[&str] = &[
     "kiro",
     "codex",
-    "windsurf",
     "trae",
     "traework",
     "workbuddy",
@@ -32,7 +31,6 @@ pub const PLACEHOLDER_PROVIDERS: &[&str] = &["gemini"];
 pub const PROXY_CAPABLE: &[&str] = &[
     "kiro",
     "codex",
-    "windsurf",
     "trae",
     "traework",
     "gptWeb",

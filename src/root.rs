@@ -1897,7 +1897,7 @@ impl Render for AppRoot {
                                 .bg(if running {
                                     theme.success
                                 } else {
-                                    theme.muted_foreground
+                                    theme.danger
                                 })
                                 .into_any_element()
                         })

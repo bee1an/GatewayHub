@@ -1,0 +1,6 @@
+[default.extend-words]
+# Identifiers, protocol fixtures, and provider constants that are valid as-is.
+PN = "PN"
+abd = "abd"
+Hel = "Hel"
+ono = "ono"

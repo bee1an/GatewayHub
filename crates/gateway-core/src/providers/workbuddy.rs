@@ -18,9 +18,9 @@ use crate::protocol::{
 };
 use crate::provider::ProviderAdapter;
 use crate::providers::workbuddy_auth::{
-    DEFAULT_WORKBUDDY_BACKEND, DEFAULT_WORKBUDDY_MODEL, WORKBUDDY_BUILT_IN_MODELS,
-    WORKBUDDY_CHAT_PATH, WorkBuddyAuth, WorkBuddyTokenSnapshot, build_workbuddy_headers,
-    load_workbuddy_product_models, normalize_workbuddy_model,
+    DEFAULT_WORKBUDDY_BACKEND, DEFAULT_WORKBUDDY_MODEL, WORKBUDDY_CHAT_PATH, WorkBuddyAuth,
+    WorkBuddyTokenSnapshot, build_workbuddy_headers, load_workbuddy_product_models,
+    normalize_workbuddy_model,
 };
 use crate::providers::workbuddy_checkin::{
     claim_checkin, cn_day_key, get_checkin_status, get_credits_usage,

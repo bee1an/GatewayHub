@@ -329,19 +329,69 @@ fn stringify_payload(payload: &Value) -> String {
 const NON_CHAT_MODEL_TAGS: &[&str] = &["text-to-image", "image-to-image", "text-to-video"];
 const INTERNAL_MODEL_HINTS: &[&str] = &["completion", "rewrite", "jump", "codewise"];
 
-/// `loadWorkBuddyProductModels`.
+/// Vendor product-catalog snapshot (chat model ids), taken from the app's
+/// synced `acc-product-config-v3.json`. WorkBuddy exposes no remote models
+/// endpoint — `/v1|v2/models` and `/product/session` all 404 — so this
+/// embedded list is the default catalog. It must work without WorkBuddy
+/// installed: the gateway never reads app files at runtime.
+pub const WORKBUDDY_PRODUCT_MODELS: &[&str] = &[
+    "balanced-model",
+    "deep-model",
+    "deepseek-r1-0528-lkeap",
+    "deepseek-v3-0324-lkeap",
+    "deepseek-v3-1",
+    "deepseek-v3-1-lkeap",
+    "deepseek-v3-1-volc",
+    "deepseek-v3-2-volc",
+    "deepseek-v4-flash",
+    "deepseek-v4-pro",
+    "deepseek-v4.1-flash",
+    "default-1.1",
+    "default-1.2",
+    "fast-model",
+    "glm-4.6",
+    "glm-4.6v",
+    "glm-5.0-turbo",
+    "glm-5.1",
+    "glm-5.2",
+    "glm-5.3",
+    "glm-5.3-flash",
+    "glm-5v-turbo",
+    "hunyuan-2.0-instruct",
+    "hunyuan-chat",
+    "hy3",
+    "hy3-x",
+    "hy4-preview",
+    "hy4-preview-f",
+    "kimi-k2-instruct-taiji",
+    "kimi-k2-thinking",
+    "kimi-k2.5",
+    "kimi-k2.6",
+    "kimi-k2.7",
+    "kimi-k2.8-preview",
+    "kimi-k3-1",
+    "minimax-m2.5",
+    "minimax-m2.7",
+    "minimax-m3",
+];
+
+/// `loadWorkBuddyProductModels` — only honors an explicit `productJsonPath`
+/// override; otherwise the embedded catalog above. No app files are read
+/// at runtime — the gateway must work without WorkBuddy installed.
 pub fn load_workbuddy_product_models(product_json_path: &str) -> Vec<String> {
-    for path in candidate_product_json_paths(product_json_path) {
-        if let Ok(text) = std::fs::read_to_string(&path)
-            && let Ok(data) = serde_json::from_str::<Value>(&text)
-        {
-            let models = extract_chat_model_ids(&data);
-            if !models.is_empty() {
-                return models;
-            }
+    if !product_json_path.trim().is_empty()
+        && let Ok(text) = std::fs::read_to_string(product_json_path.trim())
+        && let Ok(data) = serde_json::from_str::<Value>(&text)
+    {
+        let models = extract_chat_model_ids(&data);
+        if !models.is_empty() {
+            return models;
         }
     }
-    Vec::new()
+    WORKBUDDY_PRODUCT_MODELS
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
 }
 
 /// `extractChatModelIds`.
@@ -387,27 +437,3 @@ pub fn extract_chat_model_ids(data: &Value) -> Vec<String> {
     out
 }
 
-fn candidate_product_json_paths(product_json_path: &str) -> Vec<String> {
-    let mut paths = Vec::new();
-    if !product_json_path.trim().is_empty() {
-        paths.push(product_json_path.trim().to_string());
-    }
-    {
-        paths.push(
-            "/Applications/WorkBuddy.app/Contents/Resources/app.asar.unpacked/cli/product.json"
-                .into(),
-        );
-        paths.push(
-            "/Applications/WorkBuddy.app/Contents/Resources/app.asar/cli/product.json".into(),
-        );
-    }
-    if let Some(home) = dirs::home_dir() {
-        paths.push(
-            home.join(".local/share/WorkBuddy/cli/product.json")
-                .to_string_lossy()
-                .to_string(),
-        );
-    }
-    paths.push("/opt/WorkBuddy/resources/app.asar.unpacked/cli/product.json".into());
-    paths
-}

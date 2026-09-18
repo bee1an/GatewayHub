@@ -1763,18 +1763,18 @@ impl Render for AppRoot {
                 IconName::LayoutDashboard,
                 "nav_dashboard",
             ),
-            (Page::Logs, "nav-logs", IconName::List, "nav_logs"),
+            (Page::Logs, "nav-logs", IconName::FileText, "nav_logs"),
             (
                 Page::Playground,
                 "nav-playground",
-                IconName::MessageCircle,
+                IconName::Bot,
                 "nav_playground",
             ),
-            (Page::ApiKeys, "nav-apikeys", IconName::Key, "nav_api_keys"),
+            (Page::ApiKeys, "nav-apikeys", IconName::Asterisk, "nav_api_keys"),
             (
                 Page::Mappings,
                 "nav-mappings",
-                IconName::ArrowLeftRight,
+                IconName::Replace,
                 "nav_mappings",
             ),
             (Page::Usage, "nav-usage", IconName::ChartPie, "nav_usage"),
@@ -1913,7 +1913,7 @@ impl Render for AppRoot {
                 Button::new("rail-lang")
                     .ghost()
                     .xsmall()
-                    .icon(IconName::Languages)
+                    .icon(IconName::Globe)
                     .tooltip(t(lang, "language"))
                     .on_click(cx.listener(|this, _, _w, cx| {
                         this.set_language(this.lang.next(), cx);

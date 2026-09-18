@@ -113,7 +113,7 @@ impl AppRoot {
                             },
                         ))
                         .icon(if running {
-                            IconName::CircleStop
+                            IconName::CircleX
                         } else {
                             IconName::Play
                         })

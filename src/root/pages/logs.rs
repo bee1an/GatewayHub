@@ -1,5 +1,6 @@
 //! Logs — level filter + search + clear/export, virtualized row list.
 
+use std::ops::Range;
 use std::rc::Rc;
 
 use gateway_core::{GatewayStatusSnapshot, LogLevel};
@@ -15,9 +16,18 @@ use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use crate::root::{
-    AppRoot, MONO, card, card_uniform_list, clock_time, enter, one_line, page_header,
-    section_header, t, tf, toggle_filter,
+    AppRoot, MONO, MarqueeText, card, clock_time, enter, page_header, section_header, t, tf,
+    toggle_filter,
 };
+
+// Shared column lanes — the header row and every data row use the same
+// geometry so the labels stay aligned over the virtualized list.
+const LANE_TIME: f32 = 64.;
+const LANE_LEVEL: f32 = 72.;
+const LANE_PROVIDER: f32 = 96.;
+const LANE_STATUS: f32 = 56.;
+const LANE_DURATION: f32 = 72.;
+const RAIL_W: f32 = 3.;
 
 impl AppRoot {
     pub(crate) fn render_logs(
@@ -109,71 +119,153 @@ impl AppRoot {
                     })),
             );
 
+        // ---- column header rides inside the card (same lanes as rows) ----
+        let head_cell = |text: &str, w: Option<f32>, right: bool| {
+            let cell = match w {
+                Some(w) => div().w(px(w)).flex_none(),
+                None => div().flex_1().min_w_0(),
+            };
+            let label = Label::new(text)
+                .text_xs()
+                .text_color(theme.muted_foreground);
+            if right {
+                cell.flex().justify_end().child(label)
+            } else {
+                cell.child(label)
+            }
+        };
+        let header = h_flex()
+            .items_center()
+            .gap_2p5()
+            .px_4()
+            .py_2()
+            .border_b_1()
+            .border_color(theme.border)
+            .child(head_cell(t(lang, "col_time"), Some(LANE_TIME), false))
+            .child(head_cell(t(lang, "col_level"), Some(LANE_LEVEL), false))
+            .child(head_cell(
+                t(lang, "col_provider"),
+                Some(LANE_PROVIDER),
+                false,
+            ))
+            .child(head_cell(t(lang, "col_message"), None, false))
+            .child(head_cell(t(lang, "col_status"), Some(LANE_STATUS), true))
+            .child(head_cell(
+                t(lang, "col_duration"),
+                Some(LANE_DURATION),
+                true,
+            ));
+
         // ---- virtualized rows inside one card ----
         let theme_for_rows = theme.clone();
         let row_height = px(34.);
         let render_row = move |ix: usize, _window: &mut Window, _app: &mut App| -> AnyElement {
             let entry = &snapshot_for_rows.logs[entry_indices[ix]];
-            let (level_label, level_color) = match entry.level {
+            let (level_key, level_color) = match entry.level {
                 LogLevel::Info => ("info", theme_for_rows.muted_foreground),
                 LogLevel::Warn => ("warn", theme_for_rows.warning),
                 LogLevel::Error => ("error", theme_for_rows.danger),
                 LogLevel::Debug => ("debug", theme_for_rows.muted_foreground),
             };
+            let rail_color = match entry.level {
+                LogLevel::Warn | LogLevel::Error => level_color,
+                _ => level_color.opacity(0.0),
+            };
+            let status_color = match entry.status_code {
+                Some(code) if code >= 400 => theme_for_rows.danger,
+                _ => theme_for_rows.secondary_foreground,
+            };
             h_flex()
                 .w_full()
                 .h(row_height)
-                .px_4()
-                .items_center()
-                .gap_2p5()
+                .hover(|d| d.bg(theme_for_rows.list_hover))
+                .child(div().w(px(RAIL_W)).h_full().flex_none().bg(rail_color))
                 .child(
-                    div().w_16().flex_none().child(
-                        Label::new(clock_time(entry.ts))
-                            .font_family(MONO)
-                            .text_xs()
-                            .text_color(theme_for_rows.muted_foreground),
-                    ),
+                    h_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .items_center()
+                        .gap_2p5()
+                        .pl(px(16. - RAIL_W))
+                        .pr_4()
+                        .child(
+                            div().w(px(LANE_TIME)).flex_none().child(
+                                Label::new(clock_time(entry.ts))
+                                    .font_family(MONO)
+                                    .text_xs()
+                                    .text_color(theme_for_rows.muted_foreground),
+                            ),
+                        )
+                        .child(
+                            div().w(px(LANE_LEVEL)).flex_none().child(
+                                div()
+                                    .px_2()
+                                    .h(px(18.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded_full()
+                                    .bg(level_color.opacity(0.14))
+                                    .child(
+                                        Label::new(t(lang, level_key))
+                                            .text_xs()
+                                            .font_medium()
+                                            .text_color(level_color),
+                                    ),
+                            ),
+                        )
+                        .child(
+                            div().w(px(LANE_PROVIDER)).flex_none().child(
+                                Label::new(entry.provider.clone().unwrap_or_else(|| "—".into()))
+                                    .text_xs()
+                                    .text_color(if entry.provider.is_some() {
+                                        theme_for_rows.secondary_foreground
+                                    } else {
+                                        theme_for_rows.muted_foreground
+                                    })
+                                    .truncate(),
+                            ),
+                        )
+                        .child(
+                            MarqueeText::new(
+                                format!("log-msg-{}", entry_indices[ix]),
+                                entry.message.clone(),
+                                false,
+                                theme_for_rows.foreground,
+                            )
+                            .into_any_element(),
+                        )
+                        .child(
+                            div()
+                                .w(px(LANE_STATUS))
+                                .flex_none()
+                                .flex()
+                                .justify_end()
+                                .when_some(entry.status_code, |d, code| {
+                                    d.child(
+                                        Label::new(code.to_string())
+                                            .font_family(MONO)
+                                            .text_xs()
+                                            .text_color(status_color),
+                                    )
+                                }),
+                        )
+                        .child(
+                            div()
+                                .w(px(LANE_DURATION))
+                                .flex_none()
+                                .flex()
+                                .justify_end()
+                                .when_some(entry.duration, |d, ms| {
+                                    d.child(
+                                        Label::new(format!("{ms}ms"))
+                                            .font_family(MONO)
+                                            .text_xs()
+                                            .text_color(theme_for_rows.muted_foreground),
+                                    )
+                                }),
+                        ),
                 )
-                .child(
-                    div().w_12().flex_none().child(
-                        Label::new(level_label)
-                            .text_xs()
-                            .font_medium()
-                            .text_color(level_color),
-                    ),
-                )
-                .child(
-                    div().w_24().flex_none().child(
-                        Label::new(entry.provider.clone().unwrap_or_default())
-                            .text_xs()
-                            .text_color(theme_for_rows.secondary_foreground)
-                            .truncate(),
-                    ),
-                )
-                .child(
-                    div().flex_1().min_w_0().child(
-                        Label::new(one_line(&entry.message, 200))
-                            .text_xs()
-                            .text_color(theme_for_rows.foreground)
-                            .truncate(),
-                    ),
-                )
-                .when_some(entry.status_code, |d, code| {
-                    d.child(
-                        Label::new(code.to_string())
-                            .font_family(MONO)
-                            .text_xs()
-                            .text_color(theme_for_rows.danger),
-                    )
-                })
-                .when_some(entry.duration, |d, ms| {
-                    d.child(
-                        Label::new(format!("{ms}ms"))
-                            .font_family(MONO)
-                            .text_xs()
-                            .text_color(theme_for_rows.muted_foreground),
-                    )
-                })
                 .into_any_element()
         };
 
@@ -193,16 +285,42 @@ impl AppRoot {
                 )
                 .into_any_element()
         } else {
+            let border = theme.border;
+            let list = uniform_list(
+                "logs-list",
+                total,
+                move |range: Range<usize>, window, app| {
+                    range
+                        .map(|ix| {
+                            let row = render_row(ix, window, app);
+                            div()
+                                .w_full()
+                                .border_b_1()
+                                .border_color(if ix == total.saturating_sub(1) {
+                                    border.opacity(0.0)
+                                } else {
+                                    border
+                                })
+                                .child(row)
+                                .into_any_element()
+                        })
+                        .collect::<Vec<_>>()
+                },
+            )
+            .h_full()
+            .track_scroll(&self.log_scroll);
             div()
                 .flex_1()
                 .min_h_0()
-                .child(card_uniform_list(
-                    "logs-list",
-                    total,
-                    &self.log_scroll,
-                    render_row,
-                    cx,
-                ))
+                .child(
+                    card(cx).h_full().overflow_hidden().child(
+                        v_flex()
+                            .h_full()
+                            .min_h_0()
+                            .child(header)
+                            .child(div().flex_1().min_h_0().child(list)),
+                    ),
+                )
                 .into_any_element()
         };
 

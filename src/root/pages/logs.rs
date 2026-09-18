@@ -179,7 +179,7 @@ impl AppRoot {
 
         let logs_card: AnyElement = if total == 0 {
             card(cx)
-                .p_6()
+                .py_6()
                 .flex()
                 .justify_center()
                 .child(

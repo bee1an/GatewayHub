@@ -289,9 +289,10 @@ pub(crate) fn toggle_filter(
                 .items_center()
                 .justify_center()
                 .rounded(theme.radius)
-                .when(selected, |d| d.bg(theme.button_primary).shadow_sm())
+                .cursor_pointer()
+                .when(selected, |d| d.bg(theme.button_primary))
                 .when(!selected, |d| {
-                    d.cursor_pointer().hover(|d| d.bg(theme.list_hover))
+                    d.hover(|d| d.bg(theme.list_hover))
                 })
                 .on_click(move |_, window, cx| on_pick(ix, window, cx))
                 .child(Label::new(label).text_sm().when(selected, |l| {

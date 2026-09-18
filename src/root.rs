@@ -2157,7 +2157,8 @@ impl Render for AppRoot {
                             theme.primary
                         } else {
                             theme.muted_foreground
-                        }),
+                        })
+                        .when(!running, |l| l.font_semibold()),
                     ),
             )
             .child(

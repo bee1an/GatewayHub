@@ -531,39 +531,32 @@ impl AppRoot {
                         .content({
                             let menu_state = menu_state.clone();
                             let menu_for = menu_for.clone();
-                            move |_, window, cx| {
-                                match menu_state.read(cx).menu.clone() {
-                                    Some(menu) => menu,
-                                    None => {
-                                        let builder = menu_for.clone();
-                                        let menu = PopupMenu::build(
-                                            window,
-                                            cx,
-                                            move |m, w, cx| builder(m, w, cx),
-                                        );
-                                        menu_state.update(cx, |state, _| {
-                                            state.menu = Some(menu.clone());
-                                        });
-                                        menu.focus_handle(cx).focus(window, cx);
-                                        let popover_state = cx.entity();
-                                        window
-                                            .subscribe(&menu, cx, {
-                                                let menu_state = menu_state.clone();
-                                                move |_, _: &DismissEvent, window, cx| {
-                                                    popover_state.update(
-                                                        cx,
-                                                        |state, cx| {
-                                                            state.dismiss(window, cx);
-                                                        },
-                                                    );
-                                                    menu_state.update(cx, |state, _| {
-                                                        state.menu = None;
-                                                    });
-                                                }
-                                            })
-                                            .detach();
-                                        menu
-                                    }
+                            move |_, window, cx| match menu_state.read(cx).menu.clone() {
+                                Some(menu) => menu,
+                                None => {
+                                    let builder = menu_for.clone();
+                                    let menu = PopupMenu::build(window, cx, move |m, w, cx| {
+                                        builder(m, w, cx)
+                                    });
+                                    menu_state.update(cx, |state, _| {
+                                        state.menu = Some(menu.clone());
+                                    });
+                                    menu.focus_handle(cx).focus(window, cx);
+                                    let popover_state = cx.entity();
+                                    window
+                                        .subscribe(&menu, cx, {
+                                            let menu_state = menu_state.clone();
+                                            move |_, _: &DismissEvent, window, cx| {
+                                                popover_state.update(cx, |state, cx| {
+                                                    state.dismiss(window, cx);
+                                                });
+                                                menu_state.update(cx, |state, _| {
+                                                    state.menu = None;
+                                                });
+                                            }
+                                        })
+                                        .detach();
+                                    menu
                                 }
                             }
                         })

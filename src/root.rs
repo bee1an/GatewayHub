@@ -2175,8 +2175,6 @@ impl Render for AppRoot {
             )
         };
 
-
-
         // ---- shell: Electron geometry, rendered with opaque surfaces so
         // virtualized lists retain smooth scrolling. ----
         // The overlay mounts on the outermost wrapper (relative + size_full)

@@ -21,9 +21,9 @@ use gateway_core::{
 };
 
 pub(crate) use chrome::{
-    MONO, card, card_rows, card_uniform_list, clock_time, enter, hairline, one_line, page_header,
-    pop_in, provider_logo, row, section_header, shake, short_date, skeleton_rows, status_label,
-    toggle_filter,
+    MONO, MarqueeText, card, card_rows, card_uniform_list, clock_time, enter, hairline, one_line,
+    page_header, pop_in, provider_logo, row, section_header, shake, short_date, skeleton_rows,
+    status_label, toggle_filter,
 };
 
 use gpui_kit::assets::IconName;

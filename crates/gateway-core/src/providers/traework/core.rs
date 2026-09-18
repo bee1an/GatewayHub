@@ -397,7 +397,13 @@ impl TraeWorkCore {
                 break;
             };
             let started = now_ms();
-            let payload = build_traework_chat_payload(model, body, format, &self.settings.function);
+            let payload = build_traework_chat_payload(
+                model,
+                body,
+                format,
+                &self.settings.function,
+                &self.settings.header,
+            );
             let token = match auth.get_jwt_token().await {
                 Ok(t) => t,
                 Err(e) => {
@@ -518,7 +524,13 @@ impl TraeWorkCore {
                     break;
                 };
                 let started = now_ms();
-                let payload = build_traework_chat_payload(&model, &body, format, &view.settings.function);
+                let payload = build_traework_chat_payload(
+                    &model,
+                    &body,
+                    format,
+                    &view.settings.function,
+                    &view.settings.header,
+                );
                 let token = match auth.get_jwt_token().await {
                     Ok(t) => t,
                     Err(e) => {
@@ -581,6 +593,15 @@ impl TraeWorkCore {
                     view.pool.lock().await.report_failure(&account.config.id, &err, &classified);
                     excluded.insert(account.config.id.clone());
                     last_error = err;
+                    view.log_entry(
+                        LogLevel::Warn,
+                        format!("TraeWork stream failed: {last_error}"),
+                        Some(&account),
+                        Some(&request_id),
+                        Some(&model),
+                        Some((now_ms() - started) as u64),
+                        Some(json!({"kind": classified.kind, "attempt": attempt + 1})),
+                    );
                     if !matches!(
                         classified.kind,
                         ResponseKind::Timeout | ResponseKind::Network | ResponseKind::ServerError
@@ -599,6 +620,15 @@ impl TraeWorkCore {
                     );
                     excluded.insert(account.config.id.clone());
                     last_error = err;
+                    view.log_entry(
+                        LogLevel::Warn,
+                        format!("TraeWork stream failed: {last_error}"),
+                        Some(&account),
+                        Some(&request_id),
+                        Some(&model),
+                        Some((now_ms() - started) as u64),
+                        Some(json!({"attempt": attempt + 1})),
+                    );
                     tokio::time::sleep(Duration::from_millis(300 * 2_u64.pow(attempt as u32))).await;
                     continue;
                 }
@@ -634,6 +664,15 @@ impl TraeWorkCore {
             let message = format!(
                 "TraeWork stream failed: {}",
                 if last_error.is_empty() { "No available accounts".to_string() } else { last_error }
+            );
+            view.log_entry(
+                LogLevel::Error,
+                &message,
+                None,
+                Some(&request_id),
+                Some(&model),
+                None,
+                None,
             );
             if format == "openai" {
                 yield format!(

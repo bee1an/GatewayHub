@@ -119,7 +119,8 @@ pub fn build_traework_headers(
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| format!("{} {}", std::env::consts::OS, std::env::consts::ARCH));
     vec![
-        ("content-type".into(), "application/json".into()),
+        // NOTE: no content-type here — `.json()` already sets it; a duplicate
+        // header makes the upstream drop the body ("function is empty" 2001).
         (
             "accept".into(),
             "text/event-stream, application/json".into(),
@@ -417,11 +418,7 @@ impl TraeWorkAuth {
     pub async fn get_model_list(&self, account: &AccountFile) -> anyhow::Result<Vec<String>> {
         let token = self.get_jwt_token().await?;
         let url = join_url(&self.core_base_url, &self.detail_param_path);
-        let mut req = self
-            .client
-            .post(&url)
-            .header("accept", "application/json")
-            .timeout(Duration::from_secs(20));
+        let mut req = self.client.post(&url).timeout(Duration::from_secs(20));
         for (k, v) in build_traework_headers(&token, &self.header_settings, Some(account)) {
             req = req.header(k, v);
         }

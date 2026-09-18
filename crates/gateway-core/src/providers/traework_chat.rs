@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use crate::protocol::{SseParser, extract_text};
 use crate::providers::kiro_convert::estimate_tokens;
-use crate::providers::traework_auth::DEFAULT_TRAEWORK_FUNCTION;
+use crate::providers::traework_auth::{DEFAULT_TRAEWORK_FUNCTION, DEFAULT_TRAEWORK_VERSION_CODE};
 use crate::providers::traework_auth::{
     TraeWorkHeaderSettings, build_traework_headers, normalize_traework_model,
 };
@@ -218,6 +218,7 @@ pub fn build_traework_chat_payload(
     body: &Value,
     format: &str,
     function: &str,
+    header: &TraeWorkHeaderSettings,
 ) -> Value {
     let config_name = normalize_traework_model(model);
     let messages = if format == "openai" {
@@ -225,9 +226,19 @@ pub fn build_traework_chat_payload(
     } else {
         anthropic_to_traework_messages(body)
     };
+    // Upstream binds required body fields: usage/app_id/app_version_code.
+    // Chat configs in the catalog carry usage="chat_completion"; the version
+    // code must unmarshal into an int64 — settings carry it as a string.
+    let app_version_code = header
+        .version_code
+        .parse::<i64>()
+        .unwrap_or_else(|_| DEFAULT_TRAEWORK_VERSION_CODE.parse().unwrap_or(0));
     let mut payload = json!({
         "messages": messages,
         "function": if function.is_empty() { DEFAULT_TRAEWORK_FUNCTION } else { function },
+        "usage": "chat_completion",
+        "app_id": header.app_id,
+        "app_version_code": app_version_code,
         "stream": true,
         "config_name": config_name,
         "model": config_name,
@@ -379,7 +390,15 @@ pub fn stream_traework_chat(
     streaming_read_timeout: Duration,
 ) -> impl Stream<Item = Result<TraeWorkStreamEvent, anyhow::Error>> + Send {
     async_stream::stream! {
-        let url = format!("{}{}", base_url.trim_end_matches('/'), raw_chat_path);
+        // Upstream requires `usage` as a QUERY param. `function` must stay in
+        // the body — a `function` query param overrides the body value and the
+        // query layer only accepts `chat` (which selects the old model catalog
+        // and rejects chat_v3/solo_work_lite models with 4023).
+        let url = format!(
+            "{}{}?usage=chat_completion",
+            base_url.trim_end_matches('/'),
+            raw_chat_path
+        );
         let mut req = http
             .post(&url)
             .timeout(first_token_timeout)

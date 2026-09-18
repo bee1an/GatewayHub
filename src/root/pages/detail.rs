@@ -920,7 +920,17 @@ impl AppRoot {
                                         })),
                                 ),
                         )
-                        .child(chips);
+                        // The chip wall wraps row after row — bound it and
+                        // scroll inside so big catalogs can't push content
+                        // past the panel's max height.
+                        .child(
+                            div()
+                                .id(SharedString::from(format!("dlg-models-scroll-{key}")))
+                                .w_full()
+                                .max_h(px(168.))
+                                .overflow_y_scroll()
+                                .child(chips),
+                        );
 
                     body.into_any_element()
                 })),

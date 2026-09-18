@@ -215,6 +215,7 @@ impl CodexAuth {
             .client
             .post(OPENAI_TOKEN_URL)
             .header("content-type", "application/json")
+            .timeout(std::time::Duration::from_secs(20))
             .json(&body)
             .send()
             .await

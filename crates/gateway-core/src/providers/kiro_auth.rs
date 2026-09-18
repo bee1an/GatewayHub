@@ -231,6 +231,7 @@ impl KiroAuth {
             .post(kiro_refresh_url(&self.sso_region))
             .header("content-type", "application/json")
             .header("user-agent", format!("GatewayHub-0.1-{}", self.fingerprint))
+            .timeout(std::time::Duration::from_secs(20))
             .json(&json!({ "refreshToken": inner.snap.refresh_token }))
             .send()
             .await?;
@@ -273,6 +274,7 @@ impl KiroAuth {
             .client
             .post(aws_sso_oidc_url(&self.sso_region))
             .header("content-type", "application/json")
+            .timeout(std::time::Duration::from_secs(20))
             .json(&json!({
                 "grantType": "refresh_token",
                 "clientId": inner.snap.client_id,
@@ -350,6 +352,7 @@ impl KiroAuth {
                 .get(url.clone())
                 .header("authorization", format!("Bearer {token}"))
                 .header("user-agent", ua.clone())
+                .timeout(std::time::Duration::from_secs(20))
                 .send()
         };
         let token = self.get_access_token().await?;

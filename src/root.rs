@@ -2161,6 +2161,13 @@ impl Render for AppRoot {
         div()
             .size_full()
             .relative()
+            // Clicking inert chrome releases input focus — the Zed-style
+            // "background click unfocuses" contract. Inputs and Select
+            // triggers stop propagation on their own mousedown, so this
+            // only sees clicks that landed on non-focusable surface.
+            .on_mouse_down(MouseButton::Left, |_, window, cx| {
+                window.blur(cx);
+            })
             .child(
                 h_flex()
                     .items_stretch()

@@ -346,6 +346,8 @@ pub struct AppRoot {
     pub(crate) log_notice: Option<String>,
     pub(crate) log_scroll: UniformListScrollHandle,
     pub(crate) usage_scroll: UniformListScrollHandle,
+    /// Usage breakdown grouping — 0 = by provider/model, 1 = by day.
+    pub(crate) usage_view: usize,
     pub(crate) account_scroll: HashMap<String, UniformListScrollHandle>,
     /// Settings page: editable server fields + save notice.
     pub(crate) host_input: Entity<InputState>,
@@ -502,6 +504,7 @@ impl AppRoot {
             log_notice: None,
             log_scroll: UniformListScrollHandle::new(),
             usage_scroll: UniformListScrollHandle::new(),
+            usage_view: 0,
             account_scroll: HashMap::new(),
             host_input: cx.new(|cx| {
                 InputState::new(_window, cx)

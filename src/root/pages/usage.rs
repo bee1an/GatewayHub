@@ -11,7 +11,7 @@ use gpui_kit::*;
 
 use crate::root::{
     AppRoot, MONO, card, card_uniform_list, hairline, page_header, pop_in, section_header,
-    skeleton_rows, t,
+    skeleton_rows, t, toggle_filter,
 };
 
 impl AppRoot {
@@ -85,20 +85,12 @@ impl AppRoot {
         let sum = &detail.summary;
         let cost = |c: Option<f64>| c.map(|v| format!("${v:.4}")).unwrap_or_else(|| "—".into());
 
-        // ---- summary: 5 stat cells inside one card ----
+        // ---- summary: two labeled clusters inside one card ----
         // pop_in keys the animation by the value, so a changed number
         // replays the rise+fade on the next poll refresh.
-        let stat = |id: &str, label: &str, value: String| {
+        let stat = |label: &str, value: String| {
             v_flex()
-                .flex_1()
                 .gap_1()
-                .px_4()
-                .py_3()
-                .child(
-                    Label::new(label)
-                        .text_xs()
-                        .text_color(theme.muted_foreground),
-                )
                 .child(pop_in(
                     div().child(
                         Label::new(value.clone())
@@ -107,43 +99,97 @@ impl AppRoot {
                             .font_semibold()
                             .text_color(theme.foreground),
                     ),
-                    format!("usage-{id}-{value}"),
+                    format!("usage-{label}-{value}"),
                 ))
+                .child(
+                    Label::new(label)
+                        .text_xs()
+                        .text_color(theme.muted_foreground),
+                )
+                .into_any_element()
         };
-        let stats = card(cx).child(
+        let group = |title: &str, cells: Vec<AnyElement>| {
+            v_flex()
+                .gap_2()
+                .child(
+                    Label::new(title)
+                        .text_xs()
+                        .font_semibold()
+                        .text_color(theme.secondary_foreground),
+                )
+                .child(h_flex().gap_6().children(cells))
+        };
+        let stats = card(cx).px_4().py_3().child(
             h_flex()
-                .gap_0()
-                .child(stat(
-                    "tt",
-                    t(lang, "today_tokens"),
-                    format!("{}", sum.today_tokens),
+                .gap_8()
+                .child(group(
+                    t(lang, "usage_today"),
+                    vec![
+                        stat(t(lang, "col_tokens"), fmt_count(sum.today_tokens)),
+                        stat(t(lang, "col_req"), fmt_count(sum.today_requests)),
+                        stat(t(lang, "col_cost"), cost(sum.today_cost_usd)),
+                    ],
                 ))
                 .child(hairline(cx).h_full())
-                .child(stat(
-                    "tr",
-                    t(lang, "today_requests"),
-                    format!("{}", sum.today_requests),
-                ))
-                .child(hairline(cx).h_full())
-                .child(stat("tc", t(lang, "today_cost"), cost(sum.today_cost_usd)))
-                .child(hairline(cx).h_full())
-                .child(stat(
-                    "t30",
-                    t(lang, "tokens_30d"),
-                    format!("{}", sum.last30days_tokens),
-                ))
-                .child(hairline(cx).h_full())
-                .child(stat(
-                    "c30",
-                    t(lang, "cost_30d"),
-                    cost(sum.last30days_cost_usd),
+                .child(group(
+                    t(lang, "usage_30d"),
+                    vec![
+                        stat(t(lang, "col_tokens"), fmt_count(sum.last30days_tokens)),
+                        stat(t(lang, "col_cost"), cost(sum.last30days_cost_usd)),
+                    ],
                 )),
         );
 
-        // ---- breakdown table ----
-        // Column geometry is shared by the header row and every data row
-        // (same px_4 / gap_3 / fixed lanes), so the header stays aligned
-        // with the virtualized rows below it.
+        // ---- aggregated breakdown ----
+        // The store keeps date × account × model rows — far too fine to
+        // scan. Collapse into the two views a reader actually wants:
+        // spend per provider/model, or spend per day.
+        #[derive(Default)]
+        struct UsageAgg {
+            input: i64,
+            output: i64,
+            requests: i64,
+            cost: f64,
+            has_cost: bool,
+        }
+        impl UsageAgg {
+            fn add(&mut self, e: &gateway_core::usage_store::UsageDailyEntry) {
+                self.input += e.input_tokens;
+                self.output += e.output_tokens;
+                self.requests += e.requests;
+                if let Some(c) = e.cost_usd {
+                    self.cost += c;
+                    self.has_cost = true;
+                }
+            }
+        }
+
+        let by_model = self.usage_view == 0;
+        let mut groups: std::collections::HashMap<String, UsageAgg> =
+            std::collections::HashMap::new();
+        for e in &detail.daily {
+            let key = if by_model {
+                format!(
+                    "{}/{}",
+                    e.provider.clone().unwrap_or_else(|| "?".into()),
+                    e.model
+                )
+            } else {
+                e.date.clone()
+            };
+            groups.entry(key).or_default().add(e);
+        }
+        let mut rows: Vec<(String, UsageAgg)> = groups.into_iter().collect();
+        if by_model {
+            rows.sort_by(|a, b| (b.1.input + b.1.output).cmp(&(a.1.input + a.1.output)));
+        } else {
+            rows.sort_by(|a, b| b.0.cmp(&a.0));
+        }
+        let rows = Rc::new(rows);
+        let total = rows.len();
+
+        // Column geometry is shared by the header row and every data row,
+        // so the header stays aligned with the virtualized rows below it.
         let head_cell = |text: &str, w: Option<f32>| {
             let label = Label::new(text)
                 .text_xs()
@@ -160,21 +206,26 @@ impl AppRoot {
             .py_2()
             .border_b_1()
             .border_color(theme.border)
-            .child(head_cell(t(lang, "col_date"), Some(80.)))
-            .child(head_cell(t(lang, "col_provider_model"), None))
+            .child(head_cell(
+                t(
+                    lang,
+                    if by_model {
+                        "col_provider_model"
+                    } else {
+                        "col_date"
+                    },
+                ),
+                None,
+            ))
             .child(head_cell(t(lang, "col_in"), Some(72.)))
             .child(head_cell(t(lang, "col_out"), Some(72.)))
             .child(head_cell(t(lang, "col_req"), Some(56.)))
             .child(head_cell(t(lang, "col_cost"), Some(72.)));
 
-        let daily: Rc<Vec<gateway_core::usage_store::UsageDailyEntry>> =
-            Rc::new(detail.daily.clone());
-        let total = daily.len();
-
         let theme_for_rows = theme.clone();
         let row_height = px(30.);
         let render_row = move |ix: usize, _window: &mut Window, _app: &mut App| -> AnyElement {
-            let e = &daily[ix];
+            let (label, e) = &rows[ix];
             let cell = |text: String, w: f32, color: Hsla| {
                 div().w(px(w)).flex_none().child(
                     Label::new(text)
@@ -189,39 +240,38 @@ impl AppRoot {
                 .items_center()
                 .gap_3()
                 .px_4()
-                .child(cell(
-                    e.date.clone(),
-                    80.,
-                    theme_for_rows.secondary_foreground,
-                ))
                 .child(
                     div().flex_1().min_w_0().child(
-                        Label::new(format!(
-                            "{}/{}",
-                            e.provider.clone().unwrap_or_default(),
-                            e.model
-                        ))
-                        .text_xs()
-                        .text_color(theme_for_rows.foreground)
-                        .truncate(),
+                        Label::new(label.clone())
+                            .text_xs()
+                            .text_color(theme_for_rows.foreground)
+                            .truncate(),
                     ),
                 )
                 .child(cell(
-                    format!("{}", e.input_tokens),
+                    fmt_count(e.input),
                     72.,
                     theme_for_rows.secondary_foreground,
                 ))
                 .child(cell(
-                    format!("{}", e.output_tokens),
+                    fmt_count(e.output),
                     72.,
                     theme_for_rows.secondary_foreground,
                 ))
                 .child(cell(
-                    format!("{}", e.requests),
+                    fmt_count(e.requests),
                     56.,
                     theme_for_rows.secondary_foreground,
                 ))
-                .child(cell(cost(e.cost_usd), 72., theme_for_rows.foreground))
+                .child(cell(
+                    if e.has_cost {
+                        format!("${:.4}", e.cost)
+                    } else {
+                        "—".into()
+                    },
+                    72.,
+                    theme_for_rows.foreground,
+                ))
                 .into_any_element()
         };
 
@@ -271,13 +321,42 @@ impl AppRoot {
                     .h_full()
                     .min_h_0()
                     .gap_2()
-                    .child(div().flex_none().child(section_header(
-                        t(lang, "daily_breakdown"),
-                        None,
-                        cx,
-                    )))
+                    .child(
+                        div().flex_none().child(section_header(
+                            t(lang, "usage_breakdown"),
+                            Some(
+                                toggle_filter(
+                                    "usage-view",
+                                    vec![
+                                        (t(lang, "usage_by_model").into(), by_model),
+                                        (t(lang, "usage_by_day").into(), !by_model),
+                                    ],
+                                    cx.processor(|this, ix, _w, cx| {
+                                        this.usage_view = ix;
+                                        cx.notify();
+                                    }),
+                                    cx,
+                                )
+                                .into_any_element(),
+                            ),
+                            cx,
+                        )),
+                    )
                     .child(table),
             )
             .into_any_element()
+    }
+}
+
+/// Compact count for token-scale numbers: 999 → "999", 12_345 → "12.3k",
+/// 1_234_567 → "1.23M".
+fn fmt_count(n: i64) -> String {
+    let n = n as f64;
+    if n >= 1_000_000. {
+        format!("{:.2}M", n / 1_000_000.)
+    } else if n >= 1_000. {
+        format!("{:.1}k", n / 1_000.)
+    } else {
+        format!("{}", n as i64)
     }
 }

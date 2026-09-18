@@ -171,11 +171,12 @@ fn en(key: &str) -> Option<&'static str> {
 
         // ---- usage ----
         "usage_title" => "Usage",
-        "today_tokens" => "Today tokens",
-        "today_requests" => "Today requests",
-        "today_cost" => "Today cost",
-        "tokens_30d" => "30d tokens",
-        "cost_30d" => "30d cost",
+        "usage_today" => "Today",
+        "usage_30d" => "Last 30 days",
+        "usage_breakdown" => "Breakdown",
+        "usage_by_model" => "By model",
+        "usage_by_day" => "By day",
+        "col_tokens" => "Tokens",
         "col_date" => "Date",
         "col_provider_model" => "Provider / model",
         "col_in" => "In",
@@ -183,7 +184,6 @@ fn en(key: &str) -> Option<&'static str> {
         "col_req" => "Req",
         "col_cost" => "Cost",
         "no_usage" => "No usage recorded yet",
-        "daily_breakdown" => "Daily breakdown",
 
         // ---- logs ----
         "logs_title" => "Logs",
@@ -414,11 +414,12 @@ fn zh(key: &str) -> Option<&'static str> {
 
         // ---- usage ----
         "usage_title" => "用量",
-        "today_tokens" => "今日 Token",
-        "today_requests" => "今日请求",
-        "today_cost" => "今日费用",
-        "tokens_30d" => "30 天 Token",
-        "cost_30d" => "30 天费用",
+        "usage_today" => "今日",
+        "usage_30d" => "近 30 天",
+        "usage_breakdown" => "明细",
+        "usage_by_model" => "按模型",
+        "usage_by_day" => "按日期",
+        "col_tokens" => "Token",
         "col_date" => "日期",
         "col_provider_model" => "服务商 / 模型",
         "col_in" => "输入",
@@ -426,7 +427,6 @@ fn zh(key: &str) -> Option<&'static str> {
         "col_req" => "次数",
         "col_cost" => "费用",
         "no_usage" => "暂无用量记录",
-        "daily_breakdown" => "每日明细",
 
         // ---- logs ----
         "logs_title" => "日志",

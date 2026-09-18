@@ -1288,7 +1288,13 @@ impl AppRoot {
                 d.child(div().px_4().child((content)(&*self, window, cx)))
             })
             .when_some(req.footer.as_ref(), |d, footer| {
-                d.child(div().w_full().px_4().py_4().child((footer)(&*self, window, cx)))
+                d.child(
+                    div()
+                        .w_full()
+                        .px_4()
+                        .py_4()
+                        .child((footer)(&*self, window, cx)),
+                )
             })
             .when(req.footer.is_none(), |d| {
                 let on_ok = req.on_ok.clone();
@@ -1372,9 +1378,7 @@ impl AppRoot {
                                 .w(panel_w)
                                 // Clicks/scroll inside the card must not
                                 // reach the backdrop.
-                                .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                                    cx.stop_propagation()
-                                })
+                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                                 .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
                                 // Layer 2 — the surface: bg/border/radius/
                                 // shadow as one sibling with its own alpha,
@@ -1415,9 +1419,7 @@ impl AppRoot {
                                             .on_mouse_down(MouseButton::Right, |_, _, cx| {
                                                 cx.stop_propagation()
                                             })
-                                            .on_scroll_wheel(|_, _, cx| {
-                                                cx.stop_propagation()
-                                            }),
+                                            .on_scroll_wheel(|_, _, cx| cx.stop_propagation()),
                                     )
                                 }),
                         ),
@@ -1961,11 +1963,7 @@ impl Render for AppRoot {
                             div()
                                 .size_1p5()
                                 .rounded_full()
-                                .bg(if running {
-                                    theme.success
-                                } else {
-                                    theme.danger
-                                })
+                                .bg(if running { theme.success } else { theme.danger })
                                 .into_any_element()
                         })
                         .child(

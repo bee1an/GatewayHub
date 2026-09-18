@@ -149,50 +149,50 @@ fn main() {
         });
     }
     app.run(move |cx| {
-            gpui_kit::init(cx);
-            theme::restore_default_themes(cx);
-            cx.activate(true);
-            let mode = theme::theme_mode_for_appearance(cx.window_appearance());
-            Theme::change(mode, None, cx);
+        gpui_kit::init(cx);
+        theme::restore_default_themes(cx);
+        cx.activate(true);
+        let mode = theme::theme_mode_for_appearance(cx.window_appearance());
+        Theme::change(mode, None, cx);
 
-            cx.on_action(|e: &MenuAction, cx: &mut App| match e {
-                MenuAction::Quit => cx.quit(),
-                MenuAction::Close => {
-                    // macOS stays resident after the last window closes; the
-                    // window is rebuilt via on_reopen.
-                    if let Some(window) = cx.active_window() {
-                        let _ = window.update(cx, |_, window, _cx| window.remove_window());
-                    }
+        cx.on_action(|e: &MenuAction, cx: &mut App| match e {
+            MenuAction::Quit => cx.quit(),
+            MenuAction::Close => {
+                // macOS stays resident after the last window closes; the
+                // window is rebuilt via on_reopen.
+                if let Some(window) = cx.active_window() {
+                    let _ = window.update(cx, |_, window, _cx| window.remove_window());
                 }
-                MenuAction::About => {}
-            });
-            cx.set_menus(vec![
-                Menu {
-                    name: APP_NAME.into(),
-                    items: vec![
-                        MenuItem::action(format!("About {APP_NAME}"), MenuAction::About),
-                        MenuItem::separator(),
-                        MenuItem::action("Close Window", MenuAction::Close),
-                        MenuItem::action("Quit", MenuAction::Quit),
-                    ],
-                    disabled: false,
-                },
-                Menu {
-                    name: "Edit".into(),
-                    items: vec![
-                        MenuItem::os_action("Undo", Undo, OsAction::Undo),
-                        MenuItem::os_action("Redo", Redo, OsAction::Redo),
-                        MenuItem::separator(),
-                        MenuItem::os_action("Cut", Cut, OsAction::Cut),
-                        MenuItem::os_action("Copy", Copy, OsAction::Copy),
-                        MenuItem::os_action("Paste", Paste, OsAction::Paste),
-                        MenuItem::separator(),
-                        MenuItem::os_action("Select All", SelectAll, OsAction::SelectAll),
-                    ],
-                    disabled: false,
-                },
-            ]);
-
-            spawn_window(service.clone(), cx);
+            }
+            MenuAction::About => {}
         });
+        cx.set_menus(vec![
+            Menu {
+                name: APP_NAME.into(),
+                items: vec![
+                    MenuItem::action(format!("About {APP_NAME}"), MenuAction::About),
+                    MenuItem::separator(),
+                    MenuItem::action("Close Window", MenuAction::Close),
+                    MenuItem::action("Quit", MenuAction::Quit),
+                ],
+                disabled: false,
+            },
+            Menu {
+                name: "Edit".into(),
+                items: vec![
+                    MenuItem::os_action("Undo", Undo, OsAction::Undo),
+                    MenuItem::os_action("Redo", Redo, OsAction::Redo),
+                    MenuItem::separator(),
+                    MenuItem::os_action("Cut", Cut, OsAction::Cut),
+                    MenuItem::os_action("Copy", Copy, OsAction::Copy),
+                    MenuItem::os_action("Paste", Paste, OsAction::Paste),
+                    MenuItem::separator(),
+                    MenuItem::os_action("Select All", SelectAll, OsAction::SelectAll),
+                ],
+                disabled: false,
+            },
+        ]);
+
+        spawn_window(service.clone(), cx);
+    });
 }

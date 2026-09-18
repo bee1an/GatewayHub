@@ -291,9 +291,7 @@ pub(crate) fn toggle_filter(
                 .rounded(theme.radius)
                 .cursor_pointer()
                 .when(selected, |d| d.bg(theme.button_primary))
-                .when(!selected, |d| {
-                    d.hover(|d| d.bg(theme.list_hover))
-                })
+                .when(!selected, |d| d.hover(|d| d.bg(theme.list_hover)))
                 .on_click(move |_, window, cx| on_pick(ix, window, cx))
                 .child(Label::new(label).text_sm().when(selected, |l| {
                     l.font_medium().text_color(theme.button_primary_foreground)

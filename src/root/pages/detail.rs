@@ -352,7 +352,11 @@ impl AppRoot {
                         .bg(theme_for_rows.success.opacity(0.18))
                         .border_1()
                         .border_color(theme_for_rows.success.opacity(0.35))
-                        .child(Icon::new(IconName::Check).size_3p5().text_color(theme_for_rows.success))
+                        .child(
+                            Icon::new(IconName::Check)
+                                .size_3p5()
+                                .text_color(theme_for_rows.success),
+                        )
                         .child(
                             Label::new(credits.trim().to_string())
                                 .font_family(MONO)
@@ -374,7 +378,11 @@ impl AppRoot {
                         .bg(theme_for_rows.danger.opacity(0.18))
                         .border_1()
                         .border_color(theme_for_rows.danger.opacity(0.35))
-                        .child(Icon::new(IconName::Close).size_3p5().text_color(theme_for_rows.danger))
+                        .child(
+                            Icon::new(IconName::Close)
+                                .size_3p5()
+                                .text_color(theme_for_rows.danger),
+                        )
                         .into_any_element(),
                 )
             } else {
@@ -418,11 +426,7 @@ impl AppRoot {
                             let weak = weak.clone();
                             move |_e, _window, cx| {
                                 let _ = weak.update(cx, |this, cx| {
-                                    this.open_account_overlay(
-                                        &p5,
-                                        &account_for_dialog,
-                                        cx,
-                                    );
+                                    this.open_account_overlay(&p5, &account_for_dialog, cx);
                                 });
                             }
                         }),
@@ -574,11 +578,7 @@ impl AppRoot {
 
     /// Paste-JSON import lives in an overlay card now — the page keeps just
     /// the "Add account" affordance and a result line.
-    fn open_import_overlay(
-        &mut self,
-        provider: &str,
-        cx: &mut Context<Self>,
-    ) {
+    fn open_import_overlay(&mut self, provider: &str, cx: &mut Context<Self>) {
         let lang = self.lang;
         let p = provider.to_string();
         self.open_overlay(

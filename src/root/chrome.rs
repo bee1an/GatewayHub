@@ -4,7 +4,7 @@
 
 use std::ops::Range;
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gateway_core::ProviderStatus;
 
@@ -291,9 +291,7 @@ pub(crate) fn toggle_filter(
                 .rounded(theme.radius)
                 .cursor_pointer()
                 .when(selected, |d| d.bg(theme.button_primary))
-                .when(!selected, |d| {
-                    d.hover(|d| d.bg(theme.list_hover))
-                })
+                .when(!selected, |d| d.hover(|d| d.bg(theme.list_hover)))
                 .on_click(move |_, window, cx| on_pick(ix, window, cx))
                 .child(Label::new(label).text_sm().when(selected, |l| {
                     l.font_medium().text_color(theme.button_primary_foreground)
@@ -412,4 +410,164 @@ pub(crate) fn skeleton_chips(widths: &[f32], cx: &App) -> AnyElement {
         chips = chips.child(Skeleton::new().w(px(*w)).h_5().rounded(cx.theme().radius));
     }
     div().px_4().py_3().child(chips).into_any_element()
+}
+
+// ---------------------------------------------------------------------------
+// marquee text — truncated lane that slides the full line on sustained hover
+// ---------------------------------------------------------------------------
+
+/// Hover-scroll lane for overflowing text. At rest it paints the same
+/// font-aware ellipsis as a natively truncated label; after a short hover
+/// pause the full line slides left until the suffix is readable, then
+/// holds. Pointer exit restores the ellipsis. Port of Heimdall's outline
+/// marquee: keyed state dies with the virtualized row, so no timer
+/// survives scroll-out or multiplies on re-entry, and reduce-motion
+/// leaves the resting ellipsis alone.
+#[derive(IntoElement)]
+pub(crate) struct MarqueeText {
+    id: SharedString,
+    text: SharedString,
+    mono: bool,
+    color: Hsla,
+}
+
+impl MarqueeText {
+    pub(crate) fn new(
+        id: impl Into<SharedString>,
+        text: impl Into<SharedString>,
+        mono: bool,
+        color: Hsla,
+    ) -> Self {
+        Self {
+            id: format!("marquee-{}", id.into()).into(),
+            text: text.into(),
+            mono,
+            color,
+        }
+    }
+}
+
+#[derive(Default)]
+struct MarqueeHover {
+    started: Option<Instant>,
+}
+
+/// One pass per hover: pause to read the prefix, slide, then hold the
+/// suffix. Time-based pixels avoid character jumps and redraw-rate drift.
+fn marquee_offset(elapsed: Duration, overflow: Pixels) -> Pixels {
+    const PAUSE: Duration = Duration::from_millis(600);
+    const SPEED: f32 = 32.;
+    px(elapsed.saturating_sub(PAUSE).as_secs_f32() * SPEED).min(overflow.max(px(0.)))
+}
+
+fn marquee_resting_line(
+    text: SharedString,
+    style: &TextStyle,
+    width: Pixels,
+    window: &Window,
+) -> ShapedLine {
+    let font_size = style.font_size.to_pixels(window.rem_size());
+    let runs = [style.to_run(text.len())];
+    let full = window
+        .text_system()
+        .shape_line(text.clone(), font_size, &runs, None);
+    if full.width() <= width {
+        return full;
+    }
+    // Same font-aware ellipsis algorithm as GPUI's native text element.
+    let (shortened, runs) = window
+        .text_system()
+        .line_wrapper(style.font(), font_size)
+        .truncate_line(text, width.max(px(0.)), "…", &runs, TruncateFrom::End);
+    window
+        .text_system()
+        .shape_line(shortened, font_size, &runs, None)
+}
+
+impl RenderOnce for MarqueeText {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let state = window.use_keyed_state(self.id.clone(), cx, |_, _| MarqueeHover::default());
+        let paint_state = state.clone();
+        // Log text can contain newlines/tabs; shape_line cannot.
+        let text: SharedString = self.text.replace(['\n', '\r', '\t'], " ").into();
+        let mono = self.mono;
+        let color = self.color;
+
+        div()
+            .id(self.id)
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .overflow_hidden()
+            .text_xs()
+            .line_height(rems(1.25))
+            .text_color(color)
+            .when(mono, |d| d.font_family(MONO))
+            .on_hover(move |hovered, _, cx| {
+                let now = cx.background_executor().now();
+                state.update(cx, |state, cx| {
+                    state.started = hovered.then_some(now);
+                    cx.notify();
+                });
+            })
+            .child(
+                canvas(
+                    move |bounds, window, cx| {
+                        let style = window.text_style();
+                        let font_size = style.font_size.to_pixels(window.rem_size());
+                        let full = window.text_system().shape_line(
+                            text.clone(),
+                            font_size,
+                            &[style.to_run(text.len())],
+                            None,
+                        );
+                        let overflow = (full.width() - bounds.size.width).max(px(0.));
+                        let started = paint_state.read(cx).started;
+                        let moving = started.is_some() && overflow > px(0.) && !cx.reduce_motion();
+                        let offset = if moving {
+                            marquee_offset(
+                                cx.background_executor().now()
+                                    - started.expect("hover start exists"),
+                                overflow,
+                            )
+                        } else {
+                            px(0.)
+                        };
+                        let line = if moving {
+                            full
+                        } else {
+                            marquee_resting_line(text.clone(), &style, bounds.size.width, window)
+                        };
+                        (
+                            line,
+                            style.line_height_in_pixels(window.rem_size()),
+                            offset,
+                            moving && offset < overflow,
+                        )
+                    },
+                    move |bounds, (line, line_height, offset, animate), window, cx| {
+                        if bounds.size.width <= px(0.) {
+                            return;
+                        }
+                        // A GPU content mask, not an opaque patch: this also
+                        // works over the translucent window background.
+                        window.with_content_mask(Some(ContentMask { bounds }), |window| {
+                            let origin = point(
+                                bounds.left() - offset,
+                                bounds.top() + (bounds.size.height - line_height) / 2.,
+                            );
+                            if let Err(error) =
+                                line.paint(origin, line_height, TextAlign::Left, None, window, cx)
+                            {
+                                tracing::warn!(%error, "Failed to paint marquee text");
+                            }
+                        });
+                        if animate {
+                            window.request_animation_frame();
+                        }
+                    },
+                )
+                .size_full(),
+            )
+    }
 }

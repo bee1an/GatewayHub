@@ -21,9 +21,9 @@ use gateway_core::{
 };
 
 pub(crate) use chrome::{
-    MONO, card, card_rows, card_uniform_list, clock_time, enter, hairline, one_line, page_header,
-    pop_in, provider_logo, row, section_header, shake, short_date, skeleton_rows, status_label,
-    toggle_filter,
+    MONO, MarqueeText, card, card_rows, card_uniform_list, clock_time, enter, hairline, one_line,
+    page_header, pop_in, provider_logo, row, section_header, shake, short_date, skeleton_rows,
+    status_label, toggle_filter,
 };
 
 use gpui_kit::assets::IconName;
@@ -626,6 +626,18 @@ impl AppRoot {
     fn clear_logs(&mut self, cx: &mut Context<Self>) {
         self.service.clear_logs();
         self.log_notice = None;
+        // render_logs reads the cached snapshot, which the 5s poll only
+        // replaces on its next tick — mirror the cleared state into it
+        // now so the list empties on this repaint instead of up to 5s
+        // later. Rebuild field-wise rather than Arc::make_mut so the old
+        // (possibly large) logs vec is never cloned just to be dropped.
+        self.snapshot = Arc::new(GatewayStatusSnapshot {
+            server: self.snapshot.server.clone(),
+            config_path: self.snapshot.config_path.clone(),
+            state_path: self.snapshot.state_path.clone(),
+            providers: self.snapshot.providers.clone(),
+            logs: Vec::new(),
+        });
         cx.notify();
     }
 
@@ -989,8 +1001,7 @@ impl AppRoot {
                                 "fail_prefix"
                             },
                         );
-                        let mut lines =
-                            vec![format!("[{stamp}] {prefix}{}", result.message)];
+                        let mut lines = vec![format!("[{stamp}] {prefix}{}", result.message)];
                         if let Some(auth_type) = &result.auth_type {
                             lines.push(format!("auth_type: {auth_type}"));
                         }
@@ -999,12 +1010,8 @@ impl AppRoot {
                         }
                         if !result.models.is_empty() {
                             lines.push(
-                                tf(
-                                    lang,
-                                    "models_n",
-                                    &[("n", &result.models.len().to_string())],
-                                )
-                                .to_string(),
+                                tf(lang, "models_n", &[("n", &result.models.len().to_string())])
+                                    .to_string(),
                             );
                         }
                         this.test_results.insert(key, lines.join("\n"));
@@ -1328,7 +1335,13 @@ impl AppRoot {
                 d.child(div().px_4().child((content)(&*self, window, cx)))
             })
             .when_some(req.footer.as_ref(), |d, footer| {
-                d.child(div().w_full().px_4().py_4().child((footer)(&*self, window, cx)))
+                d.child(
+                    div()
+                        .w_full()
+                        .px_4()
+                        .py_4()
+                        .child((footer)(&*self, window, cx)),
+                )
             })
             .when(req.footer.is_none(), |d| {
                 let on_ok = req.on_ok.clone();
@@ -1457,9 +1470,7 @@ impl AppRoot {
                                             .on_mouse_down(MouseButton::Right, |_, _, cx| {
                                                 cx.stop_propagation()
                                             })
-                                            .on_scroll_wheel(|_, _, cx| {
-                                                cx.stop_propagation()
-                                            }),
+                                            .on_scroll_wheel(|_, _, cx| cx.stop_propagation()),
                                     )
                                 }),
                         ),
@@ -1468,9 +1479,6 @@ impl AppRoot {
         )
     }
 
-    /// Playground send — goes through the in-process registry (the same
-    /// path the HTTP server uses) rather than HTTP, so it works whether
-    /// or not the server is running.
     /// One assistant-reply round: appends the pending placeholder and fires
     /// the HTTP request through the RUNNING gateway server — exercising the
     /// real auth/scope/protocol path, not the in-process registry.
@@ -1879,7 +1887,12 @@ impl Render for AppRoot {
                 IconName::Bot,
                 "nav_playground",
             ),
-            (Page::ApiKeys, "nav-apikeys", IconName::Asterisk, "nav_api_keys"),
+            (
+                Page::ApiKeys,
+                "nav-apikeys",
+                IconName::Asterisk,
+                "nav_api_keys",
+            ),
             (
                 Page::Mappings,
                 "nav-mappings",
@@ -1923,9 +1936,7 @@ impl Render for AppRoot {
         let visible_providers: Vec<_> = snapshot
             .providers
             .iter()
-            .filter(|p| {
-                p.status != "placeholder" && !self.hidden_providers.contains(&p.name)
-            })
+            .filter(|p| p.status != "placeholder" && !self.hidden_providers.contains(&p.name))
             .collect();
         for p in &visible_providers {
             let active = self.detail.as_deref() == Some(p.name.as_str());
@@ -1933,15 +1944,6 @@ impl Render for AppRoot {
             let dim = !p.configured || !p.enabled;
             let glyph = provider_logo(&p.provider_type, NAV_ICON, dim, cx);
             let label = p.display_name.clone().unwrap_or_else(|| p.name.clone());
-            let status_color = if !p.enabled {
-                theme.muted_foreground.opacity(0.5)
-            } else {
-                match status_label(p) {
-                    "ready" => theme.success,
-                    "error" => theme.danger,
-                    _ => theme.muted_foreground,
-                }
-            };
             let row = nav_row(
                 SharedString::from(format!("nav-p-{}", p.name)),
                 glyph,
@@ -1954,18 +1956,7 @@ impl Render for AppRoot {
                 this.open_detail(&name, cx);
                 cx.notify();
             }));
-            providers_section = providers_section.child(if collapsed {
-                row
-            } else {
-                row.child(div().flex_1()).child(
-                    div()
-                        .size_1p5()
-                        .flex_none()
-                        .mr_1()
-                        .rounded_full()
-                        .bg(status_color),
-                )
-            });
+            providers_section = providers_section.child(row);
         }
 
         // Settings at the bottom of nav
@@ -2024,11 +2015,7 @@ impl Render for AppRoot {
                             div()
                                 .size_1p5()
                                 .rounded_full()
-                                .bg(if running {
-                                    theme.success
-                                } else {
-                                    theme.danger
-                                })
+                                .bg(if running { theme.success } else { theme.danger })
                                 .into_any_element()
                         })
                         .child(
@@ -2072,7 +2059,7 @@ impl Render for AppRoot {
                         .into();
                         move |window, cx| Tooltip::new(tip.clone()).build(window, cx)
                     })
-                    .on_click(cx.listener(|this, _, _w, cx| {
+                    .on_click(cx.listener(|this, _, window, cx| {
                         let next = if cx.theme().mode.is_dark() {
                             ThemeMode::Light
                         } else {
@@ -2080,6 +2067,15 @@ impl Render for AppRoot {
                         };
                         this.mode_choice = Some(next);
                         Theme::change(next, None, cx);
+                        // Keep the native frosted material on the same
+                        // appearance as the in-app theme.
+                        #[cfg(target_os = "macos")]
+                        if let Err(error) = crate::macos_blur::set_window_appearance(
+                            window,
+                            matches!(next, ThemeMode::Dark),
+                        ) {
+                            tracing::warn!(%error, "failed to pin window appearance");
+                        }
                         cx.notify();
                     }))
                     .child(
@@ -2179,89 +2175,7 @@ impl Render for AppRoot {
             )
         };
 
-        let enabled_count = snapshot
-            .providers
-            .iter()
-            .filter(|provider| provider.enabled && provider.status != "placeholder")
-            .count();
-        let ready_count = snapshot
-            .providers
-            .iter()
-            .filter(|provider| {
-                provider.enabled && provider.status != "placeholder" && provider.status == "ready"
-            })
-            .count();
-        let error_count = snapshot
-            .logs
-            .iter()
-            .filter(|entry| entry.level == gateway_core::LogLevel::Error)
-            .count();
-        let status_strip = h_flex()
-            .h_10()
-            .flex_none()
-            .items_center()
-            .gap_4()
-            .px_5()
-            .border_b_1()
-            .border_color(theme.border)
-            .child(
-                h_flex()
-                    .items_center()
-                    .gap_1p5()
-                    .child(div().size_1p5().rounded_full().bg(if running {
-                        theme.success
-                    } else {
-                        theme.muted_foreground
-                    }))
-                    .child(
-                        Label::new(t(
-                            lang,
-                            if running {
-                                "running_caps"
-                            } else {
-                                "stopped_caps"
-                            },
-                        ))
-                        .font_family(MONO)
-                        .text_xs()
-                        .font_semibold()
-                        .text_color(if running {
-                            theme.primary
-                        } else {
-                            theme.muted_foreground
-                        })
-                        .when(!running, |l| l.font_semibold()),
-                    ),
-            )
-            .child(
-                Label::new(snapshot.server.url.clone())
-                    .font_family(MONO)
-                    .text_xs()
-                    .text_color(theme.muted_foreground),
-            )
-            .child(div().flex_1())
-            .child(
-                Label::new(format!("{ready_count}/{enabled_count}"))
-                    .font_family(MONO)
-                    .text_xs()
-                    .text_color(theme.muted_foreground),
-            )
-            .child(
-                Label::new(tf(lang, "n_err", &[("n", &error_count.to_string())]))
-                    .font_family(MONO)
-                    .text_xs()
-                    .text_color(if error_count > 0 {
-                        theme.danger
-                    } else {
-                        theme.muted_foreground
-                    }),
-            )
-            .child(
-                Label::new(tf(lang, "version", &[("ver", env!("CARGO_PKG_VERSION"))]))
-                    .font_family(MONO)
-                    .text_xs()
-                    .text_color(theme.muted_foreground),
-            );
+
 
         // ---- shell: Electron geometry, rendered with opaque surfaces so
         // virtualized lists retain smooth scrolling. ----
@@ -2282,7 +2196,8 @@ impl Render for AppRoot {
                 h_flex()
                     .items_stretch()
                     .size_full()
-                    .bg(theme.sidebar)
+                    // No fill — the native frosted backdrop shows through the
+                    // sidebar chrome; the content card stays opaque.
                     .p_3()
                     .px_1()
                     .gap_3()
@@ -2297,7 +2212,6 @@ impl Render for AppRoot {
                             .border_color(theme.window_border)
                             .bg(theme.background)
                             .overflow_hidden()
-                            .child(status_strip)
                             .child({
                                 // Pages with virtualized lists manage their own scroll;
                                 // the wrapper must not also scroll (nested scroll fights).
@@ -2320,6 +2234,7 @@ impl Render for AppRoot {
                                             .w_full()
                                             .max_w(px(max_w))
                                             .px_6()
+                                            .pt_6()
                                             .pb_5()
                                             .when(fills_height, |d| d.h_full())
                                             .child(body),

@@ -242,21 +242,17 @@ impl AppRoot {
             div()
                 .flex_1()
                 .min_h_0()
-                .child(
-                    card(cx).h_full().overflow_hidden().child(
-                        v_flex()
-                            .h_full()
-                            .min_h_0()
-                            .child(header)
-                            .child(div().flex_1().min_h_0().child(card_uniform_list(
-                                "usage-list",
-                                total,
-                                &self.usage_scroll,
-                                render_row,
-                                cx,
-                            ))),
+                .child(card(cx).h_full().overflow_hidden().child(
+                    v_flex().h_full().min_h_0().child(header).child(
+                        div().flex_1().min_h_0().child(card_uniform_list(
+                            "usage-list",
+                            total,
+                            &self.usage_scroll,
+                            render_row,
+                            cx,
+                        )),
                     ),
-                )
+                ))
                 .into_any_element()
         };
 

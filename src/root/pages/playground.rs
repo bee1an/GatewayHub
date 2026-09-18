@@ -226,14 +226,12 @@ impl AppRoot {
                             .text_color(theme.muted_foreground),
                     )
                     .child(
-                        div()
-                            .max_w(rems(26.))
-                            .child(
-                                Label::new(t(lang, "pg_empty"))
-                                    .text_sm()
-                                    .text_color(theme.muted_foreground)
-                                    .text_center(),
-                            ),
+                        div().max_w(rems(26.)).child(
+                            Label::new(t(lang, "pg_empty"))
+                                .text_sm()
+                                .text_color(theme.muted_foreground)
+                                .text_center(),
+                        ),
                     ),
             );
         }

@@ -87,6 +87,27 @@ tokio-util.workspace = true
 chrono.workspace = true
 reqwest.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "NSView",
+    "NSVisualEffectView",
+    "NSWindow",
+    "NSResponder",
+    "NSGraphics",
+    "NSUserInterfaceItemIdentification",
+    "NSAppearance",
+] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "NSString",
+    "NSGeometry",
+    "NSArray",
+    "NSError",
+] }
+raw-window-handle = "0.6.2"
+
 [dev-dependencies]
 tempfile = "3.23.0"
 

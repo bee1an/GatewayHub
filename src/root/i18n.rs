@@ -92,14 +92,10 @@ fn en(key: &str) -> Option<&'static str> {
         // ---- shell / status strip ----
         "running" => "Running",
         "stopped" => "Stopped",
-        "running_caps" => "RUNNING",
-        "stopped_caps" => "STOPPED",
         "switch_to_light" => "Switch to light",
         "switch_to_dark" => "Switch to dark",
         "expand_sidebar" => "Expand sidebar",
         "collapse_sidebar" => "Collapse sidebar",
-        "n_err" => "{n} err",
-        "version" => "v{ver}",
 
         // ---- language switch ----
         "language" => "Language",
@@ -193,11 +189,18 @@ fn en(key: &str) -> Option<&'static str> {
         "info" => "Info",
         "warn" => "Warn",
         "error" => "Error",
+        "debug" => "Debug",
         "export" => "Export",
         "clear" => "Clear",
         "no_logs" => "No log entries yet",
         "no_match_filter" => "Nothing matches the current filter",
         "n_entries" => "{n} entries",
+        "col_time" => "Time",
+        "col_level" => "Level",
+        "col_provider" => "Provider",
+        "col_message" => "Message",
+        "col_status" => "Status",
+        "col_duration" => "Duration",
 
         // ---- detail ----
         "back" => "Back",
@@ -332,14 +335,10 @@ fn zh(key: &str) -> Option<&'static str> {
         // ---- shell / status strip ----
         "running" => "运行中",
         "stopped" => "已停止",
-        "running_caps" => "运行中",
-        "stopped_caps" => "已停止",
         "switch_to_light" => "切换到浅色",
         "switch_to_dark" => "切换到深色",
         "expand_sidebar" => "展开侧栏",
         "collapse_sidebar" => "收起侧栏",
-        "n_err" => "{n} 错误",
-        "version" => "v{ver}",
 
         // ---- language switch ----
         "language" => "语言",
@@ -431,11 +430,18 @@ fn zh(key: &str) -> Option<&'static str> {
         "info" => "信息",
         "warn" => "警告",
         "error" => "错误",
+        "debug" => "调试",
         "export" => "导出",
         "clear" => "清空",
         "no_logs" => "暂无日志",
         "no_match_filter" => "没有匹配当前筛选条件的条目",
         "n_entries" => "{n} 条",
+        "col_time" => "时间",
+        "col_level" => "级别",
+        "col_provider" => "服务商",
+        "col_message" => "消息",
+        "col_status" => "状态码",
+        "col_duration" => "耗时",
 
         // ---- detail ----
         "back" => "返回",

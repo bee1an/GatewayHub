@@ -1,5 +1,7 @@
 mod assets;
 mod cli;
+#[cfg(target_os = "macos")]
+mod macos_blur;
 mod root;
 mod theme;
 
@@ -7,7 +9,7 @@ use std::sync::Arc;
 
 use gateway_core::{ConfigStore, GatewayPaths, GatewayService};
 use gpui_kit::component::input::{Copy, Cut, Paste, Redo, SelectAll, Undo};
-use gpui_kit::component::{Root, Theme};
+use gpui_kit::component::{ActiveTheme, Root, Theme};
 use gpui_kit::*;
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -74,20 +76,39 @@ fn spawn_window(service: Arc<GatewayService>, cx: &mut App) {
                     appears_transparent: true,
                     traffic_light_position: Some(point(px(12.), px(14.))),
                 }),
-                // Opaque rendering avoids re-compositing the desktop
-                // behind every row while a virtualized list scrolls.
-                window_background: gpui_kit::WindowBackgroundAppearance::Opaque,
-                show: true,
+                // The content card paints opaque surfaces over virtualized
+                // lists, so scroll performance is unaffected; the frost only
+                // shows through the sidebar chrome outside the card.
+                window_background: gpui_kit::WindowBackgroundAppearance::Blurred,
+                // macOS shows the window only after the native material is
+                // installed (see below), so no pre-frost frame is visible.
+                show: cfg!(not(target_os = "macos")),
                 window_min_size: Some(size(px(760.), px(520.))),
                 app_id: Some("dev.gatewayhub.app".into()),
                 ..Default::default()
             },
             |window, cx| {
                 #[cfg(target_os = "macos")]
-                window.on_next_frame(|window, _cx| window.activate_window());
+                {
+                    if let Err(error) = crate::macos_blur::install_frosted_backdrop(window) {
+                        tracing::warn!(%error, "native frost unavailable; using an opaque window");
+                        window.set_background_appearance(
+                            gpui_kit::WindowBackgroundAppearance::Opaque,
+                        );
+                    }
+                    // The material tracks the window appearance — pin it to
+                    // the resolved theme so in-app light/dark picks hold.
+                    let dark = cx.theme().is_dark();
+                    if let Err(error) = crate::macos_blur::set_window_appearance(window, dark) {
+                        tracing::warn!(%error, "failed to pin window appearance");
+                    }
+                    window.on_next_frame(|window, _cx| window.activate_window());
+                }
                 let root_view = cx.new(|cx| AppRoot::new(service.clone(), window, cx));
                 let shell = cx.new(|_| Shell { view: root_view });
-                cx.new(|cx| Root::new(shell, window, cx))
+                // Root paints theme.background over the whole window — clear
+                // it so the frosted material shows outside the content card.
+                cx.new(|cx| Root::new(shell, window, cx).bg(transparent_black()))
             },
         )?;
         Ok::<_, anyhow::Error>(())
@@ -128,50 +149,50 @@ fn main() {
         });
     }
     app.run(move |cx| {
-            gpui_kit::init(cx);
-            theme::restore_default_themes(cx);
-            cx.activate(true);
-            let mode = theme::theme_mode_for_appearance(cx.window_appearance());
-            Theme::change(mode, None, cx);
+        gpui_kit::init(cx);
+        theme::restore_default_themes(cx);
+        cx.activate(true);
+        let mode = theme::theme_mode_for_appearance(cx.window_appearance());
+        Theme::change(mode, None, cx);
 
-            cx.on_action(|e: &MenuAction, cx: &mut App| match e {
-                MenuAction::Quit => cx.quit(),
-                MenuAction::Close => {
-                    // macOS stays resident after the last window closes; the
-                    // window is rebuilt via on_reopen.
-                    if let Some(window) = cx.active_window() {
-                        let _ = window.update(cx, |_, window, _cx| window.remove_window());
-                    }
+        cx.on_action(|e: &MenuAction, cx: &mut App| match e {
+            MenuAction::Quit => cx.quit(),
+            MenuAction::Close => {
+                // macOS stays resident after the last window closes; the
+                // window is rebuilt via on_reopen.
+                if let Some(window) = cx.active_window() {
+                    let _ = window.update(cx, |_, window, _cx| window.remove_window());
                 }
-                MenuAction::About => {}
-            });
-            cx.set_menus(vec![
-                Menu {
-                    name: APP_NAME.into(),
-                    items: vec![
-                        MenuItem::action(format!("About {APP_NAME}"), MenuAction::About),
-                        MenuItem::separator(),
-                        MenuItem::action("Close Window", MenuAction::Close),
-                        MenuItem::action("Quit", MenuAction::Quit),
-                    ],
-                    disabled: false,
-                },
-                Menu {
-                    name: "Edit".into(),
-                    items: vec![
-                        MenuItem::os_action("Undo", Undo, OsAction::Undo),
-                        MenuItem::os_action("Redo", Redo, OsAction::Redo),
-                        MenuItem::separator(),
-                        MenuItem::os_action("Cut", Cut, OsAction::Cut),
-                        MenuItem::os_action("Copy", Copy, OsAction::Copy),
-                        MenuItem::os_action("Paste", Paste, OsAction::Paste),
-                        MenuItem::separator(),
-                        MenuItem::os_action("Select All", SelectAll, OsAction::SelectAll),
-                    ],
-                    disabled: false,
-                },
-            ]);
-
-            spawn_window(service.clone(), cx);
+            }
+            MenuAction::About => {}
         });
+        cx.set_menus(vec![
+            Menu {
+                name: APP_NAME.into(),
+                items: vec![
+                    MenuItem::action(format!("About {APP_NAME}"), MenuAction::About),
+                    MenuItem::separator(),
+                    MenuItem::action("Close Window", MenuAction::Close),
+                    MenuItem::action("Quit", MenuAction::Quit),
+                ],
+                disabled: false,
+            },
+            Menu {
+                name: "Edit".into(),
+                items: vec![
+                    MenuItem::os_action("Undo", Undo, OsAction::Undo),
+                    MenuItem::os_action("Redo", Redo, OsAction::Redo),
+                    MenuItem::separator(),
+                    MenuItem::os_action("Cut", Cut, OsAction::Cut),
+                    MenuItem::os_action("Copy", Copy, OsAction::Copy),
+                    MenuItem::os_action("Paste", Paste, OsAction::Paste),
+                    MenuItem::separator(),
+                    MenuItem::os_action("Select All", SelectAll, OsAction::SelectAll),
+                ],
+                disabled: false,
+            },
+        ]);
+
+        spawn_window(service.clone(), cx);
+    });
 }

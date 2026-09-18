@@ -22,8 +22,8 @@ use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use crate::root::{
-    AppRoot, MONO, OverlayRequest, card, card_uniform_list, enter, hairline, provider_logo,
-    row, section_header, skeleton_rows, status_label, t, tf,
+    AppRoot, MONO, OverlayRequest, card, card_uniform_list, enter, hairline, provider_logo, row,
+    section_header, skeleton_rows, status_label, t, tf,
 };
 
 /// Providers that expose daily check-in (`checkin_accounts`).
@@ -362,7 +362,11 @@ impl AppRoot {
                         .bg(theme_for_rows.success.opacity(0.18))
                         .border_1()
                         .border_color(theme_for_rows.success.opacity(0.35))
-                        .child(Icon::new(IconName::Check).size_3p5().text_color(theme_for_rows.success))
+                        .child(
+                            Icon::new(IconName::Check)
+                                .size_3p5()
+                                .text_color(theme_for_rows.success),
+                        )
                         .child(
                             Label::new(credits.trim().to_string())
                                 .font_family(MONO)
@@ -384,7 +388,11 @@ impl AppRoot {
                         .bg(theme_for_rows.danger.opacity(0.18))
                         .border_1()
                         .border_color(theme_for_rows.danger.opacity(0.35))
-                        .child(Icon::new(IconName::Close).size_3p5().text_color(theme_for_rows.danger))
+                        .child(
+                            Icon::new(IconName::Close)
+                                .size_3p5()
+                                .text_color(theme_for_rows.danger),
+                        )
                         .into_any_element(),
                 )
             } else {
@@ -398,11 +406,7 @@ impl AppRoot {
             let weak_for_menu = weak.clone();
             let account_enabled = account.enabled;
             let menu_for: std::rc::Rc<
-                dyn Fn(
-                    PopupMenu,
-                    &mut Window,
-                    &mut Context<PopupMenu>,
-                ) -> PopupMenu,
+                dyn Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu,
             > = std::rc::Rc::new(move |menu, _window, _cx| {
                 let (weak2, weak3) = (weak_for_menu.clone(), weak_for_menu.clone());
                 let (p2, p3) = (p2.clone(), p3.clone());
@@ -639,11 +643,7 @@ impl AppRoot {
 
     /// Paste-JSON import lives in an overlay card now — the page keeps just
     /// the "Add account" affordance and a result line.
-    fn open_import_overlay(
-        &mut self,
-        provider: &str,
-        cx: &mut Context<Self>,
-    ) {
+    fn open_import_overlay(&mut self, provider: &str, cx: &mut Context<Self>) {
         let lang = self.lang;
         let p = provider.to_string();
         self.open_overlay(
@@ -835,9 +835,7 @@ impl AppRoot {
                     if supports_checkin {
                         let checkin = state.as_ref().and_then(|s| s.checkin.clone());
                         let today = cn_today();
-                        let checked = checkin
-                            .as_ref()
-                            .and_then(|c| c.last_day.as_deref())
+                        let checked = checkin.as_ref().and_then(|c| c.last_day.as_deref())
                             == Some(today.as_str());
                         let value = match &checkin {
                             Some(c) => {
@@ -877,7 +875,14 @@ impl AppRoot {
                                     Button::new(SharedString::from(format!("dlg-checkin-{key}")))
                                         .ghost()
                                         .xsmall()
-                                        .label(t(lang, if checked { "checked_in_today" } else { "checkin_now" }))
+                                        .label(t(
+                                            lang,
+                                            if checked {
+                                                "checked_in_today"
+                                            } else {
+                                                "checkin_now"
+                                            },
+                                        ))
                                         .disabled(checked)
                                         .loading(checking)
                                         .on_click(cx.listener({
@@ -974,7 +979,17 @@ impl AppRoot {
                                         })),
                                 ),
                         )
-                        .child(chips);
+                        // The chip wall wraps row after row — bound it and
+                        // scroll inside so big catalogs can't push content
+                        // past the panel's max height.
+                        .child(
+                            div()
+                                .id(SharedString::from(format!("dlg-models-scroll-{key}")))
+                                .w_full()
+                                .max_h(px(168.))
+                                .overflow_y_scroll()
+                                .child(chips),
+                        );
 
                     body.into_any_element()
                 })),

@@ -626,6 +626,18 @@ impl AppRoot {
     fn clear_logs(&mut self, cx: &mut Context<Self>) {
         self.service.clear_logs();
         self.log_notice = None;
+        // render_logs reads the cached snapshot, which the 5s poll only
+        // replaces on its next tick — mirror the cleared state into it
+        // now so the list empties on this repaint instead of up to 5s
+        // later. Rebuild field-wise rather than Arc::make_mut so the old
+        // (possibly large) logs vec is never cloned just to be dropped.
+        self.snapshot = Arc::new(GatewayStatusSnapshot {
+            server: self.snapshot.server.clone(),
+            config_path: self.snapshot.config_path.clone(),
+            state_path: self.snapshot.state_path.clone(),
+            providers: self.snapshot.providers.clone(),
+            logs: Vec::new(),
+        });
         cx.notify();
     }
 

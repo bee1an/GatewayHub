@@ -49,6 +49,7 @@ pub(crate) const PAGE_MAX_W: f32 = 896.;
 pub(crate) const DETAIL_MAX_W: f32 = 1024.;
 const SIDEBAR_HIDDEN_KEY: &str = "gpuiSidebarHiddenProviders";
 const LANG_KEY: &str = "gpuiLang";
+const PG_API_TYPE_KEY: &str = "gpuiPgApiType";
 
 fn read_hidden_providers(config: &gateway_core::GatewayHubConfig) -> HashSet<String> {
     config
@@ -91,6 +92,27 @@ fn write_lang(config: &mut gateway_core::GatewayHubConfig, lang: Lang) {
     config
         .extra
         .insert(LANG_KEY.into(), serde_json::json!(value));
+}
+
+fn read_pg_api_type(config: &gateway_core::GatewayHubConfig) -> PgApiType {
+    match config
+        .extra
+        .get(PG_API_TYPE_KEY)
+        .and_then(serde_json::Value::as_str)
+    {
+        Some("anthropic") => PgApiType::Anthropic,
+        _ => PgApiType::OpenAi,
+    }
+}
+
+fn write_pg_api_type(config: &mut gateway_core::GatewayHubConfig, api: PgApiType) {
+    let value = match api {
+        PgApiType::OpenAi => "openai",
+        PgApiType::Anthropic => "anthropic",
+    };
+    config
+        .extra
+        .insert(PG_API_TYPE_KEY.into(), serde_json::json!(value));
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -168,6 +190,15 @@ pub(crate) struct PgMsg {
 pub(crate) enum PgRole {
     User,
     Assistant,
+}
+
+/// Playground request format — which protocol the composer exercises.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum PgApiType {
+    /// `POST /v1/chat/completions`
+    OpenAi,
+    /// `POST /v1/messages`
+    Anthropic,
 }
 
 /// API-key select row: label is what the user reads, value is the key id.
@@ -293,6 +324,8 @@ pub struct AppRoot {
     /// Last-synced select contents — re-synced in render when they change.
     pub(crate) pg_model_items: Vec<String>,
     pub(crate) pg_key_items: Vec<PgKeyItem>,
+    /// Which endpoint the composer hits — persisted in config.extra.
+    pub(crate) pg_api_type: PgApiType,
     pub(crate) pg_stream: bool,
     pub(crate) pg_input: Entity<TextareaState>,
     pub(crate) pg_msgs: Vec<PgMsg>,
@@ -375,6 +408,7 @@ impl AppRoot {
         let server_cfg = config.server.clone();
         let hidden_providers = read_hidden_providers(&config);
         let lang = read_lang(&config);
+        let pg_api_type = read_pg_api_type(&config);
         let snapshot = Arc::new(service.status());
         // Composer: multi-line, Enter submits (Shift+Enter = newline). The
         // subscription runs without a Window, so send only flags the clear —
@@ -449,6 +483,7 @@ impl AppRoot {
             }),
             pg_model_items: Vec::new(),
             pg_key_items: Vec::new(),
+            pg_api_type,
             pg_stream: true,
             pg_input,
             pg_msgs: Vec::new(),
@@ -772,6 +807,17 @@ impl AppRoot {
         write_lang(&mut cfg, lang);
         if let Err(error) = self.service.save_config(cfg) {
             tracing::error!(%error, "failed to persist language");
+        }
+        cx.notify();
+    }
+
+    /// Playground API format — persisted like the other UI prefs.
+    fn set_pg_api_type(&mut self, api: PgApiType, cx: &mut Context<Self>) {
+        self.pg_api_type = api;
+        let mut cfg = self.service.config();
+        write_pg_api_type(&mut cfg, api);
+        if let Err(error) = self.service.save_config(cfg) {
+            tracing::error!(%error, "failed to persist playground API type");
         }
         cx.notify();
     }
@@ -1520,10 +1566,8 @@ impl AppRoot {
             );
             return;
         };
-        let url = format!(
-            "{}/v1/chat/completions",
-            self.snapshot.server.url.trim_end_matches('/')
-        );
+        let api = self.pg_api_type;
+        let base = self.snapshot.server.url.trim_end_matches('/').to_string();
         let stream = self.pg_stream;
         let messages: Vec<serde_json::Value> = self
             .pg_msgs
@@ -1536,14 +1580,30 @@ impl AppRoot {
                 })
             })
             .collect();
-        let mut body = serde_json::json!({
-            "model": model,
-            "messages": messages,
-            "stream": stream,
-        });
-        if stream {
-            body["stream_options"] = serde_json::json!({"include_usage": true});
-        }
+        let (url, body) = match api {
+            PgApiType::OpenAi => {
+                let mut body = serde_json::json!({
+                    "model": model,
+                    "messages": messages,
+                    "stream": stream,
+                });
+                if stream {
+                    body["stream_options"] = serde_json::json!({"include_usage": true});
+                }
+                (format!("{base}/v1/chat/completions"), body)
+            }
+            PgApiType::Anthropic => (
+                format!("{base}/v1/messages"),
+                // Anthropic requires an explicit cap — a roomy default for a
+                // smoke-test composer.
+                serde_json::json!({
+                    "model": model,
+                    "max_tokens": 4096,
+                    "messages": messages,
+                    "stream": stream,
+                }),
+            ),
+        };
 
         let cancel = tokio_util::sync::CancellationToken::new();
         self.pg_cancel = Some(cancel.clone());
@@ -1578,7 +1638,13 @@ impl AppRoot {
                 }
                 Ok(resp) if !stream => {
                     let v: serde_json::Value = resp.json().await.unwrap_or_default();
-                    let text = pg_extract_text(v.pointer("/choices/0/message/content"));
+                    let text = match api {
+                        PgApiType::OpenAi => {
+                            pg_extract_text(v.pointer("/choices/0/message/content"))
+                        }
+                        // Anthropic replies carry a `content` block array.
+                        PgApiType::Anthropic => pg_extract_text(v.get("content")),
+                    };
                     let meta = pg_meta(started, v.get("usage"));
                     let _ = tx.try_send(PgEvent::Full { text, meta });
                 }
@@ -1587,6 +1653,10 @@ impl AppRoot {
                     let mut s = resp.bytes_stream();
                     let mut buf = String::new();
                     let mut usage: Option<serde_json::Value> = None;
+                    // Anthropic splits token counts across frames — each of
+                    // `message_start` / `message_delta` may carry either
+                    // count, so both are accumulated as running maxima.
+                    let (mut in_tok, mut out_tok) = (0_u64, 0_u64);
                     'outer: loop {
                         let chunk = tokio::select! {
                             _ = cancel.cancelled() => break 'outer,
@@ -1617,16 +1687,61 @@ impl AppRoot {
                                 let _ = tx.try_send(PgEvent::Failed(msg));
                                 return;
                             }
-                            if let Some(u) = v.get("usage") {
-                                usage = Some(u.clone());
-                            }
-                            if let Some(t) = v
-                                .pointer("/choices/0/delta/content")
-                                .and_then(|d| d.as_str())
-                            {
-                                let _ = tx.try_send(PgEvent::Delta(t.to_string()));
+                            match api {
+                                PgApiType::OpenAi => {
+                                    if let Some(u) = v.get("usage") {
+                                        usage = Some(u.clone());
+                                    }
+                                    if let Some(t) = v
+                                        .pointer("/choices/0/delta/content")
+                                        .and_then(|d| d.as_str())
+                                    {
+                                        let _ = tx.try_send(PgEvent::Delta(t.to_string()));
+                                    }
+                                }
+                                PgApiType::Anthropic => {
+                                    match v.get("type").and_then(|t| t.as_str()) {
+                                        Some("message_start") => {
+                                            in_tok = v
+                                                .pointer("/message/usage/input_tokens")
+                                                .and_then(|n| n.as_u64())
+                                                .unwrap_or(in_tok);
+                                        }
+                                        Some("content_block_delta") => {
+                                            if let Some(t) =
+                                                v.pointer("/delta/text").and_then(|d| d.as_str())
+                                            {
+                                                let _ = tx.try_send(PgEvent::Delta(t.to_string()));
+                                            }
+                                        }
+                                        // The gateway may fill input/output
+                                        // counts only here (message_start
+                                        // often carries zeros) — keep the
+                                        // max of each.
+                                        Some("message_delta") => {
+                                            let u = v.get("usage");
+                                            in_tok = u
+                                                .and_then(|u| u.pointer("/input_tokens"))
+                                                .and_then(|n| n.as_u64())
+                                                .unwrap_or(in_tok)
+                                                .max(in_tok);
+                                            out_tok = u
+                                                .and_then(|u| u.pointer("/output_tokens"))
+                                                .and_then(|n| n.as_u64())
+                                                .unwrap_or(out_tok)
+                                                .max(out_tok);
+                                        }
+                                        _ => {}
+                                    }
+                                }
                             }
                         }
+                    }
+                    if matches!(api, PgApiType::Anthropic) && (in_tok > 0 || out_tok > 0) {
+                        usage = Some(serde_json::json!({
+                            "prompt_tokens": in_tok,
+                            "completion_tokens": out_tok,
+                        }));
                     }
                     let _ = tx.try_send(PgEvent::Done {
                         meta: pg_meta(started, usage.as_ref()),
@@ -1763,12 +1878,16 @@ fn pg_meta(started: Instant, usage: Option<&serde_json::Value>) -> Option<String
     let secs = format!("{:.1}s", ms as f64 / 1000.);
     match usage {
         Some(u) => {
+            // OpenAI spellings first; Anthropic names the same counts
+            // input/output.
             let inp = u
                 .pointer("/prompt_tokens")
+                .or_else(|| u.pointer("/input_tokens"))
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0);
             let out = u
                 .pointer("/completion_tokens")
+                .or_else(|| u.pointer("/output_tokens"))
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0);
             Some(format!("{secs} · {inp} in / {out} out"))

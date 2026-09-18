@@ -19,7 +19,9 @@ use gpui_kit::component::{
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
-use crate::root::{AppRoot, MONO, PgKeyItem, PgMsg, PgRole, card, page_header, t};
+use crate::root::{
+    AppRoot, MONO, PgApiType, PgKeyItem, PgMsg, PgRole, card, page_header, t, toggle_filter,
+};
 
 /// Models + key select contents change with the snapshot — pushed into the
 /// SelectState entities here, and a sane default is picked when the current
@@ -142,6 +144,38 @@ impl AppRoot {
             .items_end()
             .gap_3()
             .flex_wrap()
+            .child(
+                v_flex()
+                    .gap_1()
+                    .child(
+                        Label::new(t(lang, "pg_api"))
+                            .text_xs()
+                            .font_medium()
+                            .text_color(theme.secondary_foreground),
+                    )
+                    .child(
+                        // h_8 aligns the 24px segment row with the 32px
+                        // medium selects beside it.
+                        h_flex().h_8().items_center().child(toggle_filter(
+                            "pg-api",
+                            vec![
+                                ("OpenAI".into(), self.pg_api_type == PgApiType::OpenAi),
+                                ("Anthropic".into(), self.pg_api_type == PgApiType::Anthropic),
+                            ],
+                            cx.processor(|this, ix, _w, cx| {
+                                this.set_pg_api_type(
+                                    if ix == 0 {
+                                        PgApiType::OpenAi
+                                    } else {
+                                        PgApiType::Anthropic
+                                    },
+                                    cx,
+                                );
+                            }),
+                            cx,
+                        )),
+                    ),
+            )
             .child(
                 v_flex()
                     .gap_1()

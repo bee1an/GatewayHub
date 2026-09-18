@@ -12,7 +12,8 @@ use gpui_kit::component::{
     h_flex,
     input::Input,
     label::Label,
-    menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem},
+    menu::{ContextMenuExt, PopupMenu, PopupMenuItem},
+    popover::Popover,
     switch::Switch,
     tooltip::Tooltip,
     v_flex,
@@ -27,6 +28,13 @@ use crate::root::{
 
 /// Providers that expose daily check-in (`checkin_accounts`).
 pub(crate) const CHECKIN_PROVIDERS: &[&str] = &["traework", "workbuddy"];
+
+/// Holds the built `PopupMenu` entity for a row's ⋯ popover — built once,
+/// rebuilt after each dismiss (same contract as `dropdown_menu` internals).
+#[derive(Default)]
+struct AcctMenuState {
+    menu: Option<Entity<PopupMenu>>,
+}
 
 /// YYYY-MM-DD in Asia/Shanghai — same day key the checkin state stores.
 pub(crate) fn cn_today() -> String {
@@ -498,17 +506,61 @@ impl AppRoot {
                             }),
                     )
                 })
-                .child(
-                    Button::new(SharedString::from(format!("acct-menu-{key}")))
-                        .ghost()
-                        .xsmall()
-                        .icon(IconName::Ellipsis)
-                        .tooltip(t(lang, "actions"))
-                        .dropdown_menu({
+                .child({
+                    // Hand-rolled popover instead of `dropdown_menu` — the
+                    // helper sets overlay_closable(false), removing the
+                    // popover's own outside-click dismiss and leaning on the
+                    // menu's mouse_down_out alone. The default popover
+                    // dismisses on any outside mousedown and returns focus
+                    // through PopoverState, so the menu reliably closes.
+                    let menu_state = _window.use_keyed_state(
+                        SharedString::from(format!("acct-menu-state:{key}")),
+                        _app,
+                        |_, _| AcctMenuState::default(),
+                    );
+                    Popover::new(SharedString::from(format!("acct-menu-pop:{key}")))
+                        .appearance(false)
+                        .anchor(Anchor::TopRight)
+                        .trigger(
+                            Button::new(SharedString::from(format!("acct-menu-{key}")))
+                                .ghost()
+                                .xsmall()
+                                .icon(IconName::Ellipsis)
+                                .tooltip(t(lang, "actions")),
+                        )
+                        .content({
+                            let menu_state = menu_state.clone();
                             let menu_for = menu_for.clone();
-                            move |menu, window, cx| menu_for(menu, window, cx)
-                        }),
-                )
+                            move |_, window, cx| match menu_state.read(cx).menu.clone() {
+                                Some(menu) => menu,
+                                None => {
+                                    let builder = menu_for.clone();
+                                    let menu = PopupMenu::build(window, cx, move |m, w, cx| {
+                                        builder(m, w, cx)
+                                    });
+                                    menu_state.update(cx, |state, _| {
+                                        state.menu = Some(menu.clone());
+                                    });
+                                    menu.focus_handle(cx).focus(window, cx);
+                                    let popover_state = cx.entity();
+                                    window
+                                        .subscribe(&menu, cx, {
+                                            let menu_state = menu_state.clone();
+                                            move |_, _: &DismissEvent, window, cx| {
+                                                popover_state.update(cx, |state, cx| {
+                                                    state.dismiss(window, cx);
+                                                });
+                                                menu_state.update(cx, |state, _| {
+                                                    state.menu = None;
+                                                });
+                                            }
+                                        })
+                                        .detach();
+                                    menu
+                                }
+                            }
+                        })
+                })
                 .context_menu(move |menu, window, cx| menu_for(menu, window, cx))
                 .into_any_element()
         };

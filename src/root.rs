@@ -1424,8 +1424,12 @@ impl AppRoot {
                                 .top(rem_px * m.panel_off_rem)
                                 .w(panel_w)
                                 // Clicks/scroll inside the card must not
-                                // reach the backdrop.
-                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                // reach the backdrop — and blank panel
+                                // chrome releases any focused input.
+                                .on_mouse_down(MouseButton::Left, |_, window, cx| {
+                                    window.blur(cx);
+                                    cx.stop_propagation()
+                                })
                                 .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
                                 // Layer 2 — the surface: bg/border/radius/
                                 // shadow as one sibling with its own alpha,
@@ -2182,6 +2186,13 @@ impl Render for AppRoot {
         div()
             .size_full()
             .relative()
+            // Clicking inert chrome releases input focus — the Zed-style
+            // "background click unfocuses" contract. Inputs and Select
+            // triggers stop propagation on their own mousedown, so this
+            // only sees clicks that landed on non-focusable surface.
+            .on_mouse_down(MouseButton::Left, |_, window, cx| {
+                window.blur(cx);
+            })
             .child(
                 h_flex()
                     .items_stretch()

@@ -567,7 +567,23 @@ impl WorkBuddyCore {
                     &self.settings.billing_hosts,
                 )
                 .await?;
-                if !status.checked_in && status.active {
+                if status.checked_in {
+                    // The upstream has confirmed today's check-in — persist
+                    // that fact immediately. The credit re-query below is
+                    // best-effort; when it intermittently 500s, the hourly
+                    // sweep must not retry (and re-log) a completed check-in.
+                    let total = status.total_credits;
+                    let mut pool = self.pool.lock().await;
+                    if let Some(acc) = pool.find_mut(id) {
+                        acc.state.checkin = Some(CheckinState {
+                            last_day: Some(today.clone()),
+                            last_at: Some(now_ms()),
+                            last_credits: total.map(|t| t as f64),
+                            last_error: None,
+                            extra: Default::default(),
+                        });
+                    }
+                } else if status.active {
                     let _ = claim_checkin(
                         &self.http.client(),
                         &account,

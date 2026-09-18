@@ -201,6 +201,9 @@ fn en(key: &str) -> Option<&'static str> {
 
         // ---- detail ----
         "back" => "Back",
+        "proxy" => "Proxy",
+        "status" => "Status",
+        "actions" => "Actions",
         "proxy_on" => "Proxy: on",
         "proxy_off" => "Proxy: off",
         "test" => "Test",
@@ -236,7 +239,7 @@ fn en(key: &str) -> Option<&'static str> {
         "acct_rate_limited" => "rate limited",
         "acct_quota" => "quota exceeded",
         "acct_auth" => "auth failed",
-        "acct_off" => "paused",
+        "acct_off" => "disabled",
         "delete_account_title" => "Delete account?",
         "delete_account_desc" => "{label} will be removed permanently.",
         "revoke_key_title" => "Revoke API key?",
@@ -436,6 +439,9 @@ fn zh(key: &str) -> Option<&'static str> {
 
         // ---- detail ----
         "back" => "返回",
+        "proxy" => "代理",
+        "status" => "状态",
+        "actions" => "操作",
         "proxy_on" => "代理: 开",
         "proxy_off" => "代理: 关",
         "test" => "测试",
@@ -471,7 +477,7 @@ fn zh(key: &str) -> Option<&'static str> {
         "acct_rate_limited" => "限流中",
         "acct_quota" => "额度耗尽",
         "acct_auth" => "认证失败",
-        "acct_off" => "已暂停",
+        "acct_off" => "已禁用",
         "delete_account_title" => "删除账号？",
         "delete_account_desc" => "{label} 将被永久删除。",
         "revoke_key_title" => "吊销 API 密钥？",
@@ -586,6 +592,9 @@ mod tests {
             "logs_title",
             "settings_title",
             "back",
+            "proxy",
+            "status",
+            "actions",
             "proxy_on",
             "proxy_off",
             "test",

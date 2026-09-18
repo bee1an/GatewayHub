@@ -573,4 +573,32 @@ mod tests {
             .collect();
         assert!(seqs.windows(2).all(|w| w[0] < w[1]));
     }
+
+    /// A tool_call whose args arrive before its name must still produce an
+    /// `output_item.added` with a populated `name` — OpenAI sends the name
+    /// at add-time, and strict clients reject `name: ""`.
+    #[tokio::test]
+    async fn sse_transform_tool_call_added_waits_for_name() {
+        let chunks = vec![
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"arguments\":\"{\\\"a\\\":\"}}]}}]}\n\n".to_string(),
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"bash\",\"arguments\":\"1}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n".to_string(),
+            "data: [DONE]\n\n".to_string(),
+        ];
+        let stream = futures::stream::iter(chunks);
+        let out: Vec<String> = chat_sse_to_responses(stream, json!({"model": "m"}))
+            .collect()
+            .await;
+        let added: Vec<Value> = out
+            .iter()
+            .flat_map(|s| s.lines())
+            .filter(|l| l.starts_with("data: "))
+            .filter_map(|l| serde_json::from_str::<Value>(&l[6..]).ok())
+            .filter(|v| v.get("type").and_then(Value::as_str) == Some("response.output_item.added"))
+            .collect();
+        assert_eq!(added.len(), 1);
+        let item = &added[0]["item"];
+        assert_eq!(item["type"], "function_call");
+        assert_eq!(item["name"], "bash");
+        assert_eq!(item["call_id"], "call_1");
+    }
 }

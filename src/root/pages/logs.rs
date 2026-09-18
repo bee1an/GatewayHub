@@ -97,13 +97,13 @@ impl AppRoot {
             )
             .child(
                 Button::new("logs-clear")
-                    .ghost()
+                    .danger()
                     .small()
                     .label(t(lang, "clear"))
-                    .on_click(cx.listener(|this, e: &ClickEvent, _w, cx| {
+                    .on_click(cx.listener(|this, _e: &ClickEvent, _w, cx| {
                         let title = t(this.lang, "clear_logs_title");
                         let desc = t(this.lang, "clear_logs_desc").to_string();
-                        this.confirm(title, desc, "clear", Some(e.position()), cx, |this, cx| {
+                        this.confirm(title, desc, "clear", cx, |this, cx| {
                             this.clear_logs(cx);
                         });
                     })),
@@ -179,7 +179,7 @@ impl AppRoot {
 
         let logs_card: AnyElement = if total == 0 {
             card(cx)
-                .p_6()
+                .py_6()
                 .flex()
                 .justify_center()
                 .child(

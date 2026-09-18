@@ -9,6 +9,10 @@ pub(crate) struct ToolCallOut {
     pub(crate) call_id: String,
     pub(crate) name: String,
     pub(crate) arguments: String,
+    /// `response.output_item.added` was already emitted for this call —
+    /// delayed until `name` is known because OpenAI populates the item's
+    /// name at add-time (strict clients reject an added item with `name:""`).
+    pub(crate) emitted: bool,
 }
 
 pub(crate) struct ResponsesSseTransformer {
@@ -249,29 +253,40 @@ impl ResponsesSseTransformer {
         ));
     }
 
+    /// Registers the call slot without emitting anything — the
+    /// `output_item.added` event only goes out once the function name is
+    /// known (see [`emit_tool_call_added`]).
     pub(crate) fn ensure_tool_call(&mut self, index: u64, out: &mut Vec<String>) {
         self.start_events(out);
-        if self.tool_calls.contains_key(&index) {
-            return;
-        }
+        self.tool_calls
+            .entry(index)
+            .or_insert_with(|| ToolCallOut {
+                item_id: uuid_id("fc_"),
+                ..Default::default()
+            });
+    }
+
+    /// Emits `response.output_item.added` with the populated item — OpenAI
+    /// sends the function name at add-time; only `arguments` stream as
+    /// deltas afterwards.
+    fn emit_tool_call_added(&mut self, index: u64, out: &mut Vec<String>) {
         self.close_reasoning_item(out);
         self.close_message_item(out);
         let output_index = self.items.len();
-        let entry = ToolCallOut {
-            output_index,
-            item_id: uuid_id("fc_"),
-            ..Default::default()
+        let Some(entry) = self.tool_calls.get_mut(&index) else {
+            return;
         };
+        entry.output_index = output_index;
+        entry.emitted = true;
         let item = json!({
             "id": entry.item_id,
             "type": "function_call",
-            "call_id": "",
-            "name": "",
-            "arguments": "",
+            "call_id": entry.call_id,
+            "name": entry.name,
+            "arguments": entry.arguments,
             "status": "in_progress",
         });
         self.items.push(item.clone());
-        self.tool_calls.insert(index, entry);
         out.push(self.emit(
             "response.output_item.added",
             json!({ "output_index": output_index, "item": item }),
@@ -282,6 +297,11 @@ impl ResponsesSseTransformer {
         let Some(entry) = self.tool_calls.get(&index) else {
             return;
         };
+        if !entry.emitted {
+            // Never named — the call stays un-emitted entirely (same as the
+            // non-stream path filtering out nameless tool calls).
+            return;
+        }
         let output_index = entry.output_index;
         let item_id = entry.item_id.clone();
         let call_id = entry.call_id.clone();
@@ -316,8 +336,13 @@ impl ResponsesSseTransformer {
         self.close_message_item(out);
         let indices: Vec<u64> = self.tool_calls.keys().copied().collect();
         for index in indices {
-            let oi = self.tool_calls[&index].output_index;
-            if self.items[oi].get("status").and_then(Value::as_str) == Some("in_progress") {
+            let entry = &self.tool_calls[&index];
+            if entry.emitted
+                && self.items[entry.output_index]
+                    .get("status")
+                    .and_then(Value::as_str)
+                    == Some("in_progress")
+            {
                 self.close_tool_call(index, out);
             }
         }
@@ -433,8 +458,6 @@ impl ResponsesSseTransformer {
                     .and_then(Value::as_u64)
                     .unwrap_or(self.tool_calls.len() as u64);
                 self.ensure_tool_call(index, &mut out);
-                let output_index;
-                let item_id;
                 let mut args_delta = String::new();
                 {
                     let entry = self.tool_calls.entry(index).or_default();
@@ -456,10 +479,23 @@ impl ResponsesSseTransformer {
                         entry.arguments.push_str(args);
                         args_delta = args.to_string();
                     }
-                    output_index = entry.output_index;
-                    item_id = entry.item_id.clone();
                 }
-                if !args_delta.is_empty() {
+                // Emit `output_item.added` only once the name is known —
+                // OpenAI populates it at add-time.
+                let named = self.tool_calls[&index]
+                    .name
+                    .as_str()
+                    .chars()
+                    .any(|c| !c.is_whitespace());
+                if named && !self.tool_calls[&index].emitted {
+                    self.emit_tool_call_added(index, &mut out);
+                }
+                let (output_index, item_id) = {
+                    let entry = &self.tool_calls[&index];
+                    (entry.output_index, entry.item_id.clone())
+                };
+                let emitted = self.tool_calls[&index].emitted;
+                if emitted && !args_delta.is_empty() {
                     out.push(self.emit(
                         "response.function_call_arguments.delta",
                         json!({

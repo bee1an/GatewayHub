@@ -58,6 +58,50 @@ impl Render for Shell {
     }
 }
 
+/// Opens (or reopens) the main window — macOS keeps the app resident when
+/// the last window closes; clicking the dock icon rebuilds it via
+/// `on_reopen`.
+fn spawn_window(service: Arc<GatewayService>, cx: &mut App) {
+    let open_task = cx.spawn(async move |cx| {
+        let window_size = size(px(960.), px(700.));
+        let bounds = cx.update(|cx| Bounds::centered(None, window_size, cx));
+        info!(?bounds, "opening window");
+        cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                titlebar: Some(TitlebarOptions {
+                    title: None,
+                    appears_transparent: true,
+                    traffic_light_position: Some(point(px(12.), px(14.))),
+                }),
+                // Opaque rendering avoids re-compositing the desktop
+                // behind every row while a virtualized list scrolls.
+                window_background: gpui_kit::WindowBackgroundAppearance::Opaque,
+                show: true,
+                window_min_size: Some(size(px(760.), px(520.))),
+                app_id: Some("dev.gatewayhub.app".into()),
+                ..Default::default()
+            },
+            |window, cx| {
+                #[cfg(target_os = "macos")]
+                window.on_next_frame(|window, _cx| window.activate_window());
+                let root_view = cx.new(|cx| AppRoot::new(service.clone(), window, cx));
+                let shell = cx.new(|_| Shell { view: root_view });
+                cx.new(|cx| Root::new(shell, window, cx))
+            },
+        )?;
+        Ok::<_, anyhow::Error>(())
+    });
+    cx.spawn(async move |cx| match open_task.await {
+        Ok(()) => info!(
+            "window opened; windows={}",
+            cx.update(|cx| cx.windows().len())
+        ),
+        Err(e) => tracing::error!("open_window failed: {e:#}"),
+    })
+    .detach();
+}
+
 fn main() {
     if let Some(code) = cli::maybe_run() {
         std::process::exit(code);
@@ -72,9 +116,18 @@ fn main() {
     service.maybe_autostart();
     let service = Arc::new(service);
 
-    gpui_kit::application()
-        .with_assets(assets::Assets)
-        .run(move |cx| {
+    let app = gpui_kit::application().with_assets(assets::Assets);
+    {
+        // Dock icon click with no open windows rebuilds the main window.
+        let service = service.clone();
+        app.on_reopen(move |cx| {
+            cx.activate(true);
+            if cx.windows().is_empty() {
+                spawn_window(service.clone(), cx);
+            }
+        });
+    }
+    app.run(move |cx| {
             gpui_kit::init(cx);
             theme::restore_default_themes(cx);
             cx.activate(true);
@@ -84,9 +137,9 @@ fn main() {
             cx.on_action(|e: &MenuAction, cx: &mut App| match e {
                 MenuAction::Quit => cx.quit(),
                 MenuAction::Close => {
-                    if cx.windows().len() <= 1 {
-                        cx.quit();
-                    } else if let Some(window) = cx.active_window() {
+                    // macOS stays resident after the last window closes; the
+                    // window is rebuilt via on_reopen.
+                    if let Some(window) = cx.active_window() {
                         let _ = window.update(cx, |_, window, _cx| window.remove_window());
                     }
                 }
@@ -119,52 +172,6 @@ fn main() {
                 },
             ]);
 
-            let service = service.clone();
-            let open_task = cx.spawn(async move |cx| {
-                let window_size = size(px(960.), px(700.));
-                let bounds = cx.update(|cx| Bounds::centered(None, window_size, cx));
-                info!(?bounds, "opening window");
-                cx.open_window(
-                    WindowOptions {
-                        window_bounds: Some(WindowBounds::Windowed(bounds)),
-                        titlebar: Some(TitlebarOptions {
-                            title: None,
-                            appears_transparent: true,
-                            traffic_light_position: Some(point(px(12.), px(14.))),
-                        }),
-                        // Opaque rendering avoids re-compositing the desktop
-                        // behind every row while a virtualized list scrolls.
-                        window_background: gpui_kit::WindowBackgroundAppearance::Opaque,
-                        show: true,
-                        window_min_size: Some(size(px(760.), px(520.))),
-                        app_id: Some("dev.gatewayhub.app".into()),
-                        ..Default::default()
-                    },
-                    |window, cx| {
-                        #[cfg(target_os = "macos")]
-                        {
-                            window.on_window_should_close(cx, move |_window, cx| {
-                                if cx.windows().len() <= 1 {
-                                    cx.quit();
-                                }
-                                true
-                            });
-                            window.on_next_frame(|window, _cx| window.activate_window());
-                        }
-                        let root_view = cx.new(|cx| AppRoot::new(service.clone(), window, cx));
-                        let shell = cx.new(|_| Shell { view: root_view });
-                        cx.new(|cx| Root::new(shell, window, cx))
-                    },
-                )?;
-                Ok::<_, anyhow::Error>(())
-            });
-            cx.spawn(async move |cx| match open_task.await {
-                Ok(()) => info!(
-                    "window opened; windows={}",
-                    cx.update(|cx| cx.windows().len())
-                ),
-                Err(e) => tracing::error!("open_window failed: {e:#}"),
-            })
-            .detach();
+            spawn_window(service.clone(), cx);
         });
 }

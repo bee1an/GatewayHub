@@ -67,8 +67,28 @@ for size in sizes {
     NSGraphicsContext.current = context
     NSColor.clear.setFill()
     NSRect(origin: .zero, size: pointSize).fill()
+    // macOS icon plate: per Apple's icon grid the rounded-rect plate is
+    // 13/16 of the canvas (832pt inside 1024pt), centered, with transparent
+    // margin around it; corner radius is ~22% of the plate. Finder's icon
+    // view does not mask icons, so the rounded corners must be baked in.
+    let plateSide = CGFloat(size.pixels) * 13.0 / 16.0
+    let plateInset = (CGFloat(size.pixels) - plateSide) / 2
+    let plate = NSRect(x: plateInset, y: plateInset, width: plateSide, height: plateSide)
+    let platePath = NSBezierPath(roundedRect: plate, xRadius: plateSide * 0.22, yRadius: plateSide * 0.22)
+    NSColor(red: 0.953, green: 0.886, blue: 0.800, alpha: 1).setFill() // #F3E2CC
+    platePath.fill()
+    platePath.addClip()
+    // Centered mark at ~66% of the plate — the SVG's own cream background
+    // merges invisibly into the plate color.
+    let markSide = plateSide * 0.78
+    let markRect = NSRect(
+        x: plateInset + (plateSide - markSide) / 2,
+        y: plateInset + (plateSide - markSide) / 2,
+        width: markSide,
+        height: markSide
+    )
     source.draw(
-        in: NSRect(origin: .zero, size: pointSize),
+        in: markRect,
         from: NSRect(origin: .zero, size: source.size),
         operation: .sourceOver,
         fraction: 1

@@ -102,13 +102,12 @@ impl AppRoot {
                             .ghost()
                             .xsmall()
                             .label(t(lang, "revoke"))
-                            .on_click(cx.listener(move |this, e: &ClickEvent, _w, cx| {
+                            .on_click(cx.listener(move |this, _e: &ClickEvent, _w, cx| {
                                 let (key_name, id) = (k_name.clone(), id.clone());
                                 this.confirm(
                                     t(this.lang, "revoke_key_title"),
                                     tf(this.lang, "revoke_key_desc", &[("name", &key_name)]),
                                     "revoke",
-                                    Some(e.position()),
                                     cx,
                                     move |this, cx| this.delete_api_key(&id, cx),
                                 );
@@ -214,8 +213,8 @@ impl AppRoot {
                         .small()
                         .label(t(lang, "generate"))
                         .icon(IconName::Plus)
-                        .on_click(cx.listener(|this, e: &ClickEvent, _w, cx| {
-                            this.open_key_overlay(Some(e.position()), cx);
+                        .on_click(cx.listener(|this, _e: &ClickEvent, _w, cx| {
+                            this.open_key_overlay(cx);
                         }))
                         .into_any_element(),
                 ),
@@ -241,7 +240,7 @@ impl AppRoot {
 
     /// Generate-key overlay: name, expiry, provider allowlist. Empty name or
     /// an empty non-"all" scope selection disables the submit button.
-    fn open_key_overlay(&mut self, origin: Option<Point<Pixels>>, cx: &mut Context<Self>) {
+    fn open_key_overlay(&mut self, cx: &mut Context<Self>) {
         let lang = self.lang;
         let providers: Vec<String> = self
             .snapshot
@@ -254,8 +253,6 @@ impl AppRoot {
             OverlayRequest {
                 title: t(lang, "generate_title").into(),
                 width: px(460.),
-                height_hint: px(330.),
-                origin,
                 content: Some(std::rc::Rc::new(move |root, _w, cx| {
                     let theme = cx.theme().clone();
                     let lang = root.lang;

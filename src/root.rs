@@ -6,6 +6,7 @@
 
 mod chrome;
 mod i18n;
+mod overlay_motion;
 mod pages;
 
 pub(crate) use i18n::{Lang, t, tf};
@@ -109,8 +110,9 @@ pub(crate) enum Page {
 pub(crate) type OverlayBuilder =
     Rc<dyn Fn(&AppRoot, &mut Window, &mut Context<AppRoot>) -> AnyElement>;
 
-/// One in-window overlay card — pops out of the click point and settles
-/// centered. `content`/`footer` builders get live `&AppRoot` state.
+/// One in-window overlay card — centered with Heimdall's layered motion
+/// (surface rises, then the content group clarifies). `content`/`footer`
+/// builders get live `&AppRoot` state.
 #[derive(Clone)]
 pub(crate) struct OverlayRequest {
     pub title: SharedString,
@@ -123,11 +125,7 @@ pub(crate) struct OverlayRequest {
     /// Primary action label; `None` hides the OK button.
     pub ok_label: Option<SharedString>,
     pub cancel_label: Option<SharedString>,
-    /// Click point the card pops out of; `None` pops from window center.
-    pub origin: Option<Point<Pixels>>,
     pub width: Pixels,
-    /// Rough card height used for the center math; the card auto-sizes.
-    pub height_hint: Pixels,
     /// Runs on OK then the overlay animates out.
     pub on_ok: Option<Rc<dyn Fn(&mut AppRoot, &mut Context<AppRoot>)>>,
     /// Whether a backdrop click dismisses (confirms set false).
@@ -145,9 +143,7 @@ impl Default for OverlayRequest {
             footer: None,
             ok_label: None,
             cancel_label: None,
-            origin: None,
             width: px(400.),
-            height_hint: px(200.),
             on_ok: None,
             backdrop_dismiss: true,
             opened_at: Instant::now(),
@@ -244,10 +240,14 @@ pub struct AppRoot {
     /// "provider/accountId" → last manual check-in result line.
     pub(crate) checkin_results: HashMap<String, String>,
     /// In-window overlay card (confirms, import, account detail, key gen) —
-    /// pops out of the click point like Heimdall's confirm overlay. None =
-    /// no overlay; `overlay_closing` drives the shrink-back animation.
+    /// layered motion per `overlay_motion` (Heimdall's confirm overlay).
+    /// None = no overlay; `overlay_closing` drives the exit tween and
+    /// `overlay_sample` freezes the on-screen frame it continues from.
     pub(crate) overlay: Option<OverlayRequest>,
     pub(crate) overlay_closing: Option<Instant>,
+    /// Frame snapshot at dismiss time — the exit continues from these
+    /// values, so closing mid-open never snaps to a schedule.
+    pub(crate) overlay_sample: Option<overlay_motion::OverlayMotion>,
     /// Usage page cache — `UsageStore::read` parses a JSON file, so it runs
     /// on the UI runtime and renders consume this cache.
     pub(crate) usage_cache: Option<gateway_core::usage_store::UsageDetail>,
@@ -411,6 +411,7 @@ impl AppRoot {
             checkin_results: HashMap::new(),
             overlay: None,
             overlay_closing: None,
+            overlay_sample: None,
             usage_cache: None,
             usage_loading: false,
             server_pending: false,
@@ -1160,17 +1161,16 @@ impl AppRoot {
         cx.notify();
     }
 
-    /// Shared destructive-action confirm — an in-window overlay card that
-    /// pops out of the click point (Heimdall's confirm-overlay pattern),
-    /// NOT a gpui-component Dialog: the stock OK/Cancel buttons dispatch a
-    /// `Confirm`/`Cancel` action along the focus path, which is dead when
-    /// the body holds no focusable element.
+    /// Shared destructive-action confirm — an in-window overlay card with
+    /// Heimdall's layered confirm motion, NOT a gpui-component Dialog: the
+    /// stock OK/Cancel buttons dispatch a `Confirm`/`Cancel` action along
+    /// the focus path, which is dead when the body holds no focusable
+    /// element.
     pub(crate) fn confirm(
         &mut self,
         title: &'static str,
         description: String,
         ok_key: &'static str,
-        origin: Option<Point<Pixels>>,
         cx: &mut Context<Self>,
         on_ok: impl Fn(&mut Self, &mut Context<Self>) + 'static,
     ) {
@@ -1181,9 +1181,7 @@ impl AppRoot {
                 body: Some(description.into()),
                 ok_label: Some(t(lang, ok_key).into()),
                 cancel_label: Some(t(lang, "cancel").into()),
-                origin,
                 width: px(380.),
-                height_hint: px(170.),
                 on_ok: Some(Rc::new(on_ok)),
                 backdrop_dismiss: false,
                 ..OverlayRequest::default()
@@ -1196,96 +1194,102 @@ impl AppRoot {
         req.opened_at = Instant::now();
         self.overlay = Some(req);
         self.overlay_closing = None;
+        self.overlay_sample = None;
         cx.notify();
     }
 
-    /// Starts the shrink-back animation; the overlay is dropped when it
+    /// Starts the layered exit tween; the overlay is dropped when it
     /// finishes (handled inside `overlay_layer`).
     pub(crate) fn dismiss_overlay(&mut self, cx: &mut Context<Self>) {
         if self.overlay.is_some() && self.overlay_closing.is_none() {
+            // Reduce motion: no exit tween — drop the layer right away.
+            if cx.reduce_motion() {
+                self.overlay = None;
+                self.overlay_closing = None;
+                self.overlay_sample = None;
+                cx.notify();
+                return;
+            }
             self.overlay_closing = Some(Instant::now());
+            // Sample whatever is on screen — the exit continues from
+            // these values instead of snapping to a schedule.
+            self.overlay_sample = Some(match self.overlay.as_ref().map(|r| r.opened_at) {
+                Some(at) => overlay_motion::open_at(at.elapsed().as_secs_f32() * 1000.),
+                None => overlay_motion::steady(),
+            });
             cx.notify();
         }
     }
 
-    /// Full-window overlay layer rendered above the shell. The panel's
-    /// top-left travels `origin → center` on open and `center → origin` on
-    /// dismiss while fading — driven manually (on_next_frame pump) instead of
-    /// `with_animation` so the closing tween also runs.
+    /// Full-window overlay layer rendered above the shell — Heimdall's
+    /// layered confirm motion: the surface rises and fades first, then the
+    /// content group clarifies. The panel is centered by real layout (no
+    /// height_hint guessing); the exit continues from the frame sampled at
+    /// dismiss time.
     fn overlay_layer(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
-        const POP_MS: f32 = 220.;
-        const CLOSE_MS: f32 = 140.;
-        const DIM: f32 = 0.45;
+        use overlay_motion::{CLOSE_MS, OPEN_MS, close_at, open_at, steady};
+
         let req = self.overlay.clone()?;
         let theme = cx.theme().clone();
         let closing = self.overlay_closing;
+        let reduced = cx.reduce_motion();
 
-        let win = window.viewport_size();
-        let panel_w = req.width;
-        let panel_h = req.height_hint; // center estimate; the card auto-sizes
-        let origin = req
-            .origin
-            .unwrap_or_else(|| point((win.width - panel_w) / 2., (win.height - panel_h) / 2.));
-
-        let t = match closing {
-            Some(at) => at.elapsed().as_secs_f32() * 1000. / CLOSE_MS,
-            None => req.opened_at.elapsed().as_secs_f32() * 1000. / POP_MS,
-        }
-        .min(1.);
-        if closing.is_some() && t >= 1. {
-            self.overlay = None;
-            self.overlay_closing = None;
-            return None;
-        }
-        let ease = 1. - (1. - t).powi(4);
-        if t < 1. {
+        let (m, finished) = if reduced {
+            // Reduce motion: opening shows the end state immediately; a
+            // close request has already cleared the overlay.
+            (steady(), false)
+        } else {
+            match closing {
+                Some(at) => {
+                    let e = at.elapsed().as_secs_f32() * 1000.;
+                    (
+                        close_at(self.overlay_sample.unwrap_or_else(steady), e),
+                        e >= CLOSE_MS,
+                    )
+                }
+                None => {
+                    let e = self
+                        .overlay
+                        .as_ref()
+                        .map(|r| r.opened_at.elapsed().as_secs_f32() * 1000.)
+                        .unwrap_or(OPEN_MS);
+                    (open_at(e), false)
+                }
+            }
+        };
+        let animating = !reduced
+            && match closing {
+                Some(at) => at.elapsed().as_secs_f32() * 1000. < CLOSE_MS,
+                None => self
+                    .overlay
+                    .as_ref()
+                    .is_some_and(|r| r.opened_at.elapsed().as_secs_f32() * 1000. < OPEN_MS),
+            };
+        if animating {
             let me = cx.weak_entity();
             window.on_next_frame(move |_, cx| {
                 let _ = me.update(cx, |_, cx| cx.notify());
             });
         }
+        if finished {
+            // Exit landed: drop the layer entirely — AND return no element
+            // this frame. Clearing state but still emitting the layer left
+            // an invisible occluding backdrop mounted forever, which ate
+            // every later click in the window.
+            self.overlay = None;
+            self.overlay_closing = None;
+            self.overlay_sample = None;
+            return None;
+        }
 
-        let cx0 = (win.width - panel_w) / 2.;
-        let cy0 = (win.height - panel_h) / 2.;
-        let (x, y, opacity) = if closing.is_some() {
-            (
-                cx0 + (origin.x - cx0) * ease,
-                cy0 + (origin.y - cy0) * ease,
-                1. - ease,
-            )
-        } else {
-            (
-                origin.x + (cx0 - origin.x) * ease,
-                origin.y + (cy0 - origin.y) * ease,
-                ease,
-            )
-        };
-        // Keep the card inside the window even when the click was near an edge.
-        let x = x
-            .max(px(8.))
-            .min((win.width - panel_w - px(8.)).max(px(8.)));
-        let y = y
-            .max(px(8.))
-            .min((win.height - panel_h - px(8.)).max(px(8.)));
+        // Offsets in rem — they follow the user's UI scale.
+        let rem_px = window.rem_size();
+        let panel_w = req.width;
 
-        // ---- panel content ----
-        let me = cx.weak_entity();
-        let mut panel = v_flex()
-            .absolute()
-            .left(x)
-            .top(y)
-            .opacity(opacity.max(0.))
+        // ---- panel content (built once; the layers below carry motion) ----
+        let content_group = v_flex()
             .w(panel_w)
-            .max_h(win.height - px(64.))
-            .overflow_hidden()
-            .bg(theme.background)
-            .border_1()
-            .border_color(theme.window_border)
-            .rounded(theme.radius_lg)
-            .shadow_lg()
-            // Clicks/scroll inside the card must not reach the backdrop.
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+            .max_h(window.viewport_size().height - px(140.))
             .child(
                 h_flex()
                     .w_full()
@@ -1312,61 +1316,60 @@ impl AppRoot {
             )
             .when_some(req.body.clone(), |d, body| {
                 d.child(
-                    div().px_4().child(
+                    div().px_4().pb_2().child(
                         Label::new(body)
                             .text_sm()
                             .text_color(theme.muted_foreground)
                             .whitespace_normal(),
                     ),
                 )
+            })
+            .when_some(req.content.as_ref(), |d, content| {
+                d.child(div().px_4().child((content)(&*self, window, cx)))
+            })
+            .when_some(req.footer.as_ref(), |d, footer| {
+                d.child(div().w_full().px_4().py_4().child((footer)(&*self, window, cx)))
+            })
+            .when(req.footer.is_none(), |d| {
+                let on_ok = req.on_ok.clone();
+                d.child(
+                    h_flex()
+                        .w_full()
+                        .px_4()
+                        .py_4()
+                        .justify_end()
+                        .gap_2()
+                        .when_some(req.cancel_label.clone(), |d, label| {
+                            d.child(
+                                Button::new("overlay-cancel")
+                                    .outline()
+                                    .small()
+                                    .label(label)
+                                    .on_click(cx.listener(|this, _, _w, cx| {
+                                        this.dismiss_overlay(cx);
+                                    })),
+                            )
+                        })
+                        .when_some(req.ok_label.clone(), |d, label| {
+                            d.child(
+                                Button::new("overlay-ok")
+                                    .danger()
+                                    .small()
+                                    .label(label)
+                                    .on_click(cx.listener(move |this, _, _w, cx| {
+                                        if let Some(ok) = &on_ok {
+                                            ok(this, cx);
+                                        }
+                                        this.dismiss_overlay(cx);
+                                    })),
+                            )
+                        }),
+                )
             });
-        if let Some(content) = &req.content {
-            panel = panel.child(div().px_4().child((content)(&*self, window, cx)));
-        }
-        panel = if let Some(footer) = &req.footer {
-            panel.child(
-                div()
-                    .w_full()
-                    .px_4()
-                    .py_4()
-                    .child((footer)(&*self, window, cx)),
-            )
-        } else {
-            let on_ok = req.on_ok.clone();
-            panel.child(
-                h_flex()
-                    .w_full()
-                    .px_4()
-                    .py_4()
-                    .justify_end()
-                    .gap_2()
-                    .when_some(req.cancel_label.clone(), |d, label| {
-                        d.child(
-                            Button::new("overlay-cancel")
-                                .outline()
-                                .small()
-                                .label(label)
-                                .on_click(cx.listener(|this, _, _w, cx| {
-                                    this.dismiss_overlay(cx);
-                                })),
-                        )
-                    })
-                    .when_some(req.ok_label.clone(), |d, label| {
-                        d.child(
-                            Button::new("overlay-ok")
-                                .danger()
-                                .small()
-                                .label(label)
-                                .on_click(cx.listener(move |this, _, _w, cx| {
-                                    if let Some(ok) = &on_ok {
-                                        ok(this, cx);
-                                    }
-                                    this.dismiss_overlay(cx);
-                                })),
-                        )
-                    }),
-            )
-        };
+
+        let me = cx.weak_entity();
+        let dismissible = req.backdrop_dismiss;
+        let closing_gate = closing.is_some();
 
         Some(
             div()
@@ -1375,23 +1378,92 @@ impl AppRoot {
                 .top_0()
                 .left_0()
                 .size_full()
-                .child({
-                    let me = me.clone();
-                    let dismissible = req.backdrop_dismiss;
+                .child(
+                    // Layer 1 — backdrop: dim to 0.5, cancels when
+                    // dismissible; occluded so rows under the overlay
+                    // never light up on hover.
                     div()
                         .id("overlay-dim")
                         .absolute()
                         .inset_0()
                         .size_full()
-                        .bg(hsla(0., 0., 0., DIM * opacity.max(0.)))
+                        .occlude()
+                        .bg(hsla(0., 0., 0., m.backdrop_a.max(0.)))
                         .on_mouse_down(MouseButton::Left, move |_, _window, cx| {
                             if dismissible {
                                 let _ = me.update(cx, |this, cx| this.dismiss_overlay(cx));
                             }
                         })
-                        .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
-                })
-                .child(panel)
+                        .on_scroll_wheel(|_, _, cx| cx.stop_propagation()),
+                )
+                // Centered by real layout — no height_hint guessing.
+                .child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(
+                            div()
+                                .id("overlay-panel")
+                                .relative()
+                                .top(rem_px * m.panel_off_rem)
+                                .w(panel_w)
+                                // Clicks/scroll inside the card must not
+                                // reach the backdrop — and blank panel
+                                // chrome releases any focused input.
+                                .on_mouse_down(MouseButton::Left, |_, window, cx| {
+                                    window.blur(cx);
+                                    cx.stop_propagation()
+                                })
+                                .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+                                // Layer 2 — the surface: bg/border/radius/
+                                // shadow as one sibling with its own alpha,
+                                // never multiplied through the content's.
+                                .child(
+                                    div()
+                                        .absolute()
+                                        .inset_0()
+                                        .bg(theme.background)
+                                        .border_1()
+                                        .border_color(theme.window_border)
+                                        .rounded(theme.radius_lg)
+                                        .shadow_lg()
+                                        .opacity(m.panel_a.max(0.)),
+                                )
+                                // Layer 3 — the content group: one curve,
+                                // one 3px micro-rise, laid out from frame
+                                // one (opacity never clips focus rings).
+                                .child(
+                                    div()
+                                        .relative()
+                                        .top(rem_px * m.content_off_rem)
+                                        .opacity(m.content_a.max(0.))
+                                        .child(content_group),
+                                )
+                                // While exiting, an invisible blocker
+                                // keeps content inert — the backdrop keeps
+                                // shielding the layer below either way.
+                                .when(closing_gate, |d| {
+                                    d.child(
+                                        div()
+                                            .absolute()
+                                            .inset_0()
+                                            .occlude()
+                                            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                                cx.stop_propagation()
+                                            })
+                                            .on_mouse_down(MouseButton::Right, |_, _, cx| {
+                                                cx.stop_propagation()
+                                            })
+                                            .on_scroll_wheel(|_, _, cx| {
+                                                cx.stop_propagation()
+                                            }),
+                                    )
+                                }),
+                        ),
+                )
                 .into_any_element(),
         )
     }

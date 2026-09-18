@@ -45,6 +45,19 @@ pub enum MenuAction {
     About,
 }
 
+/// Window shell: AppRoot plus nothing else for now. The app's dialogs are
+/// AppRoot's own in-window overlay (rendered on its outermost div), so no
+/// gpui-component layers are mounted here.
+struct Shell {
+    view: Entity<AppRoot>,
+}
+
+impl Render for Shell {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div().size_full().child(self.view.clone())
+    }
+}
+
 fn main() {
     if let Some(code) = cli::maybe_run() {
         std::process::exit(code);
@@ -64,6 +77,7 @@ fn main() {
         .run(move |cx| {
             gpui_kit::init(cx);
             theme::restore_default_themes(cx);
+            cx.activate(true);
             let mode = theme::theme_mode_for_appearance(cx.window_appearance());
             Theme::change(mode, None, cx);
 
@@ -106,19 +120,23 @@ fn main() {
             ]);
 
             let service = service.clone();
-            cx.spawn(async move |cx| {
-                let window_size = size(px(1080.), px(680.));
+            let open_task = cx.spawn(async move |cx| {
+                let window_size = size(px(960.), px(700.));
                 let bounds = cx.update(|cx| Bounds::centered(None, window_size, cx));
+                info!(?bounds, "opening window");
                 cx.open_window(
                     WindowOptions {
                         window_bounds: Some(WindowBounds::Windowed(bounds)),
                         titlebar: Some(TitlebarOptions {
                             title: None,
                             appears_transparent: true,
-                            traffic_light_position: Some(point(px(12.), px(18.))),
+                            traffic_light_position: Some(point(px(12.), px(14.))),
                         }),
-                        window_background: gpui_kit::WindowBackgroundAppearance::Blurred,
-                        window_min_size: Some(size(px(760.), px(480.))),
+                        // Opaque rendering avoids re-compositing the desktop
+                        // behind every row while a virtualized list scrolls.
+                        window_background: gpui_kit::WindowBackgroundAppearance::Opaque,
+                        show: true,
+                        window_min_size: Some(size(px(760.), px(520.))),
                         app_id: Some("dev.gatewayhub.app".into()),
                         ..Default::default()
                     },
@@ -134,10 +152,18 @@ fn main() {
                             window.on_next_frame(|window, _cx| window.activate_window());
                         }
                         let root_view = cx.new(|cx| AppRoot::new(service.clone(), window, cx));
-                        cx.new(|cx| Root::new(root_view, window, cx))
+                        let shell = cx.new(|_| Shell { view: root_view });
+                        cx.new(|cx| Root::new(shell, window, cx))
                     },
                 )?;
                 Ok::<_, anyhow::Error>(())
+            });
+            cx.spawn(async move |cx| match open_task.await {
+                Ok(()) => info!(
+                    "window opened; windows={}",
+                    cx.update(|cx| cx.windows().len())
+                ),
+                Err(e) => tracing::error!("open_window failed: {e:#}"),
             })
             .detach();
         });

@@ -458,6 +458,59 @@ impl GatewayService {
         self.store.scan_accounts(provider)
     }
 
+    /// Per-account runtime state (status, model_ids, checkin, stats) for a
+    /// provider — the pool mirrors it into `state.providers[name].accounts`
+    /// via `on_changed`, so the UI can read it without touching the pools.
+    pub fn account_states(
+        &self,
+        provider: &str,
+    ) -> std::collections::HashMap<String, crate::types::AccountRuntimeState> {
+        self.state
+            .read()
+            .ok()
+            .and_then(|s| s.providers.get(provider).cloned())
+            .map(|v| ProviderState::from_value(&v))
+            .unwrap_or_default()
+            .accounts
+            .into_iter()
+            .map(|(k, v)| (k, crate::types::AccountRuntimeState::from_value(&v)))
+            .collect()
+    }
+
+    /// `clearLogs` — drop every provider's log ring and persist the state.
+    pub fn clear_logs(&self) {
+        if let Ok(mut state) = self.state.write() {
+            for slot in state.providers.values_mut() {
+                let mut ps = ProviderState::from_value(slot);
+                ps.logs.clear();
+                *slot = serde_json::to_value(&ps).unwrap_or_default();
+            }
+        }
+        let snapshot = self.state.read().map(|s| s.clone()).unwrap_or_default();
+        let _ = self.store.save_state(&snapshot);
+    }
+
+    /// `exportLogs` — newline-delimited JSON next to the state file.
+    pub fn export_logs(&self) -> Result<std::path::PathBuf> {
+        let mut logs = self.status().logs;
+        logs.sort_by_key(|l| l.ts);
+        let body = logs
+            .iter()
+            .map(|l| serde_json::to_string(l).unwrap_or_default())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let path = self
+            .store
+            .paths()
+            .logs_dir()
+            .join(format!("gatewayhub-logs-{}.ndjson", crate::pool::now_ms()));
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        std::fs::write(&path, body)?;
+        Ok(path)
+    }
+
     pub fn server_running(&self) -> bool {
         self.server.lock().map(|s| s.is_some()).unwrap_or(false)
     }

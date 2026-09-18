@@ -1,5 +1,4 @@
-//! Dashboard — PageHeader + gateway control bar + recent errors, matching
-//! the Electron Dashboard page (providers live in the sidebar rail).
+//! Dashboard — gateway control, health summary, and recent failures.
 
 use gateway_core::GatewayStatusSnapshot;
 use gpui_kit::assets::IconName;
@@ -13,7 +12,9 @@ use gpui_kit::component::{
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
-use crate::root::{AppRoot, Page, page_header};
+use crate::root::{
+    AppRoot, MONO, Page, card, card_rows, one_line, page_header, section_header, t, tf,
+};
 
 const RECENT_ERROR_LIMIT: usize = 5;
 
@@ -24,159 +25,194 @@ impl AppRoot {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme().clone();
+        let lang = self.lang;
         let running = snapshot.server.running;
-        let providers: Vec<_> = snapshot
+        let ready = snapshot
             .providers
             .iter()
-            .filter(|p| p.status != "placeholder")
-            .collect();
-        let ready_count = providers
+            .filter(|provider| provider.enabled && provider.status == "ready")
+            .count();
+        let enabled = snapshot
+            .providers
             .iter()
-            .filter(|p| p.enabled && p.status == "ready")
+            .filter(|provider| provider.enabled && provider.status != "placeholder")
             .count();
         let error_logs: Vec<_> = snapshot
             .logs
             .iter()
-            .filter(|l| l.level == gateway_core::LogLevel::Error)
+            .filter(|entry| entry.level == gateway_core::LogLevel::Error)
             .collect();
-        let total_errors = error_logs.len();
 
-        // ---- control bar: status ● + url | ready/errors + start/stop ----
-        let control_bar = h_flex()
-            .items_center()
-            .justify_between()
-            .gap_4()
-            .py_4()
-            .border_b_1()
-            .border_color(theme.border)
-            .child(
-                h_flex()
-                    .items_center()
-                    .gap_3()
-                    .child(
-                        Label::new(if running { "running" } else { "stopped" })
-                            .text_base()
-                            .font_semibold()
-                            .text_color(if running {
-                                theme.primary
-                            } else {
-                                theme.muted_foreground
-                            }),
-                    )
-                    .child(div().size(px(6.)).rounded_full().bg(if running {
-                        theme.primary
-                    } else {
-                        theme.border
-                    }))
-                    .child(
-                        Label::new(snapshot.server.url.clone())
-                            .text_xs()
-                            .text_color(theme.muted_foreground),
-                    ),
-            )
-            .child(
-                h_flex()
-                    .items_center()
-                    .gap_3()
-                    .child(
-                        Button::new("dash-errors-link")
-                            .ghost()
-                            .small()
-                            .label(format!(
-                                "{}/{} ready · {} errors",
-                                ready_count,
-                                providers.len(),
-                                total_errors
-                            ))
-                            .on_click(cx.listener(|this, _, _w, cx| {
-                                this.page = Page::Logs;
-                                this.detail = None;
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("power")
-                            .when(running, |b| b.danger())
-                            .when(!running, |b| b.primary())
-                            .small()
-                            .label(if running { "Stop" } else { "Start" })
-                            .icon(if running {
-                                IconName::CircleStop
-                            } else {
-                                IconName::Play
-                            })
-                            .on_click(cx.listener(|this, _, _w, cx| {
-                                this.toggle_server(cx);
-                            })),
-                    ),
-            );
-
-        // ---- recent errors ----
-        let mut errors = v_flex().pt_4().gap_2();
-        errors = errors.child(
+        let gateway_card = card(cx).px_4().py_3().child(
             h_flex()
                 .items_center()
-                .justify_between()
+                .gap_3()
+                .child(div().size_2().rounded_full().bg(if running {
+                    theme.success
+                } else {
+                    theme.muted_foreground
+                }))
                 .child(
-                    Label::new("Recent errors")
-                        .text_xs()
-                        .font_semibold()
-                        .text_color(theme.muted_foreground),
-                )
-                .child(
-                    Button::new("view-all-logs")
-                        .ghost()
-                        .xsmall()
-                        .label("View all")
-                        .icon(IconName::ArrowRight)
-                        .on_click(cx.listener(|this, _, _w, cx| {
-                            this.page = Page::Logs;
-                            this.detail = None;
-                            cx.notify();
-                        })),
-                ),
-        );
-        if error_logs.is_empty() {
-            errors = errors.child(
-                div().py_2().child(
-                    Label::new("No errors")
-                        .text_xs()
-                        .text_color(theme.muted_foreground),
-                ),
-            );
-        } else {
-            let mut list = v_flex();
-            for (i, log) in error_logs.iter().rev().take(RECENT_ERROR_LIMIT).enumerate() {
-                list = list.child(
-                    h_flex()
-                        .items_start()
-                        .gap_2p5()
-                        .py_1p5()
-                        .when(i > 0, |d| d.border_t_1().border_color(theme.border))
+                    v_flex()
+                        .gap_0p5()
                         .child(
-                            Label::new(log.provider.clone().unwrap_or_default())
-                                .text_xs()
-                                .text_color(theme.danger),
+                            Label::new(t(lang, if running { "running" } else { "stopped" }))
+                                .text_sm()
+                                .font_medium()
+                                .text_color(theme.foreground),
                         )
                         .child(
-                            Label::new(log.message.clone())
+                            Label::new(snapshot.server.url.clone())
+                                .font_family(MONO)
                                 .text_xs()
                                 .text_color(theme.muted_foreground),
                         ),
-                );
-            }
-            errors = errors.child(list);
+                )
+                .child(div().flex_1())
+                .child(
+                    v_flex()
+                        .items_end()
+                        .gap_0p5()
+                        .child(
+                            Label::new(tf(
+                                lang,
+                                "n_ready",
+                                &[
+                                    ("ready", &ready.to_string()),
+                                    ("enabled", &enabled.to_string()),
+                                ],
+                            ))
+                            .text_xs()
+                            .text_color(theme.muted_foreground),
+                        )
+                        .when(!error_logs.is_empty(), |d| {
+                            d.child(
+                                Label::new(tf(
+                                    lang,
+                                    "n_errors",
+                                    &[("n", &error_logs.len().to_string())],
+                                ))
+                                .text_xs()
+                                .text_color(theme.danger),
+                            )
+                        }),
+                )
+                .child(
+                    Button::new("dash-power")
+                        .when(running, |button| button.danger())
+                        .when(!running, |button| button.primary())
+                        .small()
+                        .label(t(
+                            lang,
+                            if self.server_pending {
+                                if running { "stopping" } else { "starting" }
+                            } else if running {
+                                "stop"
+                            } else {
+                                "start"
+                            },
+                        ))
+                        .icon(if running {
+                            IconName::CircleStop
+                        } else {
+                            IconName::Play
+                        })
+                        .loading(self.server_pending)
+                        .on_click(cx.listener(|this, _, _window, cx| this.toggle_server(cx))),
+                ),
+        );
+
+        let mut error_rows = Vec::new();
+        for entry in error_logs.iter().rev().take(RECENT_ERROR_LIMIT) {
+            error_rows.push(
+                h_flex()
+                    .w_full()
+                    .px_4()
+                    .py_2()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div().w_16().flex_none().child(
+                            Label::new(crate::root::clock_time(entry.ts))
+                                .font_family(MONO)
+                                .text_xs()
+                                .text_color(theme.muted_foreground),
+                        ),
+                    )
+                    .child(
+                        div().w_20().flex_none().child(
+                            Label::new(entry.provider.clone().unwrap_or_else(|| "—".into()))
+                                .text_xs()
+                                .text_color(theme.secondary_foreground)
+                                .truncate(),
+                        ),
+                    )
+                    .child(
+                        div().flex_1().min_w_0().child(
+                            Label::new(one_line(&entry.message, 180))
+                                .text_xs()
+                                .text_color(theme.foreground)
+                                .truncate(),
+                        ),
+                    )
+                    .when_some(entry.status_code, |row, status| {
+                        row.child(
+                            Label::new(status.to_string())
+                                .font_family(MONO)
+                                .text_xs()
+                                .text_color(theme.danger),
+                        )
+                    })
+                    .into_any_element(),
+            );
         }
 
+        let errors_card = if error_rows.is_empty() {
+            card(cx)
+                .px_4()
+                .py_5()
+                .flex()
+                .justify_center()
+                .child(
+                    Label::new(t(lang, "no_recent_errors"))
+                        .text_sm()
+                        .text_color(theme.muted_foreground),
+                )
+                .into_any_element()
+        } else {
+            card_rows(error_rows, cx)
+        };
+
         v_flex()
-            .gap_5()
+            .gap_4()
             .child(page_header(
-                "Dashboard",
-                "Local multi-provider AI gateway — OpenAI / Anthropic / Responses compatible",
+                t(lang, "dash_title"),
+                t(lang, "dash_desc"),
+                None,
                 cx,
             ))
-            .child(control_bar)
-            .child(errors)
+            .child(gateway_card)
+            .child(
+                v_flex()
+                    .gap_2()
+                    .child(section_header(
+                        t(lang, "recent_errors"),
+                        Some(
+                            Button::new("dash-view-logs")
+                                .ghost()
+                                .xsmall()
+                                .label(t(lang, "view_all"))
+                                .on_click(cx.listener(|this, _, _window, cx| {
+                                    this.page = Page::Logs;
+                                    this.detail = None;
+                                    cx.notify();
+                                }))
+                                .into_any_element(),
+                        ),
+                        cx,
+                    ))
+                    .child(errors_card),
+            )
             .into_any_element()
     }
 }

@@ -2236,9 +2236,11 @@ name = "gatewayhub"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "futures",
  "gateway-core",
  "gpui-kit",
+ "reqwest",
  "rust-embed",
  "schemars",
  "serde",

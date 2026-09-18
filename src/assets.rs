@@ -6,7 +6,8 @@ use std::borrow::Cow;
 
 #[derive(RustEmbed)]
 #[folder = "assets"]
-#[include = "gatewayhub-mark.png"]
+#[include = "gatewayhub-logo-octopus-line.svg"]
+#[include = "icons/*.svg"]
 #[include = "providers/*.png"]
 #[include = "providers/*.svg"]
 pub struct Assets;

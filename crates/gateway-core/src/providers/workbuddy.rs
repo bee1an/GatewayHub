@@ -69,6 +69,17 @@ pub struct WorkBuddyProvider {
     core: Arc<WorkBuddyCore>,
     enabled: bool,
     display_name: Option<String>,
+    /// Hourly check-in sweep — aborted on drop so a registry rebuild (e.g.
+    /// after `autoCheckin` is toggled off) actually stops the old loop.
+    checkin_task: Option<tokio::task::AbortHandle>,
+}
+
+impl Drop for WorkBuddyProvider {
+    fn drop(&mut self) {
+        if let Some(handle) = &self.checkin_task {
+            handle.abort();
+        }
+    }
 }
 
 pub struct WorkBuddyCore {
@@ -120,9 +131,9 @@ impl WorkBuddyProvider {
             log,
         });
 
-        if provider_config.enabled && core.settings.auto_checkin {
+        let checkin_task = if provider_config.enabled && core.settings.auto_checkin {
             let view = core.clone();
-            tokio::spawn(async move {
+            let handle = tokio::spawn(async move {
                 tokio::time::sleep(CHECKIN_STARTUP_DELAY).await;
                 loop {
                     let (claimed, _, _, failed, _, _) = view.checkin_result(None, false).await;
@@ -140,12 +151,16 @@ impl WorkBuddyProvider {
                     tokio::time::sleep(CHECKIN_INTERVAL).await;
                 }
             });
-        }
+            Some(handle.abort_handle())
+        } else {
+            None
+        };
 
         Ok(Self {
             core,
             enabled: provider_config.enabled,
             display_name: provider_config.display_name.clone(),
+            checkin_task,
         })
     }
 }

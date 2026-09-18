@@ -82,6 +82,18 @@ pub struct TraeWorkProvider {
     core: Arc<TraeWorkCore>,
     enabled: bool,
     display_name: Option<String>,
+    /// Hourly check-in sweep — aborted on drop so a registry rebuild (e.g.
+    /// after `autoCheckin` is toggled off) actually stops the old loop
+    /// instead of leaking it.
+    checkin_task: Option<tokio::task::AbortHandle>,
+}
+
+impl Drop for TraeWorkProvider {
+    fn drop(&mut self) {
+        if let Some(handle) = &self.checkin_task {
+            handle.abort();
+        }
+    }
 }
 
 pub struct TraeWorkCore {
@@ -143,12 +155,14 @@ impl TraeWorkProvider {
             settings: Arc::new(settings),
             persist_account,
             log,
+            catalog: crate::providers::catalog::SharedCatalog::new(),
         });
 
-        // hourly self-rescheduling check-in sweep
-        if provider_config.enabled && core.settings.auto_checkin {
+        // hourly self-rescheduling check-in sweep — the AbortHandle is
+        // stored on the provider so rebuilding the registry kills it.
+        let checkin_task = if provider_config.enabled && core.settings.auto_checkin {
             let view = core.clone();
-            tokio::spawn(async move {
+            let handle = tokio::spawn(async move {
                 tokio::time::sleep(CHECKIN_STARTUP_DELAY).await;
                 loop {
                     let result = view.checkin_accounts(None, false).await;
@@ -169,12 +183,16 @@ impl TraeWorkProvider {
                     tokio::time::sleep(CHECKIN_INTERVAL).await;
                 }
             });
-        }
+            Some(handle.abort_handle())
+        } else {
+            None
+        };
 
         Ok(Self {
             core,
             enabled: provider_config.enabled,
             display_name: provider_config.display_name.clone(),
+            checkin_task,
         })
     }
 }

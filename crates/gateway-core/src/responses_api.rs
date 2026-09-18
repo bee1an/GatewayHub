@@ -286,7 +286,7 @@ pub fn chat_completion_to_responses(completion: &Value, request_body: &Value) ->
     let created = completion
         .get("created")
         .and_then(Value::as_i64)
-        .unwrap_or_else(|| now_secs());
+        .unwrap_or_else(now_secs);
     let choice = completion
         .get("choices")
         .and_then(Value::as_array)
@@ -536,7 +536,12 @@ mod tests {
         assert_eq!(resp["status"], "completed");
         assert_eq!(resp["output_text"], "hi there");
         assert_eq!(resp["usage"]["input_tokens"], 4);
-        assert!(resp["id"].as_str().unwrap().starts_with("resp_"));
+        assert!(
+            resp["id"]
+                .as_str()
+                .expect("validated invariant")
+                .starts_with("resp_")
+        );
     }
 
     #[tokio::test]

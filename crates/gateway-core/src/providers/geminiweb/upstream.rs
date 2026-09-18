@@ -15,7 +15,7 @@ pub(crate) fn cookie_field(account: &AccountFile) -> String {
 
 pub(crate) fn extract_sapisid(cookie: &str) -> Option<String> {
     regex::Regex::new(r"(?:^|;\s*)SAPISID=([^;]+)")
-        .unwrap()
+        .expect("validated invariant")
         .captures(cookie)
         .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
 }
@@ -75,14 +75,14 @@ pub(crate) async fn fetch_access_token(
     }
     let html = res.text().await.unwrap_or_default();
     let token = regex::Regex::new(r#""SNlM0e":"(.*?)""#)
-        .unwrap()
+        .expect("validated invariant")
         .captures(&html)
         .and_then(|c| c.get(1).map(|m| m.as_str().to_string()));
     let Some(token) = token else {
         anyhow::bail!("Gemini Web session tokens not found (cookie may be invalid or expired)");
     };
     let email = regex::Regex::new(r#""oPEP7c":"(.*?)""#)
-        .unwrap()
+        .expect("validated invariant")
         .captures(&html)
         .and_then(|c| c.get(1).map(|m| m.as_str().to_string()));
     Ok((token, email))
@@ -113,15 +113,15 @@ pub(crate) async fn rotate_sidts(
         .collect::<Vec<_>>()
         .join(";");
     regex::Regex::new(r"__Secure-1PSIDTS=([^;]+)")
-        .unwrap()
+        .expect("validated invariant")
         .captures(&set_cookie)
         .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
 }
 
 /// `patchSidts`.
 pub(crate) fn patch_sidts(cookie_header: &str, new_sidts: &str) -> String {
-    let re1 = regex::Regex::new(r"__Secure-1PSIDTS=[^;]+").unwrap();
-    let re3 = regex::Regex::new(r"__Secure-3PSIDTS=[^;]+").unwrap();
+    let re1 = regex::Regex::new(r"__Secure-1PSIDTS=[^;]+").expect("validated invariant");
+    let re3 = regex::Regex::new(r"__Secure-3PSIDTS=[^;]+").expect("validated invariant");
     let mut updated = re1
         .replace_all(
             cookie_header,

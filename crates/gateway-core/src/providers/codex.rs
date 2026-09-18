@@ -45,7 +45,7 @@ pub fn normalize_codex_model(model: &str) -> String {
     let trimmed = model.trim().to_lowercase();
     let no_prefix = trimmed.split('/').next_back().unwrap_or("");
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r"-\d{4}-\d{2}-\d{2}$").unwrap())
+    RE.get_or_init(|| regex::Regex::new(r"-\d{4}-\d{2}-\d{2}$").expect("validated invariant"))
         .replace(no_prefix, "")
         .to_string()
 }
@@ -61,11 +61,7 @@ fn responses_url(base: &str) -> String {
 
 fn models_url(base: &str) -> String {
     let base = base.trim_end_matches('/');
-    if base.ends_with("/backend-api") {
-        format!("{base}/codex/models")
-    } else {
-        format!("{base}/codex/models")
-    }
+    format!("{base}/codex/models")
 }
 
 fn usage_url(base: &str) -> String {
@@ -446,7 +442,7 @@ impl ProviderAdapter for CodexProvider {
 pub fn classify_codex_error(raw: &str) -> ClassifiedError {
     let msg = raw.to_lowercase();
     let status = regex::Regex::new(r"codex http (\d{3})")
-        .unwrap()
+        .expect("validated invariant")
         .captures(&msg)
         .and_then(|c| c[1].parse::<u16>().ok())
         .unwrap_or(0);

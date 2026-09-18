@@ -154,17 +154,13 @@ impl KiroRequestLimiter {
         let is_large =
             serde_json::to_string(body).map(|s| s.len()).unwrap_or(0) > self.large_prompt_bytes;
         // large requests hold both slots (TS limiter semantics)
-        let normal = if is_large {
-            Some(self.slots.acquire().await.expect("slots closed"))
-        } else {
-            Some(self.slots.acquire().await.expect("slots closed"))
-        };
+        let normal = self.slots.acquire().await.expect("slots closed");
         let large = if is_large {
             Some(self.large_slots.acquire().await.expect("slots closed"))
         } else {
             None
         };
-        (normal.unwrap(), large)
+        (normal, large)
     }
 }
 
@@ -534,7 +530,7 @@ impl ProviderAdapter for KiroProvider {
 pub fn classify_kiro_error(raw: &str) -> ClassifiedError {
     let msg = raw.to_lowercase();
     let status = regex::Regex::new(r"kiro http (\d{3})")
-        .unwrap()
+        .expect("validated invariant")
         .captures(&msg)
         .and_then(|c| c[1].parse::<u16>().ok())
         .unwrap_or(0);
@@ -560,7 +556,7 @@ pub fn classify_kiro_error(raw: &str) -> ClassifiedError {
     }
     if status == 429 {
         if regex::Regex::new(r"monthly|quota|usage limit|overage cap|monthly limit|throttling")
-            .unwrap()
+            .expect("validated invariant")
             .is_match(&msg)
         {
             return ClassifiedError {

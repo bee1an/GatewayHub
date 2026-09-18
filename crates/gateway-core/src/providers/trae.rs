@@ -393,10 +393,9 @@ impl ProviderAdapter for TraeProvider {
                             .get(key)
                             .and_then(Value::as_str)
                             .filter(|s| !s.is_empty())
+                            && acc.config.fields.get(field).and_then(Value::as_str) != Some(v)
                         {
-                            if acc.config.fields.get(field).and_then(Value::as_str) != Some(v) {
-                                acc.config.fields.insert(field.into(), json!(v));
-                            }
+                            acc.config.fields.insert(field.into(), json!(v));
                         }
                     }
                     if let Some(persist) = &persist {
@@ -562,7 +561,11 @@ impl ProviderAdapter for TraeProvider {
 pub fn classify_trae_error(raw: &str) -> ClassifiedError {
     // TraeAuthError kinds are flattened into the message by callers
     let msg = raw.to_lowercase();
-    let has = |p: &str| regex::Regex::new(p).unwrap().is_match(&msg);
+    let has = |p: &str| {
+        regex::Regex::new(p)
+            .expect("validated invariant")
+            .is_match(&msg)
+    };
     if has(
         r#"code["']?:\s*1001|unauthorized|unauthenticated|invalid token|missing token|401|403|auth"#,
     ) {

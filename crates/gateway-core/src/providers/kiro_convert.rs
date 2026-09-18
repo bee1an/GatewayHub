@@ -64,7 +64,7 @@ pub fn normalize_kiro_model_id(model: &str) -> String {
     }
     // `(\d+)-(\d+)$` → `$1.$2` (claude-sonnet-4-5 → claude-sonnet-4.5)
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r"(\d+)-(\d+)$").unwrap())
+    RE.get_or_init(|| regex::Regex::new(r"(\d+)-(\d+)$").expect("validated invariant"))
         .replace_all(v, "$1.$2")
         .to_string()
 }
@@ -176,7 +176,7 @@ fn build_kiro_payload(
         );
     }
 
-    let mut current = alt.pop().unwrap();
+    let mut current = alt.pop().expect("validated invariant");
     let mut history_msgs = alt;
 
     // system prompt folds into the first history user message, else the
@@ -449,20 +449,19 @@ fn extract_images(content: &Value) -> Vec<(String, String)> {
                     }
                 }
                 Some("image") => {
-                    if let Some(src) = part.get("source") {
-                        if src.get("type").and_then(Value::as_str) == Some("base64")
-                            && let Some(data) = src.get("data").and_then(Value::as_str)
-                        {
-                            out.push((
-                                src.get("media_type")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("image/jpeg")
-                                    .to_string(),
-                                data.to_string(),
-                            ));
-                        }
-                        // url sources skipped — kiro runtime wants inline images
+                    if let Some(src) = part.get("source")
+                        && src.get("type").and_then(Value::as_str) == Some("base64")
+                        && let Some(data) = src.get("data").and_then(Value::as_str)
+                    {
+                        out.push((
+                            src.get("media_type")
+                                .and_then(Value::as_str)
+                                .unwrap_or("image/jpeg")
+                                .to_string(),
+                            data.to_string(),
+                        ));
                     }
+                    // url sources skipped — kiro runtime wants inline images
                 }
                 _ => {}
             }

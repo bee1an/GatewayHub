@@ -228,7 +228,7 @@ pub fn normalize_sse_event(
             );
         }
     }
-    let raw = raw.unwrap();
+    let raw = raw.expect("validated invariant");
     if let Some(legacy) = normalize_legacy_sse_wrapper(&raw, data)? {
         return Ok(Some(legacy));
     }
@@ -337,7 +337,7 @@ fn normalize_legacy_sse_wrapper(
             );
         }
     }
-    let inner = inner.unwrap();
+    let inner = inner.expect("validated invariant");
     if let Some(err) = inner.get("error") {
         anyhow::bail!(
             "{}",
@@ -391,9 +391,9 @@ fn partial_chunk_base(value: &str) -> Option<Value> {
         "id": match_json_string(trimmed, "id").unwrap_or_else(|| format!("chatcmpl-{}", uuid::Uuid::new_v4().simple())),
         "object": match_json_string(trimmed, "object").unwrap_or_else(|| "chat.completion.chunk".into()),
         "created": regex::Regex::new(r#""created"\s*:\s*(\d+)"#)
-            .unwrap()
+            .expect("validated invariant")
             .captures(trimmed)
-            .and_then(|c| c.get(1).unwrap().as_str().parse::<u64>().ok())
+            .and_then(|c| c.get(1).expect("validated invariant").as_str().parse::<u64>().ok())
             .unwrap_or_else(|| crate::responses_api::now_secs() as u64),
         "model": match_json_string(trimmed, "model").unwrap_or_else(|| "unknown".into()),
     }))
@@ -411,7 +411,7 @@ fn is_likely_partial_qoder_chunk(value: &str) -> bool {
     trimmed.starts_with('{')
         && !trimmed.contains("\"error\":")
         && (regex::Regex::new(r#""id"\s*:\s*""#)
-            .unwrap()
+            .expect("validated invariant")
             .is_match(trimmed)
             || trimmed.contains("chat.completion")
             || trimmed.contains("\"choices\"")
@@ -425,8 +425,7 @@ fn extract_first_json_value(value: &str) -> Option<String> {
     let mut stack: Vec<char> = Vec::new();
     let mut in_string = false;
     let mut escaped = false;
-    for i in start..bytes.len() {
-        let ch = bytes[i];
+    for (i, ch) in bytes.iter().copied().enumerate().skip(start) {
         if in_string {
             if escaped {
                 escaped = false;

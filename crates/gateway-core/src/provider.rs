@@ -47,7 +47,7 @@ pub fn provider_config(config: &GatewayHubConfig, name: &str) -> ProviderConfig 
         .unwrap_or_default()
 }
 
-fn provider_state<'a>(state: &'a JsonMap, name: &str) -> ProviderState {
+fn provider_state(state: &JsonMap, name: &str) -> ProviderState {
     state
         .get(name)
         .map(ProviderState::from_value)

@@ -266,70 +266,6 @@ fn is_free_model_id(id: &str) -> bool {
     id.ends_with(":free") || id == OPENROUTER_FREE_ROUTER_MODEL || id == "openrouter/auto:free"
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn free_tier_filters_to_free_models() {
-        let models = vec![
-            json!({"id": "openai/gpt-5"}),
-            json!({"id": "meta/llama-3.1-8b:free"}),
-            json!({"id": "qwen/qwen3-32b:free"}),
-            json!({"id": "anthropic/claude-opus"}),
-        ];
-        let free = filter_models_for_key(&models, &json!({"is_free_tier": true}));
-        assert_eq!(
-            free,
-            vec![
-                "meta/llama-3.1-8b:free",
-                "openrouter/free",
-                "qwen/qwen3-32b:free"
-            ]
-        );
-        let paid = filter_models_for_key(&models, &json!({"is_free_tier": false}));
-        assert_eq!(paid.len(), 4);
-        assert!(!paid.contains(&"openrouter/free".to_string()));
-    }
-
-    #[test]
-    fn classify_maps_status_and_body() {
-        assert_eq!(classify_openrouter_error(401, "").kind, ResponseKind::Auth);
-        assert_eq!(
-            classify_openrouter_error(200, "insufficient credit").kind,
-            ResponseKind::Quota
-        );
-        assert_eq!(
-            classify_openrouter_error(429, "").kind,
-            ResponseKind::RateLimit
-        );
-        assert_eq!(
-            classify_openrouter_error(0, "upstream timeout").kind,
-            ResponseKind::Timeout
-        );
-        assert_eq!(
-            classify_openrouter_error(503, "boom").kind,
-            ResponseKind::ServerError
-        );
-    }
-
-    #[test]
-    fn apply_key_info_writes_fields() {
-        let mut file = AccountFile::default();
-        apply_key_info(
-            &mut file,
-            &json!({
-                "label": "personal", "is_free_tier": true,
-                "limit": 10.0, "limit_remaining": 8.5, "usage": 1.5,
-            }),
-        );
-        assert_eq!(file.fields["keyLabel"], "personal");
-        assert_eq!(file.fields["isFreeTier"], true);
-        assert_eq!(file.fields["limitRemaining"], 8.5);
-        assert!(file.fields["lastKeyInfoAt"].as_i64().unwrap_or(0) > 0);
-    }
-}
-
 #[async_trait::async_trait]
 impl ProviderAdapter for OpenRouterProvider {
     fn name(&self) -> &'static str {
@@ -657,5 +593,69 @@ pub fn classify_openrouter_error(status: u16, body: &str) -> ClassifiedError {
         kind: ResponseKind::ServerError,
         cooldown_ms: 15_000,
         reset_at_iso: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn free_tier_filters_to_free_models() {
+        let models = vec![
+            json!({"id": "openai/gpt-5"}),
+            json!({"id": "meta/llama-3.1-8b:free"}),
+            json!({"id": "qwen/qwen3-32b:free"}),
+            json!({"id": "anthropic/claude-opus"}),
+        ];
+        let free = filter_models_for_key(&models, &json!({"is_free_tier": true}));
+        assert_eq!(
+            free,
+            vec![
+                "meta/llama-3.1-8b:free",
+                "openrouter/free",
+                "qwen/qwen3-32b:free"
+            ]
+        );
+        let paid = filter_models_for_key(&models, &json!({"is_free_tier": false}));
+        assert_eq!(paid.len(), 4);
+        assert!(!paid.contains(&"openrouter/free".to_string()));
+    }
+
+    #[test]
+    fn classify_maps_status_and_body() {
+        assert_eq!(classify_openrouter_error(401, "").kind, ResponseKind::Auth);
+        assert_eq!(
+            classify_openrouter_error(200, "insufficient credit").kind,
+            ResponseKind::Quota
+        );
+        assert_eq!(
+            classify_openrouter_error(429, "").kind,
+            ResponseKind::RateLimit
+        );
+        assert_eq!(
+            classify_openrouter_error(0, "upstream timeout").kind,
+            ResponseKind::Timeout
+        );
+        assert_eq!(
+            classify_openrouter_error(503, "boom").kind,
+            ResponseKind::ServerError
+        );
+    }
+
+    #[test]
+    fn apply_key_info_writes_fields() {
+        let mut file = AccountFile::default();
+        apply_key_info(
+            &mut file,
+            &json!({
+                "label": "personal", "is_free_tier": true,
+                "limit": 10.0, "limit_remaining": 8.5, "usage": 1.5,
+            }),
+        );
+        assert_eq!(file.fields["keyLabel"], "personal");
+        assert_eq!(file.fields["isFreeTier"], true);
+        assert_eq!(file.fields["limitRemaining"], 8.5);
+        assert!(file.fields["lastKeyInfoAt"].as_i64().unwrap_or(0) > 0);
     }
 }

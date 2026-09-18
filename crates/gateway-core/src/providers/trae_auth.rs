@@ -86,7 +86,7 @@ pub fn build_trae_ide_headers(token: &str, ide_version: &str) -> Vec<(String, St
             "x-flow-traceparent".into(),
             format!(
                 "00-{}-{}-01",
-                uuid::Uuid::new_v4().simple().to_string()[..32].to_string(),
+                &uuid::Uuid::new_v4().simple().to_string()[..32],
                 &uuid::Uuid::new_v4().simple().to_string()[..16]
             ),
         ),
@@ -237,7 +237,7 @@ impl TraeAuth {
             let permanent = status == 401
                 || status == 403
                 || regex::Regex::new(r"invalid|expired")
-                    .unwrap()
+                    .expect("validated invariant")
                     .is_match(&text);
             return Err(TraeAuthError(
                 format!(
@@ -312,7 +312,7 @@ impl TraeAuth {
         let token = self.get_jwt_token().await?;
         let path = &self.model_list_path;
         let is_detail_param = regex::Regex::new(r"/get_detail_param(?:$|\?)")
-            .unwrap()
+            .expect("validated invariant")
             .is_match(path);
         let url = join_url(&self.core_base_url, path);
         let mut req = if is_detail_param {
@@ -424,7 +424,7 @@ fn parse_user_info(payload: &Value) -> Value {
     )
     .filter(|e| {
         regex::Regex::new(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
-            .unwrap()
+            .expect("validated invariant")
             .is_match(e)
     });
     json!({
@@ -617,7 +617,7 @@ fn is_schema_key(key: &str) -> bool {
     regex::Regex::new(
         r"(?i)^(model_name|modelName|model_id|modelId|name|id|key|models|model_configs|modelConfigs|children|selectables|function_model_list|functionModelList|items|list|enabled|enable|available|status|state|description|displayName|display_name|title|label)$",
     )
-    .unwrap()
+    .expect("validated invariant")
     .is_match(key)
 }
 
@@ -652,7 +652,7 @@ fn normalize_maybe_model(value: &str) -> Option<String> {
     if regex::Regex::new(
         r"(?i)^(ok|success|available|enabled|disabled|unavailable|not_available|chat|default|models?|selectables?|function_model_list)$",
     )
-    .unwrap()
+    .expect("validated invariant")
     .is_match(trimmed)
     {
         return None;
@@ -665,7 +665,7 @@ fn normalize_maybe_model(value: &str) -> Option<String> {
         || regex::Regex::new(
             r"(?i)^(gpt|gemini|deepseek|kimi|mini|max|minimax|dola|claude|qwen|llama|mistral|seed|o\d)",
         )
-        .unwrap()
+        .expect("validated invariant")
         .is_match(trimmed);
     if !looks_model {
         return None;

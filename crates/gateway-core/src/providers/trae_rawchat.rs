@@ -455,7 +455,7 @@ fn is_error_payload(payload: &Value) -> bool {
     }
     if let Value::String(s) = payload {
         return regex::Regex::new(r"(?i)unauthorized|auth|error|quota|rate limit")
-            .unwrap()
+            .expect("validated invariant")
             .is_match(s);
     }
     let code = payload

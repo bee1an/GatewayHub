@@ -521,7 +521,11 @@ impl ProviderAdapter for TraeWorkProvider {
 /// `classifyTraeWorkError` port — same table as trae.
 pub fn classify_traework_error(raw: &str) -> ClassifiedError {
     let msg = raw.to_lowercase();
-    let has = |p: &str| regex::Regex::new(p).unwrap().is_match(&msg);
+    let has = |p: &str| {
+        regex::Regex::new(p)
+            .expect("validated invariant")
+            .is_match(&msg)
+    };
     if has(
         r#"code["']?:\s*1001|unauthorized|unauthenticated|invalid token|missing token|401|403|auth"#,
     ) {

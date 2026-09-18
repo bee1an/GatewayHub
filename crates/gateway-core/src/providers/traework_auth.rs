@@ -1,5 +1,6 @@
 //! TraeWork auth — port of `providers/traework/client.ts` + `constants.ts`
 //! + `headers.ts`. ExchangeToken refresh, GetUserInfo, batch_get_detail_param
+//!
 //! model catalog, TraeWork IDE header set.
 
 use std::sync::Arc;
@@ -168,7 +169,7 @@ pub fn build_traework_headers(
             "x-flow-traceparent".into(),
             format!(
                 "00-{}-{}-01",
-                uuid::Uuid::new_v4().simple().to_string(),
+                uuid::Uuid::new_v4().simple(),
                 &uuid::Uuid::new_v4().simple().to_string()[..16]
             ),
         ),
@@ -350,7 +351,7 @@ impl TraeWorkAuth {
             let permanent = status == 401
                 || status == 403
                 || regex::Regex::new(r"invalid|expired")
-                    .unwrap()
+                    .expect("validated invariant")
                     .is_match(&text);
             return Err(TraeWorkAuthError(
                 format!(
@@ -525,7 +526,7 @@ fn parse_user_info(payload: &Value) -> Value {
     )
     .filter(|e| {
         regex::Regex::new(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
-            .unwrap()
+            .expect("validated invariant")
             .is_match(e)
     });
     json!({

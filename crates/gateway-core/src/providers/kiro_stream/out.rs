@@ -600,7 +600,7 @@ mod tests {
         let mut p = AwsEventStreamParser::default();
         let evs = p
             .feed("noise{\"content\":\"Hello\"}more{\"name\":\"bash\",\"toolUseId\":\"t1\",\"input\":{\"cmd\":\"ls\"}}")
-            .unwrap();
+            .expect("validated invariant");
         assert!(matches!(&evs[0], KiroEvent::Content(t) if t == "Hello"));
         let final_evs = p.finish();
         assert!(matches!(&final_evs[0], KiroEvent::ToolUse(t) if t["function"]["name"] == "bash"));
@@ -618,7 +618,9 @@ mod tests {
     #[test]
     pub(crate) fn metering_accumulates() {
         let mut p = AwsEventStreamParser::default();
-        let evs = p.feed("{\"unit\":\"credit\",\"usage\":2.5}").unwrap();
+        let evs = p
+            .feed("{\"unit\":\"credit\",\"usage\":2.5}")
+            .expect("validated invariant");
         assert!(matches!(evs[0], KiroEvent::Metering(c) if c == 2.5));
     }
 }

@@ -72,10 +72,7 @@ impl AwsEventStreamParser {
         }
         let mut events = Vec::new();
         let mut search_offset = 0usize;
-        loop {
-            let Some((pos, kind)) = self.find_next_json_from(search_offset) else {
-                break;
-            };
+        while let Some((pos, kind)) = self.find_next_json_from(search_offset) {
             let end = find_matching_brace(&self.buffer, pos);
             if end == usize::MAX {
                 break; // wait for more chunks
@@ -85,7 +82,7 @@ impl AwsEventStreamParser {
                 Ok(data) => {
                     self.buffer.drain(..=end);
                     search_offset = 0;
-                    if let Some(ev) = self.process(data, &kind) {
+                    if let Some(ev) = self.process(data, kind) {
                         events.push(ev);
                     }
                 }
@@ -101,7 +98,7 @@ impl AwsEventStreamParser {
         }
         dedupe_tool_calls(std::mem::take(&mut self.tool_calls))
             .into_iter()
-            .map(|tool| KiroEvent::ToolUse(tool))
+            .map(KiroEvent::ToolUse)
             .collect()
     }
 

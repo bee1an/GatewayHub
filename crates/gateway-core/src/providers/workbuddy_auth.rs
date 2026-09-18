@@ -1,6 +1,6 @@
 //! WorkBuddy auth — port of `providers/workbuddy/client.ts` + `constants.ts`
 //! + `localState.ts` (product.json model catalog). Token refresh via
-//! POST /v2/plugin/auth/token/refresh with X-Refresh-Token.
+//!   POST /v2/plugin/auth/token/refresh with X-Refresh-Token.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -218,7 +218,7 @@ impl WorkBuddyAuth {
             let permanent = status == 401
                 || status == 403
                 || regex::Regex::new(r"invalid|expired")
-                    .unwrap()
+                    .expect("validated invariant")
                     .is_match(&text);
             return Err(WorkBuddyAuthError(
                 format!(

@@ -308,14 +308,12 @@ impl WorkBuddyCore {
         }
         GatewayResponse::error(
             502,
-            format!(
-                "{}",
-                if last_error.is_empty() {
-                    "No available WorkBuddy accounts".to_string()
-                } else {
-                    last_error
-                }
-            ),
+            (if last_error.is_empty() {
+                "No available WorkBuddy accounts".to_string()
+            } else {
+                last_error
+            })
+            .to_string(),
             "gateway_error",
         )
     }

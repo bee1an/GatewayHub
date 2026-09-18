@@ -24,7 +24,12 @@ impl ToolCallAcc {
             self.entries
                 .push((key.to_string(), ToolCallEntry::default()));
         }
-        &mut self.entries.iter_mut().find(|(k, _)| k == key).unwrap().1
+        &mut self
+            .entries
+            .iter_mut()
+            .find(|(k, _)| k == key)
+            .expect("validated invariant")
+            .1
     }
     pub(crate) fn resolve_key(&self, id: &str, index: Option<u64>) -> String {
         if !id.is_empty() {

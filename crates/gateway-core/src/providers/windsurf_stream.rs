@@ -23,7 +23,10 @@ pub fn split_inline_tool_calls(text: &str) -> (String, Vec<GatewayToolCall>) {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let mut tool_calls = Vec::new();
     let cleaned = RE
-        .get_or_init(|| regex::Regex::new(r"(?i)<tool_call>\s*([\s\S]*?)\s*</tool_call>").unwrap())
+        .get_or_init(|| {
+            regex::Regex::new(r"(?i)<tool_call>\s*([\s\S]*?)\s*</tool_call>")
+                .expect("validated invariant")
+        })
         .replace_all(text, |caps: &regex::Captures| {
             tool_calls.extend(normalize_inline_tool_calls(&caps[1]));
             ""
@@ -180,18 +183,18 @@ fn normalize_inline_tool_calls(raw: &str) -> Vec<GatewayToolCall> {
     let name = regex::Regex::new(
         r"(?m)(?:^|\n)\s*(?:name|tool_name|toolName)\s*[:=]\s*([A-Za-z0-9_.:-]+)",
     )
-    .unwrap()
+    .expect("validated invariant")
     .captures(trimmed)
     .map(|c| c[1].to_string())
     .or_else(|| {
         regex::Regex::new(r"^\s*([A-Za-z0-9_.:-]+)\s*(?:\n|$)")
-            .unwrap()
+            .expect("validated invariant")
             .captures(trimmed)
             .map(|c| c[1].to_string())
     });
     let Some(name) = name else { return vec![] };
     let args = regex::Regex::new(r"(?:arguments|input)\s*[:=]\s*([\s\S]+)$")
-        .unwrap()
+        .expect("validated invariant")
         .captures(trimmed)
         .map(|c| c[1].trim().to_string())
         .unwrap_or_default();

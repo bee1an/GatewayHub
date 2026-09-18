@@ -3,6 +3,11 @@
 //! provider registry, API-key handling and the OpenAI/Anthropic-compatible
 //! HTTP server.
 
+// Provider adapters intentionally expose protocol-shaped constructors and
+// callbacks. Collapsing those signatures into opaque parameter bags would
+// make call sites harder to audit without reducing their actual complexity.
+#![allow(clippy::too_many_arguments, clippy::type_complexity)]
+
 pub mod apikey;
 pub mod http;
 pub mod paths;

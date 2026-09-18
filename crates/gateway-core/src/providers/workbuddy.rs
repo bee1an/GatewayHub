@@ -524,7 +524,11 @@ impl ProviderAdapter for WorkBuddyProvider {
 /// `classifyWorkBuddyError` port.
 pub fn classify_workbuddy_error(raw: &str) -> ClassifiedError {
     let msg = raw.to_lowercase();
-    let has = |p: &str| regex::Regex::new(p).unwrap().is_match(&msg);
+    let has = |p: &str| {
+        regex::Regex::new(p)
+            .expect("validated invariant")
+            .is_match(&msg)
+    };
     if has(r"unauthorized|unauthenticated|invalid token|missing token|\b401\b|\b403\b|auth") {
         return ClassifiedError {
             kind: ResponseKind::Auth,

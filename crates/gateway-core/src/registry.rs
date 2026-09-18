@@ -65,7 +65,11 @@ impl Registry {
     ) -> anyhow::Result<(Arc<dyn ProviderAdapter>, String, String)> {
         let raw = model;
         let slash = raw.find('/');
-        if raw.contains(':') && (slash.is_none() || raw.find(':').unwrap() < slash.unwrap()) {
+        if raw.contains(':')
+            && (slash.is_none()
+                || raw.find(':').expect("validated invariant")
+                    < slash.expect("validated invariant"))
+        {
             anyhow::bail!(
                 "Invalid model format \"{raw}\". Use \"provider/model\" instead of colon notation."
             );

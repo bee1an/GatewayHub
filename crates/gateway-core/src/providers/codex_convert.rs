@@ -43,7 +43,7 @@ pub fn chat_to_responses_payload(body: &Value, normalize_model: &dyn Fn(&str) ->
                             "content": [{ "type": "input_text", "text": text }],
                         }));
                     }
-                    for tc in tool_calls.unwrap() {
+                    for tc in tool_calls.expect("validated invariant") {
                         input.push(json!({
                             "type": "function_call",
                             "call_id": tc.get("id").and_then(Value::as_str).unwrap_or(""),

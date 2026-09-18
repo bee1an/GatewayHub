@@ -549,13 +549,13 @@ fn handle_delta(delta: &Value, state: &mut GptWebStreamingState) -> (Option<Stri
     if op == Some("add") && delta.get("v").is_some_and(|v| v.is_object()) {
         return (None, false);
     }
-    if op == Some("append") && path.contains("/content/parts/") {
-        if let Some(text) = delta.get("v").and_then(Value::as_str)
-            && !text.is_empty()
-        {
-            state.content.push_str(text);
-            return (Some(build_openai_chunk(state, text, None)), false);
-        }
+    if op == Some("append")
+        && path.contains("/content/parts/")
+        && let Some(text) = delta.get("v").and_then(Value::as_str)
+        && !text.is_empty()
+    {
+        state.content.push_str(text);
+        return (Some(build_openai_chunk(state, text, None)), false);
     }
     if op.is_none()
         && delta.get("p").is_none()

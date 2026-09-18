@@ -130,7 +130,7 @@ pub(crate) fn is_error_payload(payload: &Value) -> bool {
     }
     if let Value::String(s) = payload {
         return regex::Regex::new(r"(?i)unauthorized|auth|error|quota|rate limit")
-            .unwrap()
+            .expect("validated invariant")
             .is_match(s);
     }
     let code = payload
@@ -248,11 +248,13 @@ where
         let mut text = String::new();
         let mut events = Box::pin(events);
         while let Some(item) = events.next().await {
-            let Ok(item) = item else {
-                let e = item.err().unwrap();
-                yield sse_data(&json!({"error":{"message":e.to_string(),"type":"gateway_error","code":"traework_error"}}));
-                yield "data: [DONE]\n\n".to_string();
-                return;
+            let item = match item {
+                Ok(item) => item,
+                Err(error) => {
+                    yield sse_data(&json!({"error":{"message":error.to_string(),"type":"gateway_error","code":"traework_error"}}));
+                    yield "data: [DONE]\n\n".to_string();
+                    return;
+                }
             };
             let payload = item.data;
             if item.event == "output" && payload.is_object() {
@@ -275,7 +277,7 @@ where
                     delta["tool_calls"] = Value::Array(tcs);
                     saw_tool_calls = true;
                 }
-                if !delta.as_object().unwrap().is_empty() {
+                if !delta.as_object().expect("validated invariant").is_empty() {
                     yield chunk(delta, None, None);
                 }
                 continue;
@@ -357,13 +359,15 @@ where
         }
 
         while let Some(item) = events.next().await {
-            let Ok(item) = item else {
-                let e = item.err().unwrap();
-                yield sse_event("error", &json!({
+            let item = match item {
+                Ok(item) => item,
+                Err(error) => {
+                    yield sse_event("error", &json!({
                     "type": "error",
-                    "error": {"type":"api_error","message":e.to_string()},
-                }));
-                return;
+                    "error": {"type":"api_error","message":error.to_string()},
+                    }));
+                    return;
+                }
             };
             let payload = item.data;
             if item.event == "output" && payload.is_object() {

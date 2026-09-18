@@ -404,7 +404,7 @@ fn parse_iso_ms(s: &str) -> Option<i64> {
 fn redact(text: &str) -> String {
     static RE_LONG: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let out = RE_LONG
-        .get_or_init(|| regex::Regex::new(r"[A-Za-z0-9_\-]{32,}").unwrap())
+        .get_or_init(|| regex::Regex::new(r"[A-Za-z0-9_\-]{32,}").expect("validated invariant"))
         .replace_all(text, |caps: &regex::Captures| {
             let m = &caps[0];
             if m.len() > 12 {
@@ -416,7 +416,8 @@ fn redact(text: &str) -> String {
     static RE_FIELD: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     RE_FIELD
         .get_or_init(|| {
-            regex::Regex::new(r#""(?:access|refresh|id)_token"\s*:\s*"[^"]+""#).unwrap()
+            regex::Regex::new(r#""(?:access|refresh|id)_token"\s*:\s*"[^"]+""#)
+                .expect("validated invariant")
         })
         .replace_all(&out, |caps: &regex::Captures| {
             let m = caps[0].to_string();

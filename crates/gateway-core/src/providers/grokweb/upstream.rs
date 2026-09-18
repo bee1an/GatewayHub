@@ -308,7 +308,7 @@ pub(crate) fn stream_grok_conversation(
                                     .into(),
                             ))
                             .await;
-                        return ws.next().await;
+                        ws.next().await
                     }
                 }
             })

@@ -335,8 +335,8 @@ impl ProviderAdapter for QoderProvider {
                         };
                         acc.state.status_reason = Some(message.chars().take(200).collect());
                         acc.state.status_updated_at = now_ms();
-                        acc.state.cooldown_until = (classified.cooldown_ms > 0)
-                            .then(|| now_ms() + classified.cooldown_ms as i64);
+                        acc.state.cooldown_until =
+                            (classified.cooldown_ms > 0).then(|| now_ms() + classified.cooldown_ms);
                     }
                 }
                 AccountTestResult {

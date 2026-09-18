@@ -234,27 +234,27 @@ fn anthropic_block_to_part(block: &Value) -> Value {
             "text": block.get("text").and_then(Value::as_str).unwrap_or(""),
         });
     }
-    if block_type == Some("image") {
-        if let Some(source) = block.get("source") {
-            let url = if source.get("type").and_then(Value::as_str) == Some("base64") {
-                format!(
-                    "data:{};base64,{}",
-                    source
-                        .get("media_type")
-                        .and_then(Value::as_str)
-                        .unwrap_or("image/png"),
-                    source.get("data").and_then(Value::as_str).unwrap_or("")
-                )
-            } else {
+    if block_type == Some("image")
+        && let Some(source) = block.get("source")
+    {
+        let url = if source.get("type").and_then(Value::as_str) == Some("base64") {
+            format!(
+                "data:{};base64,{}",
                 source
-                    .get("url")
+                    .get("media_type")
                     .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string()
-            };
-            if !url.is_empty() {
-                return json!({ "type": "image_url", "image_url": { "url": url } });
-            }
+                    .unwrap_or("image/png"),
+                source.get("data").and_then(Value::as_str).unwrap_or("")
+            )
+        } else {
+            source
+                .get("url")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string()
+        };
+        if !url.is_empty() {
+            return json!({ "type": "image_url", "image_url": { "url": url } });
         }
     }
     json!({ "type": "text", "text": extract_anthropic_text(block) })

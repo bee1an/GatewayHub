@@ -464,7 +464,10 @@ mod tests {
         assert_eq!(listed[0].config.field_str("apiKey"), Some("***"));
         // pool's own copy is untouched
         assert_eq!(
-            pool.find("a").unwrap().config.field_str("apiKey"),
+            pool.find("a")
+                .expect("validated invariant")
+                .config
+                .field_str("apiKey"),
             Some("nvapi-xyz")
         );
     }

@@ -110,11 +110,11 @@ fn empty_packed() -> PackedUsage {
 fn packed_from_usage(usage: &UsageStats) -> PackedUsage {
     let credits = usage.credits.unwrap_or(0.0).max(0.0);
     [
-        usage.input_tokens.max(0) as i64,
-        usage.output_tokens.max(0) as i64,
-        usage.cache_read_tokens.unwrap_or(0).max(0) as i64,
-        usage.cache_write5m_tokens.unwrap_or(0).max(0) as i64,
-        usage.cache_write1h_tokens.unwrap_or(0).max(0) as i64,
+        usage.input_tokens as i64,
+        usage.output_tokens as i64,
+        usage.cache_read_tokens.unwrap_or(0) as i64,
+        usage.cache_write5m_tokens.unwrap_or(0) as i64,
+        usage.cache_write1h_tokens.unwrap_or(0) as i64,
         1,
         (credits * 1e6).round() as i64,
     ]
@@ -326,8 +326,8 @@ impl UsageStore {
                 updated_at: updated_at.clone(),
                 ..Default::default()
             });
-        for i in 0..7 {
-            entry.packed[i] += packed[i];
+        for (total, value) in entry.packed.iter_mut().zip(packed) {
+            *total += value;
         }
         if let Some(f) = &input.api_format {
             entry.api_format = Some(f.clone());
@@ -492,7 +492,7 @@ mod tests {
 
     #[test]
     fn record_read_roundtrip() {
-        let tmp = tempfile::tempdir().unwrap();
+        let tmp = tempfile::tempdir().expect("validated invariant");
         let store = store_at(tmp.path());
         store
             .record(UsageRecordInput {
@@ -507,7 +507,7 @@ mod tests {
                 },
                 timestamp: None,
             })
-            .unwrap();
+            .expect("validated invariant");
         let detail = store.read(&UsageReadOptions::default());
         assert_eq!(detail.daily.len(), 1);
         let e = &detail.daily[0];
@@ -519,7 +519,7 @@ mod tests {
         assert_eq!(detail.summary.today_tokens, 15);
 
         // Electron-format file is loadable (packed 6-tuple too)
-        let raw = std::fs::read_to_string(store.file_path()).unwrap();
+        let raw = std::fs::read_to_string(store.file_path()).expect("validated invariant");
         assert!(raw.contains("\"packed\""));
 
         // filter by provider
@@ -534,7 +534,7 @@ mod tests {
     fn zero_usage_still_counts_request() {
         // TS quirk: packed[5] (requests) is always 1, so the all-zero skip
         // branch never fires — a zero-token record still bumps requests.
-        let tmp = tempfile::tempdir().unwrap();
+        let tmp = tempfile::tempdir().expect("validated invariant");
         let store = store_at(tmp.path());
         store
             .record(UsageRecordInput {
@@ -545,7 +545,7 @@ mod tests {
                 usage: UsageStats::default(),
                 timestamp: None,
             })
-            .unwrap();
+            .expect("validated invariant");
         let detail = store.read(&UsageReadOptions::default());
         assert_eq!(detail.daily.len(), 1);
         assert_eq!(detail.daily[0].requests, 1);

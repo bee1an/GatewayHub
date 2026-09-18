@@ -173,14 +173,14 @@ impl CodexAuth {
         {
             return Ok(inner.snap.access_token.clone());
         }
-        if let Some((failed_token, message)) = &inner.permanent_failure {
-            if *failed_token == inner.snap.refresh_token {
-                return Err(CodexAuthError {
-                    message: message.clone(),
-                    status: 401,
-                    permanent: true,
-                });
-            }
+        if let Some((failed_token, message)) = &inner.permanent_failure
+            && *failed_token == inner.snap.refresh_token
+        {
+            return Err(CodexAuthError {
+                message: message.clone(),
+                status: 401,
+                permanent: true,
+            });
         }
         let refresh_token = inner.snap.refresh_token.clone();
         match self.refresh_tokens(&refresh_token).await {

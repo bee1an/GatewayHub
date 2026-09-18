@@ -167,7 +167,7 @@ impl QoderCore {
         let output_tokens = upstream_usage
             .and_then(|u| u.get("completion_tokens"))
             .and_then(Value::as_u64)
-            .unwrap_or_else(|| (output.len() as u64 + 3) / 4);
+            .unwrap_or_else(|| (output.len() as u64).div_ceil(4));
         sink(
             UsageStats {
                 input_tokens: input,
@@ -452,7 +452,7 @@ impl QoderCore {
                         .as_ref()
                         .and_then(|u| u.get("completion_tokens"))
                         .and_then(Value::as_u64)
-                        .unwrap_or_else(|| (full_text.len() as u64 + 3) / 4);
+                        .unwrap_or_else(|| (full_text.len() as u64).div_ceil(4));
                     sink(
                         UsageStats {
                             input_tokens: input,

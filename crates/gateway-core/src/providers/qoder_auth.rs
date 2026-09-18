@@ -508,7 +508,7 @@ async fn read_json_response(res: reqwest::Response, label: &str) -> anyhow::Resu
 
 fn looks_like_access_token(token: &str) -> bool {
     regex::Regex::new(r"^(dt|jt)-[A-Za-z0-9_-]+$")
-        .unwrap()
+        .expect("validated invariant")
         .is_match(token)
 }
 

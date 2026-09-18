@@ -207,7 +207,7 @@ mod tests {
 
     #[test]
     fn roundtrip_config() {
-        let tmp = tempfile::tempdir().unwrap();
+        let tmp = tempfile::tempdir().expect("validated invariant");
         let store = ConfigStore::new(GatewayPaths::new(tmp.path().to_path_buf()));
         let mut cfg = GatewayHubConfig::default();
         cfg.server.port = 9741;
@@ -215,7 +215,7 @@ mod tests {
             "kiro".into(),
             json!({ "enabled": true, "routeName": "kiro", "settings": {"maxRetries": 2} }),
         );
-        store.save_config(&cfg).unwrap();
+        store.save_config(&cfg).expect("validated invariant");
         let loaded = store.load_config();
         assert_eq!(loaded.server.port, 9741);
         assert_eq!(loaded.providers["kiro"]["settings"]["maxRetries"], json!(2));
@@ -223,7 +223,7 @@ mod tests {
 
     #[test]
     fn account_scan_and_write() {
-        let tmp = tempfile::tempdir().unwrap();
+        let tmp = tempfile::tempdir().expect("validated invariant");
         let store = ConfigStore::new(GatewayPaths::new(tmp.path().to_path_buf()));
         let mut acc = AccountFile {
             id: "acc-1".into(),
@@ -231,7 +231,9 @@ mod tests {
             ..Default::default()
         };
         acc.fields.insert("apiKey".into(), json!("nvapi-x"));
-        store.write_account("nvidia", &acc).unwrap();
+        store
+            .write_account("nvidia", &acc)
+            .expect("validated invariant");
         let found = store.scan_accounts("nvidia");
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].id, "acc-1");
@@ -243,7 +245,9 @@ mod tests {
             enabled: true,
             ..Default::default()
         };
-        store.write_account("nvidia", &bare).unwrap();
+        store
+            .write_account("nvidia", &bare)
+            .expect("validated invariant");
         let found = store.scan_accounts("nvidia");
         assert_eq!(found.len(), 1);
     }

@@ -1809,33 +1809,54 @@ impl Render for AppRoot {
                     .child(sidebar_section_label(t(lang, "nav_providers"), cx)),
             );
         }
-        let enabled_providers: Vec<_> = snapshot
+        // All real providers stay in the rail — a disabled one is dimmed
+        // but still reachable (it must stay openable to be re-enabled).
+        let visible_providers: Vec<_> = snapshot
             .providers
             .iter()
             .filter(|p| {
-                p.enabled && p.status != "placeholder" && !self.hidden_providers.contains(&p.name)
+                p.status != "placeholder" && !self.hidden_providers.contains(&p.name)
             })
             .collect();
-        for p in &enabled_providers {
+        for p in &visible_providers {
             let active = self.detail.as_deref() == Some(p.name.as_str());
             let name = p.name.clone();
-            let dim = !p.configured;
+            let dim = !p.configured || !p.enabled;
             let glyph = provider_logo(&p.provider_type, NAV_ICON, dim, cx);
             let label = p.display_name.clone().unwrap_or_else(|| p.name.clone());
-            providers_section = providers_section.child(
-                nav_row(
-                    SharedString::from(format!("nav-p-{}", p.name)),
-                    glyph,
-                    label.into(),
-                    active,
-                    collapsed,
-                    cx,
+            let status_color = if !p.enabled {
+                theme.muted_foreground.opacity(0.5)
+            } else {
+                match status_label(p) {
+                    "ready" => theme.success,
+                    "error" => theme.danger,
+                    _ => theme.muted_foreground,
+                }
+            };
+            let row = nav_row(
+                SharedString::from(format!("nav-p-{}", p.name)),
+                glyph,
+                label.into(),
+                active,
+                collapsed,
+                cx,
+            )
+            .on_click(cx.listener(move |this, _, _w, cx| {
+                this.open_detail(&name, cx);
+                cx.notify();
+            }));
+            providers_section = providers_section.child(if collapsed {
+                row
+            } else {
+                row.child(div().flex_1()).child(
+                    div()
+                        .size_1p5()
+                        .flex_none()
+                        .mr_1()
+                        .rounded_full()
+                        .bg(status_color),
                 )
-                .on_click(cx.listener(move |this, _, _w, cx| {
-                    this.open_detail(&name, cx);
-                    cx.notify();
-                })),
-            );
+            });
         }
 
         // Settings at the bottom of nav

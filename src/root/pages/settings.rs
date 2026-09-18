@@ -266,26 +266,28 @@ impl AppRoot {
             ),
         );
 
-        let enabled_providers = snapshot
+        // All real providers — a disabled one stays dimmed but listed so
+        // its sidebar visibility can still be managed.
+        let visible_providers = snapshot
             .providers
             .iter()
-            .filter(|provider| provider.enabled && provider.status != "placeholder")
+            .filter(|provider| provider.status != "placeholder")
             .collect::<Vec<_>>();
-        let sidebar_content = if enabled_providers.is_empty() {
+        let sidebar_content = if visible_providers.is_empty() {
             Label::new(t(lang, "no_enabled_providers"))
                 .text_xs()
                 .text_color(theme.muted_foreground)
                 .into_any_element()
         } else {
             let mut rows = v_flex().gap_0p5();
-            for provider in enabled_providers {
+            for provider in visible_providers {
                 let name = provider.name.clone();
                 let visible = !self.hidden_providers.contains(&name);
                 let label = provider
                     .display_name
                     .clone()
                     .unwrap_or_else(|| provider.name.clone());
-                let icon = provider_logo(&provider.provider_type, 16., false, cx);
+                let icon = provider_logo(&provider.provider_type, 16., !provider.enabled, cx);
                 rows = rows.child(
                     h_flex()
                         .h_7()
@@ -305,7 +307,11 @@ impl AppRoot {
                                 .child(
                                     Label::new(label)
                                         .text_xs()
-                                        .text_color(theme.foreground)
+                                        .text_color(if provider.enabled {
+                                            theme.foreground
+                                        } else {
+                                            theme.muted_foreground
+                                        })
                                         .truncate(),
                                 ),
                         )

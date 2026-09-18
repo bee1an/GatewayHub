@@ -161,16 +161,15 @@ impl AppRoot {
                             vec![
                                 ("OpenAI".into(), self.pg_api_type == PgApiType::OpenAi),
                                 ("Anthropic".into(), self.pg_api_type == PgApiType::Anthropic),
+                                ("Responses".into(), self.pg_api_type == PgApiType::Responses),
                             ],
                             cx.processor(|this, ix, _w, cx| {
-                                this.set_pg_api_type(
-                                    if ix == 0 {
-                                        PgApiType::OpenAi
-                                    } else {
-                                        PgApiType::Anthropic
-                                    },
-                                    cx,
-                                );
+                                let api = match ix {
+                                    1 => PgApiType::Anthropic,
+                                    2 => PgApiType::Responses,
+                                    _ => PgApiType::OpenAi,
+                                };
+                                this.set_pg_api_type(api, cx);
                             }),
                             cx,
                         )),

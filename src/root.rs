@@ -101,6 +101,7 @@ fn read_pg_api_type(config: &gateway_core::GatewayHubConfig) -> PgApiType {
         .and_then(serde_json::Value::as_str)
     {
         Some("anthropic") => PgApiType::Anthropic,
+        Some("responses") => PgApiType::Responses,
         _ => PgApiType::OpenAi,
     }
 }
@@ -109,6 +110,7 @@ fn write_pg_api_type(config: &mut gateway_core::GatewayHubConfig, api: PgApiType
     let value = match api {
         PgApiType::OpenAi => "openai",
         PgApiType::Anthropic => "anthropic",
+        PgApiType::Responses => "responses",
     };
     config
         .extra
@@ -199,6 +201,8 @@ pub(crate) enum PgApiType {
     OpenAi,
     /// `POST /v1/messages`
     Anthropic,
+    /// `POST /v1/responses`
+    Responses,
 }
 
 /// API-key select row: label is what the user reads, value is the key id.
@@ -1604,6 +1608,17 @@ impl AppRoot {
                     "stream": stream,
                 }),
             ),
+            PgApiType::Responses => (
+                format!("{base}/v1/responses"),
+                // Responses API takes `input` — the same {role, content}
+                // pairs work since string content is normalized upstream.
+                serde_json::json!({
+                    "model": model,
+                    "max_output_tokens": 4096,
+                    "input": messages,
+                    "stream": stream,
+                }),
+            ),
         };
 
         let cancel = tokio_util::sync::CancellationToken::new();
@@ -1645,6 +1660,8 @@ impl AppRoot {
                         }
                         // Anthropic replies carry a `content` block array.
                         PgApiType::Anthropic => pg_extract_text(v.get("content")),
+                        // Responses replies expose the joined text verbatim.
+                        PgApiType::Responses => pg_extract_text(v.get("output_text")),
                     };
                     let meta = pg_meta(started, v.get("usage"));
                     let _ = tx.try_send(PgEvent::Full { text, meta });
@@ -1731,6 +1748,35 @@ impl AppRoot {
                                                 .and_then(|n| n.as_u64())
                                                 .unwrap_or(out_tok)
                                                 .max(out_tok);
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                PgApiType::Responses => {
+                                    match v.get("type").and_then(|t| t.as_str()) {
+                                        Some("response.output_text.delta") => {
+                                            if let Some(t) = v.get("delta").and_then(|d| d.as_str())
+                                            {
+                                                let _ = tx.try_send(PgEvent::Delta(t.to_string()));
+                                            }
+                                        }
+                                        // Completed + incomplete both carry
+                                        // the final usage (responses spelling:
+                                        // input/output_tokens).
+                                        Some("response.completed")
+                                        | Some("response.incomplete") => {
+                                            if let Some(u) = v.pointer("/response/usage") {
+                                                usage = Some(u.clone());
+                                            }
+                                        }
+                                        Some("response.failed") => {
+                                            let msg = v
+                                                .pointer("/response/error/message")
+                                                .and_then(|m| m.as_str())
+                                                .map(str::to_string)
+                                                .unwrap_or_else(|| "request failed".into());
+                                            let _ = tx.try_send(PgEvent::Failed(msg));
+                                            return;
                                         }
                                         _ => {}
                                     }

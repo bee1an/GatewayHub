@@ -75,7 +75,7 @@ impl AppRoot {
                             .ghost()
                             .xsmall()
                             .label(t(lang, "delete"))
-                            .on_click(cx.listener(move |this, e: &ClickEvent, _w, cx| {
+                            .on_click(cx.listener(move |this, _e: &ClickEvent, _w, cx| {
                                 let desc = tf(
                                     this.lang,
                                     "delete_mapping_desc",
@@ -88,7 +88,6 @@ impl AppRoot {
                                     t(this.lang, "delete_mapping_title"),
                                     desc,
                                     "delete",
-                                    Some(e.position()),
                                     cx,
                                     move |this, cx| this.delete_mapping(ix, cx),
                                 );

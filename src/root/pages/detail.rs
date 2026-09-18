@@ -7,7 +7,7 @@ use gateway_core::GatewayStatusSnapshot;
 use gateway_core::types::{AccountRuntimeState, AccountStatus};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
-    ActiveTheme, Disableable, Sizable, Size, StyledExt,
+    ActiveTheme, Disableable, Icon, Sizable, Size, StyledExt,
     button::{Button, ButtonVariants},
     h_flex,
     input::Input,
@@ -344,13 +344,17 @@ impl AppRoot {
                     .map(|c| format!(" +{c:.0}"))
                     .unwrap_or_default();
                 Some(
-                    div()
+                    h_flex()
+                        .gap_1()
                         .px_1p5()
                         .py_0p5()
                         .rounded(px(3.))
-                        .bg(theme_for_rows.success.opacity(0.15))
+                        .bg(theme_for_rows.success.opacity(0.18))
+                        .border_1()
+                        .border_color(theme_for_rows.success.opacity(0.35))
+                        .child(Icon::new(IconName::Check).size_3p5().text_color(theme_for_rows.success))
                         .child(
-                            Label::new(format!("✓{credits}"))
+                            Label::new(credits.trim().to_string())
                                 .font_family(MONO)
                                 .text_xs()
                                 .text_color(theme_for_rows.success),
@@ -367,8 +371,10 @@ impl AppRoot {
                         .px_1p5()
                         .py_0p5()
                         .rounded(px(3.))
-                        .bg(theme_for_rows.danger.opacity(0.15))
-                        .child(Label::new("✗").text_xs().text_color(theme_for_rows.danger))
+                        .bg(theme_for_rows.danger.opacity(0.18))
+                        .border_1()
+                        .border_color(theme_for_rows.danger.opacity(0.35))
+                        .child(Icon::new(IconName::Close).size_3p5().text_color(theme_for_rows.danger))
                         .into_any_element(),
                 )
             } else {
@@ -410,13 +416,11 @@ impl AppRoot {
                         )
                         .on_click({
                             let weak = weak.clone();
-                            move |e, _window, cx| {
-                                let origin = e.position();
+                            move |_e, _window, cx| {
                                 let _ = weak.update(cx, |this, cx| {
                                     this.open_account_overlay(
                                         &p5,
                                         &account_for_dialog,
-                                        Some(origin),
                                         cx,
                                     );
                                 });
@@ -480,15 +484,13 @@ impl AppRoot {
                         .on_click({
                             let weak = weak.clone();
                             let label = account.display_label().to_string();
-                            move |e, _window, cx| {
-                                let origin = Some(e.position());
+                            move |_e, _window, cx| {
                                 let (p3, a2, label) = (p3.clone(), a2.clone(), label.clone());
                                 let _ = weak.update(cx, |this, cx| {
                                     this.confirm(
                                         t(this.lang, "delete_account_title"),
                                         tf(this.lang, "delete_account_desc", &[("label", &label)]),
                                         "delete",
-                                        origin,
                                         cx,
                                         move |this, cx| {
                                             this.delete_account(&p3, &a2, cx);
@@ -535,8 +537,8 @@ impl AppRoot {
                 .small()
                 .label(t(lang, "add_account"))
                 .icon(IconName::Plus)
-                .on_click(cx.listener(move |this, e: &ClickEvent, _w, cx| {
-                    this.open_import_overlay(&provider_name4, Some(e.position()), cx);
+                .on_click(cx.listener(move |this, _e: &ClickEvent, _w, cx| {
+                    this.open_import_overlay(&provider_name4, cx);
                 })),
         );
         if let Some(msg) = &self.import_result {
@@ -575,7 +577,6 @@ impl AppRoot {
     fn open_import_overlay(
         &mut self,
         provider: &str,
-        origin: Option<Point<Pixels>>,
         cx: &mut Context<Self>,
     ) {
         let lang = self.lang;
@@ -584,8 +585,6 @@ impl AppRoot {
             OverlayRequest {
                 title: t(lang, "add_account").into(),
                 width: px(460.),
-                height_hint: px(210.),
-                origin,
                 content: Some(std::rc::Rc::new(|root, _w, cx| {
                     let theme = cx.theme().clone();
                     v_flex()
@@ -642,7 +641,6 @@ impl AppRoot {
         &mut self,
         provider: &str,
         account: &gateway_core::AccountFile,
-        origin: Option<Point<Pixels>>,
         cx: &mut Context<Self>,
     ) {
         let (p, a) = (provider.to_string(), account.id.clone());
@@ -652,8 +650,6 @@ impl AppRoot {
             OverlayRequest {
                 title: title.into(),
                 width: px(520.),
-                height_hint: px(360.),
-                origin,
                 content: Some(std::rc::Rc::new(move |root, _w, cx| {
                     let theme = cx.theme().clone();
                     let key = format!("{p}/{a}");
@@ -683,7 +679,9 @@ impl AppRoot {
                                     .px_2()
                                     .py_0p5()
                                     .rounded(px(3.))
-                                    .bg(color.opacity(0.15))
+                                    .bg(color.opacity(0.18))
+                                    .border_1()
+                                    .border_color(color.opacity(0.35))
                                     .child(Label::new(status_txt).text_xs().text_color(color)),
                             )
                             .child(

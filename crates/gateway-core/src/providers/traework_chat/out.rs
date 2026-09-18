@@ -246,6 +246,11 @@ where
         let mut finish_reason = "stop".to_string();
         let mut saw_tool_calls = false;
         let mut text = String::new();
+        // Per-index tool-call accumulator — the upstream splits id/name/args
+        // across events, so the first emitted delta must wait until the name
+        // is known (a nameless `function` object breaks strict clients).
+        let mut tool_acc: HashMap<u64, ToolCallAcc> = HashMap::new();
+        let mut tool_emitted: std::collections::HashSet<u64> = std::collections::HashSet::new();
         let mut events = Box::pin(events);
         while let Some(item) = events.next().await {
             let item = match item {
@@ -270,10 +275,70 @@ where
                 {
                     delta["reasoning_content"] = json!(r);
                 }
-                let tcs = to_openai_tool_call_deltas(payload.get("tool_calls"));
-                if let Some(tcs) = tcs
-                    && !tcs.is_empty()
-                {
+                let mut tcs = Vec::new();
+                for call in as_array(payload.get("tool_calls")) {
+                    if !call.is_object() {
+                        continue;
+                    }
+                    let index = call.get("index").and_then(Value::as_u64).unwrap_or(0);
+                    let acc = tool_acc.entry(index).or_default();
+                    if acc.index.is_none() {
+                        acc.index = Some(index);
+                    }
+                    let id = pick_string_v(&[call.get("id"), call.get("tool_call_id")]);
+                    if !id.is_empty() {
+                        acc.id = Some(id);
+                    }
+                    let name = pick_string_v(&[
+                        call.pointer("/function_call/name"),
+                        call.pointer("/function/name"),
+                        call.get("name"),
+                    ]);
+                    if !name.is_empty() {
+                        acc.name = Some(name);
+                    }
+                    let args = call
+                        .pointer("/function_call/arguments")
+                        .or_else(|| call.pointer("/function/arguments"))
+                        .or_else(|| call.get("arguments"));
+                    let mut arg_delta = String::new();
+                    if let Some(args) = args
+                        && !args.is_null()
+                    {
+                        let arg_text = stringify_args(args);
+                        if !arg_text.is_empty() {
+                            arg_delta = arg_text.clone();
+                            if call
+                                .pointer("/function_call/partial")
+                                .and_then(Value::as_bool)
+                                == Some(false)
+                                || acc.arguments_text.is_empty()
+                            {
+                                acc.arguments_text = arg_text;
+                            } else {
+                                acc.arguments_text.push_str(&arg_text);
+                            }
+                        }
+                    }
+                    let named = acc.name.as_deref().is_some_and(|n| !n.is_empty());
+                    if named && tool_emitted.insert(index) {
+                        let mut entry = json!({ "index": index, "type": "function" });
+                        if let Some(id) = &acc.id {
+                            entry["id"] = json!(id);
+                        }
+                        entry["function"] = json!({
+                            "name": acc.name,
+                            "arguments": acc.arguments_text,
+                        });
+                        tcs.push(entry);
+                    } else if tool_emitted.contains(&index) && !arg_delta.is_empty() {
+                        tcs.push(json!({
+                            "index": index,
+                            "function": { "arguments": arg_delta },
+                        }));
+                    }
+                }
+                if !tcs.is_empty() {
                     delta["tool_calls"] = Value::Array(tcs);
                     saw_tool_calls = true;
                 }
@@ -496,51 +561,6 @@ where
     }
 }
 
-pub(crate) fn to_openai_tool_call_deltas(value: Option<&Value>) -> Option<Vec<Value>> {
-    let items = as_array(value);
-    if items.is_empty() {
-        return None;
-    }
-    let mut out = Vec::new();
-    for (i, item) in items.iter().enumerate() {
-        if !item.is_object() {
-            continue;
-        }
-        let index = item
-            .get("index")
-            .and_then(Value::as_u64)
-            .unwrap_or(i as u64);
-        let name = pick_string_v(&[
-            item.pointer("/function_call/name"),
-            item.pointer("/function/name"),
-            item.get("name"),
-        ]);
-        let args = item
-            .pointer("/function_call/arguments")
-            .or_else(|| item.pointer("/function/arguments"))
-            .or_else(|| item.get("arguments"));
-        let mut entry = json!({ "index": index, "type": "function" });
-        let id = pick_string_v(&[item.get("id"), item.get("tool_call_id")]);
-        if !id.is_empty() {
-            entry["id"] = json!(id);
-        }
-        let mut f = json!({});
-        if !name.is_empty() {
-            f["name"] = json!(name);
-        }
-        if let Some(args) = args
-            && !args.is_null()
-        {
-            f["arguments"] = match args {
-                Value::String(s) => json!(s),
-                other => json!(serde_json::to_string(other).unwrap_or_else(|_| "{}".into())),
-            };
-        }
-        entry["function"] = f;
-        out.push(entry);
-    }
-    (!out.is_empty()).then_some(out)
-}
 
 /// `openAiJsonFromResult`.
 pub fn openai_json_from_result(
@@ -659,4 +679,54 @@ pub fn anthropic_json_from_result(
         "stop_sequence": null,
         "usage": to_anthropic_usage(&usage),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Upstream splits tool_call fields across `output` events — args can
+    /// arrive before the name. The first emitted OpenAI delta for an index
+    /// must still carry `function.name` (strict clients reject nameless
+    /// calls).
+    #[tokio::test]
+    async fn openai_sse_first_tool_call_delta_has_name() {
+        let events = futures::stream::iter(vec![
+            Ok(TraeWorkStreamEvent {
+                event: "output".into(),
+                data: json!({"tool_calls": [{"index": 0, "id": "call_1",
+                    "function_call": {"partial": true, "arguments": "{\"q\":"}}]}),
+            }),
+            Ok(TraeWorkStreamEvent {
+                event: "output".into(),
+                data: json!({"tool_calls": [{"index": 0,
+                    "function_call": {"name": "search", "arguments": "\"x\"}"}}]}),
+            }),
+            Ok(TraeWorkStreamEvent {
+                event: "done".into(),
+                data: json!({"finish_reason": "tool_calls"}),
+            }),
+        ]);
+        let stream = openai_sse_from_events(
+            events,
+            "glm-5.3".into(),
+            json!({}),
+            None,
+            "acct".into(),
+        );
+        let chunks: Vec<String> = futures::StreamExt::collect(stream).await;
+        let tool_chunks: Vec<Value> = chunks
+            .iter()
+            .filter_map(|c| c.strip_prefix("data: "))
+            .filter_map(|c| serde_json::from_str::<Value>(c.trim()).ok())
+            .filter(|v| v.pointer("/choices/0/delta/tool_calls").is_some())
+            .collect();
+        assert_eq!(tool_chunks.len(), 1, "expected one merged tool-call chunk");
+        let tc = &tool_chunks[0]["choices"][0]["delta"]["tool_calls"][0];
+        assert_eq!(tc["index"], 0);
+        assert_eq!(tc["type"], "function");
+        assert_eq!(tc["id"], "call_1");
+        assert_eq!(tc["function"]["name"], "search");
+        assert_eq!(tc["function"]["arguments"], "{\"q\":\"x\"}");
+    }
 }

@@ -146,7 +146,6 @@ impl AppRoot {
             .small()
             .checked(listen_on_lan)
             .accessibility_label(t(lang, "acc_listen_lan"))
-            .color(theme.warning)
             .on_change(cx.listener(|this, next, window, cx| {
                 this.set_listen_on_lan(*next, window, cx);
             }))
@@ -172,7 +171,7 @@ impl AppRoot {
             })
             .child(
                 Button::new("settings-save-port")
-                    .primary()
+                    .outline()
                     .small()
                     .label(t(lang, "save"))
                     .on_click(cx.listener(|this, _, _window, cx| this.apply_port(cx))),
@@ -190,7 +189,7 @@ impl AppRoot {
             )
             .child(
                 Button::new("settings-save-proxy")
-                    .primary()
+                    .outline()
                     .small()
                     .label(t(lang, "save"))
                     .on_click(cx.listener(|this, _, _window, cx| this.apply_proxy(cx))),

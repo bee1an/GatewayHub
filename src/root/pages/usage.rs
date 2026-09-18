@@ -140,6 +140,49 @@ impl AppRoot {
                 )),
         );
 
+        // ---- daily tokens chart ----
+        // Same per-day totals the "by day" view reports, drawn as a 30-day
+        // bar strip so the trend is visible at a glance. Missing days get
+        // zero-height bars so the window reads as one continuous span.
+        let mut day_totals: std::collections::HashMap<String, i64> =
+            std::collections::HashMap::new();
+        for e in &detail.daily {
+            *day_totals.entry(e.date.clone()).or_default() += e.input_tokens + e.output_tokens;
+        }
+        let today = chrono::Local::now().date_naive();
+        let series: Vec<(String, i64)> = (0..30_i64)
+            .rev()
+            .map(|i| {
+                let date = (today - chrono::Duration::days(i))
+                    .format("%Y-%m-%d")
+                    .to_string();
+                let tokens = *day_totals.get(&date).unwrap_or(&0);
+                (date, tokens)
+            })
+            .collect();
+        let chart = card(cx).px_4().py_3().child(
+            v_flex()
+                .gap_2()
+                .child(
+                    Label::new(t(lang, "usage_chart"))
+                        .text_xs()
+                        .font_semibold()
+                        .text_color(theme.secondary_foreground),
+                )
+                .child(
+                    div().h(px(110.)).child(
+                        gpui_kit::component::chart::BarChart::new(series)
+                            .id("usage-tokens-chart")
+                            .name(t(lang, "col_tokens"))
+                            .band(|(d, _)| d[5..].to_string())
+                            .value(|(_, v)| *v as f64)
+                            .tick_margin(5)
+                            .value_axis(true)
+                            .value_tick_count(3),
+                    ),
+                ),
+        );
+
         // ---- aggregated breakdown ----
         // The store keeps date × account × model rows — far too fine to
         // scan. Collapse into the two views a reader actually wants:
@@ -316,6 +359,7 @@ impl AppRoot {
                     .child(page_header(t(lang, "usage_title"), "", None, cx)),
             )
             .child(div().flex_none().child(stats))
+            .child(div().flex_none().child(chart))
             .child(
                 v_flex()
                     .h_full()

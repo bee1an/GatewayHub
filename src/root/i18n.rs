@@ -92,14 +92,10 @@ fn en(key: &str) -> Option<&'static str> {
         // ---- shell / status strip ----
         "running" => "Running",
         "stopped" => "Stopped",
-        "running_caps" => "RUNNING",
-        "stopped_caps" => "STOPPED",
         "switch_to_light" => "Switch to light",
         "switch_to_dark" => "Switch to dark",
         "expand_sidebar" => "Expand sidebar",
         "collapse_sidebar" => "Collapse sidebar",
-        "n_err" => "{n} err",
-        "version" => "v{ver}",
 
         // ---- language switch ----
         "language" => "Language",
@@ -336,14 +332,10 @@ fn zh(key: &str) -> Option<&'static str> {
         // ---- shell / status strip ----
         "running" => "运行中",
         "stopped" => "已停止",
-        "running_caps" => "运行中",
-        "stopped_caps" => "已停止",
         "switch_to_light" => "切换到浅色",
         "switch_to_dark" => "切换到深色",
         "expand_sidebar" => "展开侧栏",
         "collapse_sidebar" => "收起侧栏",
-        "n_err" => "{n} 错误",
-        "version" => "v{ver}",
 
         // ---- language switch ----
         "language" => "语言",

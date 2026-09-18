@@ -2135,90 +2135,6 @@ impl Render for AppRoot {
             )
         };
 
-        let enabled_count = snapshot
-            .providers
-            .iter()
-            .filter(|provider| provider.enabled && provider.status != "placeholder")
-            .count();
-        let ready_count = snapshot
-            .providers
-            .iter()
-            .filter(|provider| {
-                provider.enabled && provider.status != "placeholder" && provider.status == "ready"
-            })
-            .count();
-        let error_count = snapshot
-            .logs
-            .iter()
-            .filter(|entry| entry.level == gateway_core::LogLevel::Error)
-            .count();
-        let status_strip = h_flex()
-            .h_10()
-            .flex_none()
-            .items_center()
-            .gap_4()
-            .px_5()
-            .border_b_1()
-            .border_color(theme.border)
-            .child(
-                h_flex()
-                    .items_center()
-                    .gap_1p5()
-                    .child(div().size_1p5().rounded_full().bg(if running {
-                        theme.success
-                    } else {
-                        theme.muted_foreground
-                    }))
-                    .child(
-                        Label::new(t(
-                            lang,
-                            if running {
-                                "running_caps"
-                            } else {
-                                "stopped_caps"
-                            },
-                        ))
-                        .font_family(MONO)
-                        .text_xs()
-                        .font_semibold()
-                        .text_color(if running {
-                            theme.primary
-                        } else {
-                            theme.muted_foreground
-                        })
-                        .when(!running, |l| l.font_semibold()),
-                    ),
-            )
-            .child(
-                Label::new(snapshot.server.url.clone())
-                    .font_family(MONO)
-                    .text_xs()
-                    .text_color(theme.muted_foreground),
-            )
-            .child(div().flex_1())
-            .child(
-                Label::new(format!("{ready_count}/{enabled_count}"))
-                    .font_family(MONO)
-                    .text_xs()
-                    .text_color(theme.muted_foreground),
-            )
-            .child(
-                Label::new(tf(lang, "n_err", &[("n", &error_count.to_string())]))
-                    .font_family(MONO)
-                    .text_xs()
-                    .text_color(if error_count > 0 {
-                        theme.danger
-                    } else {
-                        theme.muted_foreground
-                    }),
-            )
-            .child(
-                Label::new(tf(lang, "version", &[("ver", env!("CARGO_PKG_VERSION"))]))
-                    .font_family(MONO)
-                    .text_xs()
-                    .text_color(theme.muted_foreground),
-            );
-
         // ---- shell: Electron geometry, rendered with opaque surfaces so
         // virtualized lists retain smooth scrolling. ----
         // The overlay mounts on the outermost wrapper (relative + size_full)
@@ -2247,7 +2163,6 @@ impl Render for AppRoot {
                             .border_color(theme.window_border)
                             .bg(theme.background)
                             .overflow_hidden()
-                            .child(status_strip)
                             .child({
                                 // Pages with virtualized lists manage their own scroll;
                                 // the wrapper must not also scroll (nested scroll fights).
@@ -2270,6 +2185,7 @@ impl Render for AppRoot {
                                             .w_full()
                                             .max_w(px(max_w))
                                             .px_6()
+                                            .pt_6()
                                             .pb_5()
                                             .when(fills_height, |d| d.h_full())
                                             .child(body),

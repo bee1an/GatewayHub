@@ -194,6 +194,9 @@ pub fn build_traework_tools(body: &Value, format: &str) -> Option<Value> {
         if name.is_empty() {
             continue;
         }
+        // Upstream declares `FunctionDefinition.parameters` as a STRING —
+        // a JSON-marshalled schema, not an object (verified: sending an
+        // object makes Go reject the request with 4001).
         let schema = fnv
             .get("parameters")
             .or_else(|| tool.get("input_schema"))
@@ -253,6 +256,9 @@ pub fn build_traework_chat_payload(
     });
     if let Some(tools) = build_traework_tools(body, format) {
         payload["tools"] = tools;
+    }
+    if let Some(tc) = body.get("tool_choice") {
+        payload["tool_choice"] = tc.clone();
     }
     prune_undefined(payload)
 }

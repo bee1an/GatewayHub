@@ -189,7 +189,8 @@ impl AppRoot {
                     .child(
                         Select::new(&self.pg_model_sel)
                             .placeholder(t(lang, "pg_no_model"))
-                            .menu_width(px(320.)),
+                            .menu_width(px(320.))
+                            .search_placeholder(t(lang, "pg_search_model")),
                     ),
             )
             .child(

@@ -472,6 +472,7 @@ impl AppRoot {
             import_result: None,
             pg_model_sel: cx.new(|cx| {
                 SelectState::new(SearchableVec::new(Vec::<String>::new()), None, _window, cx)
+                    .searchable(true)
             }),
             pg_key_sel: cx.new(|cx| {
                 SelectState::new(

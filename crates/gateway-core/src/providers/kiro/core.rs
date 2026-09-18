@@ -445,6 +445,22 @@ impl KiroCore {
         }
     }
 
+    /// Refresh an account's model list from `/ListAvailableModels` unless
+    /// the per-account cache is still fresh. Seed rows (fallback ids with
+    /// `models_cached_at` set but no remote entry) always trigger a fetch.
+    pub(crate) async fn maybe_refresh_models(&self, account_id: &str) {
+        {
+            let cache = self.models_cache.lock().await;
+            if let Some((at, ids)) = cache.get(account_id)
+                && now_ms() - *at < MODELS_CACHE_TTL_MS
+                && !ids.is_empty()
+            {
+                return;
+            }
+        }
+        let _ = self.list_available_models(account_id, false).await;
+    }
+
     /// `listAvailableModels` — apiGet('/ListAvailableModels') with 15min cache.
     pub(crate) async fn list_available_models(
         &self,
@@ -465,7 +481,19 @@ impl KiroCore {
         if !arn.is_empty() {
             params.push(("profileArn", &arn));
         }
-        let result = auth.api_get("/ListAvailableModels", &params).await;
+        // Accounts on the same entitlement (same profileArn) get identical
+        // model lists — share one upstream call across them.
+        let group = if arn.is_empty() {
+            format!("acct:{account_id}")
+        } else {
+            format!("arn:{arn}")
+        };
+        let result = self
+            .catalog
+            .get_or_fetch(&group, if force { 0 } else { MODELS_CACHE_TTL_MS }, || {
+                auth.api_get("/ListAvailableModels", &params)
+            })
+            .await;
         match result {
             Ok(data) => {
                 let ids: Vec<String> = data

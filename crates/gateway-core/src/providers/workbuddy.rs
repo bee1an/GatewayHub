@@ -61,10 +61,7 @@ impl crate::pool::PoolBehavior for WorkBuddyBehavior {
         true
     }
     fn seed_models(&self) -> Vec<String> {
-        WORKBUDDY_BUILT_IN_MODELS
-            .iter()
-            .map(|s| s.to_string())
-            .collect()
+        Vec::new()
     }
 }
 

@@ -28,18 +28,6 @@ use crate::types::{
 mod core;
 
 const CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api";
-const DEFAULT_CODEX_MODEL: &str = "gpt-5";
-const FALLBACK_MODELS: &[&str] = &[
-    "gpt-5",
-    "gpt-5-codex",
-    "gpt-5-mini",
-    "gpt-5-nano",
-    "gpt-5-pro",
-    "gpt-5.1",
-    "gpt-5.1-codex",
-    "gpt-5.1-codex-max",
-    "gpt-5.1-codex-mini",
-];
 const MODELS_CACHE_TTL_MS: i64 = 30 * 60_000;
 const MODELS_REFRESH_BACKOFF_MS: i64 = 5 * 60_000;
 
@@ -99,16 +87,14 @@ impl crate::pool::PoolBehavior for CodexBehavior {
         normalize_codex_model(model)
     }
     fn account_has_model(&self, account: &AccountWithState, model: &str) -> bool {
-        // codex: empty modelIds falls back to the seed list
-        let list: Vec<String> = if account.state.model_ids.is_empty() {
-            FALLBACK_MODELS.iter().map(|s| s.to_string()).collect()
-        } else {
-            account.state.model_ids.clone()
-        };
-        list.iter().any(|m| normalize_codex_model(m) == model)
+        account
+            .state
+            .model_ids
+            .iter()
+            .any(|m| normalize_codex_model(m) == model)
     }
     fn seed_models(&self) -> Vec<String> {
-        FALLBACK_MODELS.iter().map(|s| s.to_string()).collect()
+        Vec::new()
     }
     /// codex `resolveCooldown` — quota honors the upstream resetAtIso
     /// deadline; cooling base is `max(1000, cooldownMs || 30_000)`.
@@ -165,6 +151,20 @@ pub struct CodexProvider {
 }
 
 impl CodexProvider {
+    /// Model for a request — explicit `model` wins; otherwise the first
+    /// fetched id (catalog always comes from the upstream model list).
+    async fn resolve_model(&self, body: &Value) -> Option<String> {
+        if let Some(m) = body
+            .get("model")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return Some(normalize_codex_model(m));
+        }
+        self.core.pool.lock().await.list_models().into_iter().next()
+    }
+
     pub fn new(
         provider_config: &crate::types::ProviderConfig,
         account_files: Vec<AccountFile>,
@@ -228,12 +228,7 @@ impl ProviderAdapter for CodexProvider {
         }
         let models = {
             let pool = core.pool.lock().await;
-            let set: Vec<String> = pool.list_models();
-            if set.is_empty() {
-                FALLBACK_MODELS.iter().map(|s| s.to_string()).collect()
-            } else {
-                set
-            }
+            pool.list_models()
         };
         models
             .into_iter()
@@ -247,11 +242,13 @@ impl ProviderAdapter for CodexProvider {
     }
 
     async fn chat_completions(&self, body: Value, ctx: &GatewayRequestContext) -> GatewayResponse {
-        let model = normalize_codex_model(
-            body.get("model")
-                .and_then(Value::as_str)
-                .unwrap_or(DEFAULT_CODEX_MODEL),
-        );
+        let Some(model) = self.resolve_model(&body).await else {
+            return GatewayResponse::error(
+                400,
+                "Codex has no fetched models; refresh the account model list first",
+                "invalid_request_error",
+            );
+        };
         let stream = body.get("stream").and_then(Value::as_bool) != Some(false);
         if stream {
             return GatewayResponse::Sse {
@@ -263,11 +260,13 @@ impl ProviderAdapter for CodexProvider {
     }
 
     async fn messages(&self, body: Value, ctx: &GatewayRequestContext) -> GatewayResponse {
-        let model = normalize_codex_model(
-            body.get("model")
-                .and_then(Value::as_str)
-                .unwrap_or(DEFAULT_CODEX_MODEL),
-        );
+        let Some(model) = self.resolve_model(&body).await else {
+            return GatewayResponse::error(
+                400,
+                "Codex has no fetched models; refresh the account model list first",
+                "invalid_request_error",
+            );
+        };
         if body.get("stream").and_then(Value::as_bool) == Some(true) {
             return GatewayResponse::Sse {
                 status: 200,
@@ -436,11 +435,7 @@ impl ProviderAdapter for CodexProvider {
             } else {
                 Some("No Codex accounts configured".into())
             },
-            models: if models.is_empty() {
-                FALLBACK_MODELS.iter().map(|s| s.to_string()).collect()
-            } else {
-                models
-            },
+            models,
             use_proxy: None,
             accounts,
         }

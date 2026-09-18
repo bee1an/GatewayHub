@@ -23,44 +23,6 @@ pub const WORKBUDDY_CHECKIN_CLAIM_PATH: &str = "/v2/billing/meter/daily-checkin"
 pub const WORKBUDDY_CREDITS_SUMMARY_PATH: &str = "/billing/meter/get-user-resource-summary";
 pub const WORKBUDDY_USER_AGENT: &str = "WorkBuddy/GatewayHub";
 
-pub const WORKBUDDY_BUILT_IN_MODELS: &[&str] = &[
-    "auto",
-    "default",
-    "default-1.1",
-    "default-1.2",
-    "deepseek-v4-pro",
-    "deepseek-v4-flash",
-    "deepseek-v3-2-volc",
-    "deepseek-v3-1-volc",
-    "deepseek-v3-1-lkeap",
-    "deepseek-v3-1",
-    "deepseek-v3-0324-lkeap",
-    "deepseek-r1-0528-lkeap",
-    "minimax-m2.5",
-    "minimax-m3",
-    "minimax-m2.7",
-    "glm-5.2",
-    "glm-5.1",
-    "glm-5.0",
-    "glm-5.0-turbo",
-    "glm-5v-turbo",
-    "glm-4.7",
-    "glm-4.6",
-    "glm-4.6v",
-    "kimi-k3-1",
-    "kimi-k2.7",
-    "kimi-k2.6",
-    "kimi-k2.5",
-    "kimi-k2-thinking",
-    "kimi-k2-instruct-taiji",
-    "hy3",
-    "hy3-preview",
-    "hunyuan-chat",
-    "hunyuan-2.0-thinking",
-    "hunyuan-2.0-instruct",
-    "kling-v3-i2v",
-];
-
 pub fn normalize_workbuddy_model(input: &str) -> String {
     let trimmed = input.trim();
     if trimmed.is_empty() {

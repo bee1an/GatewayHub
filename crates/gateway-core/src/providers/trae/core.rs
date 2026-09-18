@@ -141,18 +141,22 @@ impl TraeCore {
     /// `refreshAccountModels` — GetModelList → sanitize → fallback built-ins.
     pub(crate) async fn refresh_models(&self, account_id: &str) {
         let models = match self.ensure_auth(account_id).await {
-            Ok(auth) => auth.get_model_list().await.unwrap_or_else(|e| {
-                self.log_entry(
-                    LogLevel::Warn,
-                    format!("Trae model list refresh failed: {e}"),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                );
-                Vec::new()
-            }),
+            Ok(auth) => self
+                .catalog
+                .get_or_fetch("", MODELS_CACHE_TTL_MS, || auth.get_model_list())
+                .await
+                .unwrap_or_else(|e| {
+                    self.log_entry(
+                        LogLevel::Warn,
+                        format!("Trae model list refresh failed: {e}"),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    );
+                    Vec::new()
+                }),
             Err(e) => {
                 self.log_entry(
                     LogLevel::Warn,

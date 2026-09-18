@@ -178,6 +178,9 @@ pub struct KiroCore {
     pool: Arc<Mutex<AccountPool<KiroBehavior>>>,
     auths: Mutex<HashMap<String, Arc<KiroAuth>>>,
     models_cache: Mutex<HashMap<String, (i64, Vec<String>)>>, // account → (cached_at, modelIds)
+    /// Shared `/ListAvailableModels` catalog keyed by profileArn —
+    /// accounts on the same entitlement get identical model lists.
+    catalog: crate::providers::catalog::SharedCatalog<Value>,
     limiter: KiroRequestLimiter,
     http: Arc<UpstreamHttp>,
     settings: Arc<KiroSettings>,
@@ -219,6 +222,7 @@ impl KiroProvider {
                 pool: Arc::new(Mutex::new(pool)),
                 auths: Mutex::new(HashMap::new()),
                 models_cache: Mutex::new(HashMap::new()),
+                catalog: crate::providers::catalog::SharedCatalog::new(),
                 limiter: KiroRequestLimiter::new(&settings),
                 http: Arc::new(http),
                 settings: Arc::new(settings),
@@ -238,6 +242,17 @@ impl ProviderAdapter for KiroProvider {
     }
 
     async fn list_models(&self) -> Vec<ProviderModel> {
+        let ids: Vec<String> = {
+            let pool = self.core.pool.lock().await;
+            pool.accounts
+                .iter()
+                .filter(|a| a.config.enabled)
+                .map(|a| a.config.id.clone())
+                .collect()
+        };
+        for id in ids {
+            self.core.maybe_refresh_models(&id).await;
+        }
         let models = {
             let pool = self.core.pool.lock().await;
             let set = pool.list_models();

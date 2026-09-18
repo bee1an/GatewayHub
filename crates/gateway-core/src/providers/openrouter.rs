@@ -73,6 +73,7 @@ impl OpenRouterProvider {
                 provider: "openrouter",
                 classify: classify_openrouter_error,
                 refresher: OpenRouterRefresh,
+                catalog: Arc::new(crate::providers::catalog::SharedCatalog::new()),
             }),
             enabled: provider_config.enabled,
             display_name: provider_config.display_name.clone(),
@@ -82,15 +83,11 @@ impl OpenRouterProvider {
 
 impl CompatRefresh for OpenRouterRefresh {
     /// `maybeRefreshAccountModels` — `/key` + `/models` + free-tier filter.
-    fn maybe_refresh<'a>(
-        &'a self,
-        view: &'a OpenRouterView,
-        account_id: &'a str,
-    ) -> BoxFut<'a, ()> {
+    fn maybe_refresh<'a>(&'a self, view: &'a OpenRouterView, account_id: String) -> BoxFut<'a, ()> {
         Box::pin(async move {
             let (api_key, fresh) = {
                 let pool = view.pool.lock().await;
-                let Some(acc) = pool.find(account_id) else {
+                let Some(acc) = pool.find(&account_id) else {
                     return;
                 };
                 let fresh = acc.state.models_cached_at > 0
@@ -102,13 +99,13 @@ impl CompatRefresh for OpenRouterRefresh {
                 return;
             }
             let Some(key) = api_key else { return };
-            match refresh_account_models(view, account_id, &key).await {
+            match refresh_account_models(view, &account_id, &key).await {
                 Ok(()) => {}
                 Err(e) => {
                     let classified = classify_openrouter_error(0, &e.to_string());
                     if classified.kind == ResponseKind::Auth {
                         let mut pool = view.pool.lock().await;
-                        if let Some(acc) = pool.find_mut(account_id) {
+                        if let Some(acc) = pool.find_mut(&account_id) {
                             acc.state.status = AccountStatus::AuthFailed;
                             acc.state.status_reason =
                                 Some(e.to_string().chars().take(200).collect());
@@ -130,15 +127,20 @@ impl CompatRefresh for OpenRouterRefresh {
     }
 }
 
-/// `refreshAccountModels` port — key info → catalog → filtered ids →
-/// persist key metadata back to the account file.
+/// `refreshAccountModels` port — key info → shared catalog → filtered ids →
+/// persist key metadata back to the account file. The `/models` catalog is
+/// key-uniform, so it is fetched once and shared across the pool; only the
+/// per-key `/key` info call remains per-account.
 async fn refresh_account_models(
     view: &OpenRouterView,
     account_id: &str,
     api_key: &str,
 ) -> anyhow::Result<()> {
     let key_info = fetch_key_info(view, api_key).await?;
-    let models = fetch_models(view, api_key).await?;
+    let models = view
+        .catalog
+        .get_or_fetch("", MODELS_CACHE_TTL_MS, || fetch_models(view, api_key))
+        .await?;
     let filtered = filter_models_for_key(&models, &key_info);
 
     let mut pool = view.pool.lock().await;
@@ -476,7 +478,7 @@ impl ProviderAdapter for OpenRouterProvider {
             )
         };
         OpenRouterRefresh
-            .maybe_refresh(&self.view, account_id)
+            .maybe_refresh(&self.view, account_id.to_string())
             .await;
         let mut key_info = Value::Null;
         if let Some(key) = &api_key
@@ -516,7 +518,7 @@ impl ProviderAdapter for OpenRouterProvider {
             }
         }
         OpenRouterRefresh
-            .maybe_refresh(&self.view, account_id)
+            .maybe_refresh(&self.view, account_id.to_string())
             .await;
         Ok(self
             .view

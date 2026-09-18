@@ -15,13 +15,13 @@ pub const DEFAULT_GPT_WEB_BASE_URL: &str = "https://chatgpt.com/backend-api";
 pub const GPT_WEB_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36";
 pub const GPT_WEB_CLIENT_BUILD_NUMBER: &str = "7034670";
 pub const GPT_WEB_CLIENT_VERSION: &str = "prod-355892676443208d0eb87aeaeb17d3ef3327f23f";
-pub const GPT_WEB_DEFAULT_MODEL: &str = "gpt-5";
-pub const GPT_WEB_KNOWN_MODELS: &[&str] = &["auto", GPT_WEB_DEFAULT_MODEL];
+/// "auto" is the web client's auto mode — a selector, not a model id.
+pub const GPT_WEB_KNOWN_MODELS: &[&str] = &["auto"];
 
 pub fn normalize_gptweb_model(model: &str) -> String {
     let t = model.trim();
-    if t.is_empty() || t == "auto" {
-        GPT_WEB_DEFAULT_MODEL.into()
+    if t.is_empty() {
+        "auto".into()
     } else {
         t.to_string()
     }

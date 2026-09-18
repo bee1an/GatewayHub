@@ -171,19 +171,25 @@ impl TraeWorkCore {
             let pool = self.pool.lock().await;
             pool.find(account_id).map(|a| a.config.clone())
         };
+        // `batch_get_detail_param` returns the same catalog for every
+        // account — share one fetch per TTL instead of per-account calls.
         let models = match config {
-            Some(c) => auth.get_model_list(&c).await.unwrap_or_else(|e| {
-                self.log_entry(
-                    LogLevel::Warn,
-                    format!("TraeWork model list refresh failed: {e}"),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                );
-                Vec::new()
-            }),
+            Some(c) => self
+                .catalog
+                .get_or_fetch("", MODELS_CACHE_TTL_MS, || auth.get_model_list(&c))
+                .await
+                .unwrap_or_else(|e| {
+                    self.log_entry(
+                        LogLevel::Warn,
+                        format!("TraeWork model list refresh failed: {e}"),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    );
+                    Vec::new()
+                }),
             None => Vec::new(),
         };
         let usable: Vec<String> = models
@@ -195,11 +201,7 @@ impl TraeWorkCore {
             .collect();
         let mut pool = self.pool.lock().await;
         if let Some(acc) = pool.find_mut(account_id) {
-            acc.state.model_ids = if usable.is_empty() {
-                vec![DEFAULT_TRAEWORK_MODEL.to_string()]
-            } else {
-                usable
-            };
+            acc.state.model_ids = usable;
             acc.state.models_cached_at = now_ms();
         }
     }

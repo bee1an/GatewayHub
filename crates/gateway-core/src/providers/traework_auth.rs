@@ -21,7 +21,6 @@ pub const DEFAULT_TRAEWORK_VERSION_CODE: &str = "20260901";
 pub const DEFAULT_TRAEWORK_IDE_VERSION: &str = "0.1.64";
 pub const DEFAULT_TRAEWORK_PACKAGE_TYPE: &str = "stable_cn";
 pub const DEFAULT_TRAEWORK_FUNCTION: &str = "chat_v3";
-pub const DEFAULT_TRAEWORK_MODEL: &str = "glm-5.3";
 
 pub const TRAEWORK_DETAIL_FUNCTIONS: &[&str] = &[
     "assistant",
@@ -62,7 +61,7 @@ pub const TRAEWORK_BUILT_IN_MODELS: &[(&str, &str)] = &[
 pub fn normalize_traework_model(input: &str) -> String {
     let trimmed = input.trim();
     if trimmed.is_empty() {
-        return DEFAULT_TRAEWORK_MODEL.into();
+        return trimmed.to_string();
     }
     let loose: String = trimmed
         .to_lowercase()

@@ -1,3 +1,4 @@
+pub mod catalog;
 pub mod codex;
 pub mod codex_auth;
 pub mod codex_convert;

@@ -40,7 +40,7 @@ pub struct TraeTokenSnapshot {
 pub fn normalize_trae_model(input: &str) -> String {
     let trimmed = input.trim();
     if trimmed.is_empty() {
-        return DEFAULT_TRAE_MODEL.into();
+        return trimmed.to_string();
     }
     let loose: String = trimmed
         .to_lowercase()

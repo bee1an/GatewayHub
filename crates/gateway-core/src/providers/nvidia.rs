@@ -75,6 +75,7 @@ impl NvidiaProvider {
                 provider: "nvidia",
                 classify: classify_nvidia_error,
                 refresher: NvidiaRefresh,
+                catalog: Arc::new(crate::providers::catalog::SharedCatalog::new()),
             }),
             enabled: provider_config.enabled,
             display_name: provider_config.display_name.clone(),
@@ -152,11 +153,11 @@ impl NvidiaProvider {
 
 impl CompatRefresh for NvidiaRefresh {
     /// `maybeRefreshAccountModels` — TTL-guarded `/models` fetch.
-    fn maybe_refresh<'a>(&'a self, view: &'a NvidiaView, account_id: &'a str) -> BoxFut<'a, ()> {
+    fn maybe_refresh<'a>(&'a self, view: &'a NvidiaView, account_id: String) -> BoxFut<'a, ()> {
         Box::pin(async move {
             let (api_key, fresh) = {
                 let pool = view.pool.lock().await;
-                let Some(acc) = pool.find(account_id) else {
+                let Some(acc) = pool.find(&account_id) else {
                     return;
                 };
                 let fresh = acc.state.models_cached_at > 0
@@ -168,38 +169,44 @@ impl CompatRefresh for NvidiaRefresh {
                 return;
             }
             let Some(key) = api_key else { return };
+            // The /models catalog is identical for every NVIDIA key — share
+            // one fetch across the pool instead of one request per account.
             let res = view
-                .http
-                .get(
-                    NVIDIA_MODELS_PATH,
-                    &[("authorization", &format!("Bearer {key}"))],
-                    Duration::from_secs(30),
-                )
-                .await;
-            match res {
-                Ok(r) => {
+                .catalog
+                .get_or_fetch("", MODELS_CACHE_TTL_MS, || async {
+                    let r = view
+                        .http
+                        .get(
+                            NVIDIA_MODELS_PATH,
+                            &[("authorization", &format!("Bearer {key}"))],
+                            Duration::from_secs(30),
+                        )
+                        .await?;
                     let status = r.status().as_u16();
                     let text = r.text().await.unwrap_or_default();
                     if status >= 400 {
-                        mark_auth_if(view, account_id, status, &text).await;
-                        return;
+                        anyhow::bail!("NVIDIA model list failed: HTTP {status} {text}");
                     }
                     let payload: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
-                    let mut ids: Vec<String> = payload
+                    Ok(payload
                         .get("data")
                         .and_then(Value::as_array)
-                        .map(|data| {
-                            data.iter()
-                                .filter_map(|m| m.get("id").and_then(Value::as_str))
-                                .map(|id| id.trim().to_string())
-                                .filter(|id| !id.is_empty() && !is_non_chat_model(id))
-                                .collect()
-                        })
-                        .unwrap_or_default();
+                        .cloned()
+                        .unwrap_or_default())
+                })
+                .await;
+            match res {
+                Ok(data) => {
+                    let mut ids: Vec<String> = data
+                        .iter()
+                        .filter_map(|m| m.get("id").and_then(Value::as_str))
+                        .map(|id| id.trim().to_string())
+                        .filter(|id| !id.is_empty() && !is_non_chat_model(id))
+                        .collect();
                     ids.sort();
                     ids.dedup();
                     let mut pool = view.pool.lock().await;
-                    if let Some(acc) = pool.find_mut(account_id) {
+                    if let Some(acc) = pool.find_mut(&account_id) {
                         acc.state.model_ids = ids;
                         acc.state.models_cached_at = now_ms();
                         if acc.config.fields.get("keyLabel").is_none() {
@@ -221,7 +228,7 @@ impl CompatRefresh for NvidiaRefresh {
                     let classified = classify_nvidia_error(0, &e.to_string());
                     if classified.kind == ResponseKind::Auth {
                         let mut pool = view.pool.lock().await;
-                        if let Some(acc) = pool.find_mut(account_id) {
+                        if let Some(acc) = pool.find_mut(&account_id) {
                             acc.state.status = AccountStatus::AuthFailed;
                             acc.state.status_reason =
                                 Some(e.to_string().chars().take(200).collect());
@@ -240,19 +247,6 @@ impl CompatRefresh for NvidiaRefresh {
                 }
             }
         })
-    }
-}
-
-async fn mark_auth_if(view: &NvidiaView, account_id: &str, status: u16, text: &str) {
-    let classified = classify_nvidia_error(status, text);
-    if classified.kind != ResponseKind::Auth {
-        return;
-    }
-    let mut pool = view.pool.lock().await;
-    if let Some(acc) = pool.find_mut(account_id) {
-        acc.state.status = AccountStatus::AuthFailed;
-        acc.state.status_reason = Some(redact_secrets_in_text(text).chars().take(200).collect());
-        acc.state.status_updated_at = now_ms();
     }
 }
 
@@ -334,7 +328,9 @@ impl ProviderAdapter for NvidiaProvider {
         };
         match self.check_api_key(&key).await {
             Ok(()) => {
-                NvidiaRefresh.maybe_refresh(&self.view, account_id).await;
+                NvidiaRefresh
+                    .maybe_refresh(&self.view, account_id.to_string())
+                    .await;
                 let models = {
                     let mut pool = self.view.pool.lock().await;
                     if let Some(acc) = pool.find_mut(account_id) {
@@ -388,7 +384,9 @@ impl ProviderAdapter for NvidiaProvider {
                 anyhow::bail!("Account not found");
             }
         }
-        NvidiaRefresh.maybe_refresh(&self.view, account_id).await;
+        NvidiaRefresh
+            .maybe_refresh(&self.view, account_id.to_string())
+            .await;
         Ok(self
             .view
             .pool

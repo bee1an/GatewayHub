@@ -57,16 +57,6 @@ impl CodexCore {
         {
             anyhow::bail!("Codex account has no tokens");
         }
-        // Seed fallback models if none cached yet (modelsCachedAt stays 0 so
-        // the TTL check still triggers a real refresh).
-        {
-            let mut pool = self.pool.lock().await;
-            if let Some(acc) = pool.find_mut(account_id)
-                && acc.state.model_ids.is_empty()
-            {
-                acc.state.model_ids = FALLBACK_MODELS.iter().map(|s| s.to_string()).collect();
-            }
-        }
         let persist = self.persist_account.clone();
         let account_id_owned = account_id.to_string();
         let on_change: Arc<dyn Fn(&str, &AuthSnapshot) + Send + Sync> = {

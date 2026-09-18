@@ -153,12 +153,7 @@ impl WorkBuddyCore {
         };
         let mut pool = self.pool.lock().await;
         if let Some(acc) = pool.find_mut(account_id) {
-            acc.state.model_ids = if models.is_empty() {
-                WORKBUDDY_BUILT_IN_MODELS
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect()
-            } else {
+            acc.state.model_ids = {
                 let mut m = models;
                 m.sort();
                 m

@@ -38,7 +38,7 @@ pub trait CompatRefresh: Send + Sync + Sized + 'static {
     fn maybe_refresh<'a>(
         &'a self,
         view: &'a CompatView<Self>,
-        account_id: &'a str,
+        account_id: String,
     ) -> BoxFut<'a, ()>;
 }
 
@@ -52,6 +52,7 @@ pub struct CompatView<R: CompatRefresh> {
     pub provider: &'static str,
     pub classify: fn(u16, &str) -> ClassifiedError,
     pub refresher: R,
+    pub catalog: Arc<crate::providers::catalog::SharedCatalog<Vec<Value>>>,
 }
 
 impl<R: CompatRefresh> CompatView<R> {
@@ -102,7 +103,7 @@ impl<R: CompatRefresh> CompatView<R> {
         for relax in [false, true] {
             let candidates = self.pool.lock().await.ordered_candidates(excluded, relax);
             for id in candidates {
-                self.refresher.maybe_refresh(self, &id).await;
+                self.refresher.maybe_refresh(self, id.clone()).await;
                 let mut pool = self.pool.lock().await;
                 if pool.has_model(&id, model) {
                     pool.commit(&id);
@@ -115,6 +116,8 @@ impl<R: CompatRefresh> CompatView<R> {
 
     /// `listModelsFresh` port — refresh all enabled accounts, then return
     /// the cached union. Failures are swallowed by the refresher.
+    /// Refreshes run concurrently (bounded) — a 100-key OpenRouter pool
+    /// would otherwise serialize hundreds of upstream calls here.
     pub async fn list_models_fresh(&self) -> Vec<String> {
         let ids: Vec<String> = {
             let pool = self.pool.lock().await;
@@ -124,9 +127,11 @@ impl<R: CompatRefresh> CompatView<R> {
                 .map(|a| a.config.id.clone())
                 .collect()
         };
-        for id in ids {
-            self.refresher.maybe_refresh(self, &id).await;
-        }
+        futures::stream::iter(ids)
+            .map(|id| self.refresher.maybe_refresh(self, id))
+            .buffer_unordered(8)
+            .collect::<Vec<()>>()
+            .await;
         self.pool.lock().await.list_models()
     }
 

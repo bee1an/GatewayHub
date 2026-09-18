@@ -454,11 +454,11 @@ impl ProviderAdapter for GptWebProvider {
         for id in &ids {
             self.core.maybe_refresh_models(id).await;
         }
-        let mut models = self.core.pool.lock().await.list_models();
-        if models.is_empty() {
-            models = GPT_WEB_KNOWN_MODELS.iter().map(|s| s.to_string()).collect();
-        }
-        models
+        self.core
+            .pool
+            .lock()
+            .await
+            .list_models()
             .into_iter()
             .map(|id| ProviderModel {
                 id,

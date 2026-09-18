@@ -65,7 +65,7 @@ impl crate::pool::PoolBehavior for TraeBehavior {
             .any(|m| normalize_trae_model(m) == model)
     }
     fn seed_models(&self) -> Vec<String> {
-        vec![DEFAULT_TRAE_MODEL.to_string()]
+        Vec::new()
     }
 }
 
@@ -82,9 +82,26 @@ pub struct TraeCore {
     settings: Arc<TraeSettings>,
     persist_account: Option<Arc<dyn Fn(&AccountFile) + Send + Sync>>,
     log: LogSink,
+    /// Shared `get_detail_param` catalog — identical for every account
+    /// on the same client, fetched once per TTL.
+    catalog: crate::providers::catalog::SharedCatalog<Vec<String>>,
 }
 
 impl TraeProvider {
+    /// Model for a request — explicit `model` wins; otherwise the first
+    /// fetched id (catalog always comes from `get_detail_param`).
+    async fn resolve_model(&self, body: &Value) -> Option<String> {
+        if let Some(m) = body
+            .get("model")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return Some(normalize_trae_model(m));
+        }
+        self.core.pool.lock().await.list_models().into_iter().next()
+    }
+
     pub fn new(
         provider_config: &crate::types::ProviderConfig,
         account_files: Vec<AccountFile>,
@@ -124,6 +141,7 @@ impl TraeProvider {
                 settings: Arc::new(settings),
                 persist_account,
                 log,
+                catalog: crate::providers::catalog::SharedCatalog::new(),
             }),
             enabled: provider_config.enabled,
             display_name: provider_config.display_name.clone(),
@@ -165,11 +183,11 @@ impl ProviderAdapter for TraeProvider {
         for id in &ids {
             self.core.maybe_refresh_models(id).await;
         }
-        let mut models = self.core.pool.lock().await.list_models();
-        if models.is_empty() {
-            models = vec![DEFAULT_TRAE_MODEL.to_string()];
-        }
-        models
+        self.core
+            .pool
+            .lock()
+            .await
+            .list_models()
             .into_iter()
             .map(|id| ProviderModel {
                 id,
@@ -181,11 +199,13 @@ impl ProviderAdapter for TraeProvider {
     }
 
     async fn chat_completions(&self, body: Value, ctx: &GatewayRequestContext) -> GatewayResponse {
-        let model = normalize_trae_model(
-            body.get("model")
-                .and_then(Value::as_str)
-                .unwrap_or(DEFAULT_TRAE_MODEL),
-        );
+        let Some(model) = self.resolve_model(&body).await else {
+            return GatewayResponse::error(
+                400,
+                "Trae has no fetched models; refresh the account model list first",
+                "invalid_request_error",
+            );
+        };
         if body.get("stream").and_then(Value::as_bool) == Some(true) {
             // trae stream = collect then re-emit one text blob
             let mut collect_body = body.clone();
@@ -255,11 +275,13 @@ impl ProviderAdapter for TraeProvider {
     }
 
     async fn messages(&self, body: Value, ctx: &GatewayRequestContext) -> GatewayResponse {
-        let model = normalize_trae_model(
-            body.get("model")
-                .and_then(Value::as_str)
-                .unwrap_or(DEFAULT_TRAE_MODEL),
-        );
+        let Some(model) = self.resolve_model(&body).await else {
+            return GatewayResponse::error(
+                400,
+                "Trae has no fetched models; refresh the account model list first",
+                "invalid_request_error",
+            );
+        };
         if body.get("stream").and_then(Value::as_bool) == Some(true) {
             let mut collect_body = body.clone();
             collect_body["stream"] = json!(false);
@@ -529,11 +551,7 @@ impl ProviderAdapter for TraeProvider {
             } else {
                 Some("No Trae accounts configured".into())
             },
-            models: if models.is_empty() {
-                vec![DEFAULT_TRAE_MODEL.to_string()]
-            } else {
-                models
-            },
+            models,
             use_proxy: None,
             accounts,
         }

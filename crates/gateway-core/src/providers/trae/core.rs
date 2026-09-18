@@ -173,26 +173,9 @@ impl TraeCore {
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
             .collect();
-        let country_code = {
-            let pool = self.pool.lock().await;
-            pool.find(account_id).and_then(|a| {
-                a.config
-                    .fields
-                    .get("countryCode")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            })
-        };
         let mut pool = self.pool.lock().await;
         if let Some(acc) = pool.find_mut(account_id) {
-            acc.state.model_ids = if usable.is_empty() {
-                fallback_models(
-                    self.settings.expose_unavailable_in_us,
-                    country_code.as_deref(),
-                )
-            } else {
-                usable
-            };
+            acc.state.model_ids = usable;
             acc.state.models_cached_at = now_ms();
         }
     }
@@ -211,7 +194,8 @@ impl TraeCore {
         self.refresh_models(account_id).await;
     }
 
-    /// `callTrae` — localChatEnabled → local bridge, else rawChat.
+    /// `callTrae` — rawChat via llm_raw_chat (the CDP local bridge was
+    /// removed: CDP-driven agent calls are rejected).
     pub(crate) async fn call_trae(
         &self,
         account: &AccountWithState,
@@ -224,49 +208,6 @@ impl TraeCore {
         Option<crate::types::UsageStats>,
         Vec<crate::providers::windsurf_stream::GatewayToolCall>,
     )> {
-        if self.settings.local_chat_enabled {
-            let token = auth.get_jwt_token().await?;
-            let messages = if format == "openai" {
-                openai_to_trae_messages(body)
-            } else {
-                anthropic_to_trae_messages(body)
-            };
-            let prompt = build_prompt(&messages);
-            let field = |k: &str| {
-                account
-                    .config
-                    .fields
-                    .get(k)
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string()
-            };
-            let TraeLocalChatResult { text, usage, .. } = run_trae_local_chat(
-                &self.http.client(),
-                self.settings.local_debug_port,
-                &self.settings.local_app_path,
-                &account
-                    .config
-                    .email
-                    .clone()
-                    .or_else(|| account.config.label.clone())
-                    .unwrap_or_default(),
-                &field("userId"),
-                &field("countryCode"),
-                &token,
-                model,
-                prompt,
-                self.settings.streaming_read_timeout,
-            )
-            .await?;
-            if let Some(err) = text.strip_prefix("__TRAE_ERROR__:") {
-                anyhow::bail!(
-                    "Trae stream error: {}",
-                    err.chars().take(800).collect::<String>()
-                );
-            }
-            return Ok((text, usage, Vec::new()));
-        }
         let core_base = account
             .config
             .fields

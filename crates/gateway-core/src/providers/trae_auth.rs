@@ -16,9 +16,6 @@ pub const DEFAULT_TRAE_CORE_BASE_URL: &str = "https://core-normal.traeapi.us";
 pub const DEFAULT_TRAE_CLIENT_ID: &str = "ono9krqynydwx5";
 pub const DEFAULT_TRAE_RAW_CHAT_PATH: &str = "/api/ide/v2/llm_raw_chat";
 pub const DEFAULT_TRAE_MODEL_LIST_PATH: &str = "/api/ide/v1/get_detail_param";
-pub const DEFAULT_TRAE_MODEL: &str = "gemini_2.5_flash";
-pub const DEFAULT_TRAE_LOCAL_DEBUG_PORT: u16 = 9223;
-pub const DEFAULT_TRAE_LOCAL_APP_PATH: &str = "/Applications/Trae.app";
 pub const TRAE_APP_ID: &str = "6eefa01c-1036-4c7e-9ca5-d891f63bfcd8";
 pub const TRAE_VERSION_CODE: &str = "20260509";
 

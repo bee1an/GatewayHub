@@ -1,6 +1,6 @@
-//! Trae provider — port of `providers/trae/provider.ts`. Chat goes either
-//! through the local Trae.app ai-agent bridge (CDP-injected) or the
-//! llm_raw_chat HTTP endpoint; "stream" collects then re-emits SSE.
+//! Trae provider — port of `providers/trae/provider.ts`. Chat goes through
+//! the llm_raw_chat HTTP endpoint; "stream" collects then re-emits SSE.
+//! (The former CDP-injected local bridge was removed — CDP is rejected.)
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -14,14 +14,11 @@ use crate::pool::{AccountPool, AccountWithState, now_ms};
 use crate::provider::ProviderAdapter;
 use crate::providers::trae_auth::{
     DEFAULT_TRAE_AUTH_BASE_URL, DEFAULT_TRAE_CLIENT_ID, DEFAULT_TRAE_CORE_BASE_URL,
-    DEFAULT_TRAE_LOCAL_APP_PATH, DEFAULT_TRAE_LOCAL_DEBUG_PORT, DEFAULT_TRAE_MODEL,
     DEFAULT_TRAE_MODEL_LIST_PATH, DEFAULT_TRAE_RAW_CHAT_PATH, TraeAuth, TraeTokenSnapshot,
     normalize_trae_model,
 };
-use crate::providers::trae_local_bridge::{TraeLocalChatResult, run_trae_local_chat};
 use crate::providers::trae_rawchat::{
-    anthropic_sse_from_text, anthropic_to_trae_messages, build_trae_raw_chat_payload,
-    openai_sse_from_text, openai_to_trae_messages, run_trae_raw_chat,
+    anthropic_sse_from_text, build_trae_raw_chat_payload, openai_sse_from_text, run_trae_raw_chat,
 };
 use crate::providers::windsurf_stream::{
     anthropic_json_from_text as anthropic_json, openai_json_from_text as openai_json,
@@ -42,14 +39,10 @@ struct TraeSettings {
     core_base_url: String,
     client_id: String,
     raw_chat_path: String,
-    local_chat_enabled: bool,
-    local_debug_port: u16,
-    local_app_path: String,
     model_list_path: String,
     ide_version: String,
     first_token_timeout: Duration,
     streaming_read_timeout: Duration,
-    expose_unavailable_in_us: bool,
 }
 
 struct TraeBehavior;
@@ -136,24 +129,6 @@ impl TraeProvider {
             display_name: provider_config.display_name.clone(),
         })
     }
-}
-
-fn build_prompt(messages: &[crate::providers::trae_rawchat::TraeMessage]) -> String {
-    let users: Vec<_> = messages.iter().filter(|m| m.role == "user").collect();
-    if messages.len() == 1 && users.len() == 1 {
-        return users[0].content.clone();
-    }
-    messages
-        .iter()
-        .map(|m| format!("{}:\n{}", m.role.to_uppercase(), m.content))
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n\n")
-}
-
-fn fallback_models(expose_unavailable_in_us: bool, country_code: Option<&str>) -> Vec<String> {
-    let _ = (expose_unavailable_in_us, country_code);
-    vec![DEFAULT_TRAE_MODEL.to_string()]
 }
 
 fn apply_token_snapshot(config: &mut AccountFile, snap: &TraeTokenSnapshot) {
@@ -643,19 +618,6 @@ fn trae_settings(settings: &JsonMap) -> TraeSettings {
             .and_then(Value::as_str)
             .unwrap_or(DEFAULT_TRAE_RAW_CHAT_PATH)
             .to_string(),
-        local_chat_enabled: settings
-            .get("localChatEnabled")
-            .and_then(Value::as_bool)
-            .unwrap_or(true),
-        local_debug_port: settings
-            .get("localDebugPort")
-            .and_then(Value::as_u64)
-            .unwrap_or(DEFAULT_TRAE_LOCAL_DEBUG_PORT as u64) as u16,
-        local_app_path: settings
-            .get("localAppPath")
-            .and_then(Value::as_str)
-            .unwrap_or(DEFAULT_TRAE_LOCAL_APP_PATH)
-            .to_string(),
         model_list_path: settings
             .get("modelListPath")
             .and_then(Value::as_str)
@@ -668,9 +630,5 @@ fn trae_settings(settings: &JsonMap) -> TraeSettings {
             .to_string(),
         first_token_timeout: Duration::from_secs(secs("firstTokenTimeoutSeconds", 60)),
         streaming_read_timeout: Duration::from_secs(secs("streamingReadTimeoutSeconds", 120)),
-        expose_unavailable_in_us: settings
-            .get("exposeUnavailableInUS")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
     }
 }

@@ -18,7 +18,6 @@ pub mod qoder_auth;
 pub mod qoder_chat;
 pub mod trae;
 pub mod trae_auth;
-pub mod trae_local_bridge;
 pub mod trae_rawchat;
 pub mod traework;
 pub mod traework_auth;

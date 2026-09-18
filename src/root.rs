@@ -977,6 +977,9 @@ impl AppRoot {
                 let lang = this.lang;
                 match result {
                     Ok(result) => {
+                        // Multi-line activity log — what the probe actually
+                        // did (auth probe, metadata refresh, model count).
+                        let stamp = clock_time(gateway_core::pool::now_ms() / 1000);
                         let prefix = t(
                             lang,
                             if result.ok {
@@ -985,8 +988,25 @@ impl AppRoot {
                                 "fail_prefix"
                             },
                         );
-                        this.test_results
-                            .insert(key, format!("{prefix}{}", result.message));
+                        let mut lines =
+                            vec![format!("[{stamp}] {prefix}{}", result.message)];
+                        if let Some(auth_type) = &result.auth_type {
+                            lines.push(format!("auth_type: {auth_type}"));
+                        }
+                        if let Some(expires) = &result.expires_at {
+                            lines.push(format!("expires_at: {expires}"));
+                        }
+                        if !result.models.is_empty() {
+                            lines.push(
+                                tf(
+                                    lang,
+                                    "models_n",
+                                    &[("n", &result.models.len().to_string())],
+                                )
+                                .to_string(),
+                            );
+                        }
+                        this.test_results.insert(key, lines.join("\n"));
                     }
                     Err(_) => {
                         this.test_results

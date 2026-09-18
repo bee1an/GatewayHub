@@ -1943,15 +1943,6 @@ impl Render for AppRoot {
             let dim = !p.configured || !p.enabled;
             let glyph = provider_logo(&p.provider_type, NAV_ICON, dim, cx);
             let label = p.display_name.clone().unwrap_or_else(|| p.name.clone());
-            let status_color = if !p.enabled {
-                theme.muted_foreground.opacity(0.5)
-            } else {
-                match status_label(p) {
-                    "ready" => theme.success,
-                    "error" => theme.danger,
-                    _ => theme.muted_foreground,
-                }
-            };
             let row = nav_row(
                 SharedString::from(format!("nav-p-{}", p.name)),
                 glyph,
@@ -1964,18 +1955,7 @@ impl Render for AppRoot {
                 this.open_detail(&name, cx);
                 cx.notify();
             }));
-            providers_section = providers_section.child(if collapsed {
-                row
-            } else {
-                row.child(div().flex_1()).child(
-                    div()
-                        .size_1p5()
-                        .flex_none()
-                        .mr_1()
-                        .rounded_full()
-                        .bg(status_color),
-                )
-            });
+            providers_section = providers_section.child(row);
         }
 
         // Settings at the bottom of nav

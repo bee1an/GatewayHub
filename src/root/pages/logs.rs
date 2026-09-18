@@ -27,7 +27,6 @@ const LANE_LEVEL: f32 = 72.;
 const LANE_PROVIDER: f32 = 96.;
 const LANE_STATUS: f32 = 56.;
 const LANE_DURATION: f32 = 72.;
-const RAIL_W: f32 = 3.;
 
 impl AppRoot {
     pub(crate) fn render_logs(
@@ -167,10 +166,6 @@ impl AppRoot {
                 LogLevel::Error => ("error", theme_for_rows.danger),
                 LogLevel::Debug => ("debug", theme_for_rows.muted_foreground),
             };
-            let rail_color = match entry.level {
-                LogLevel::Warn | LogLevel::Error => level_color,
-                _ => level_color.opacity(0.0),
-            };
             let status_color = match entry.status_code {
                 Some(code) if code >= 400 => theme_for_rows.danger,
                 _ => theme_for_rows.secondary_foreground,
@@ -179,14 +174,13 @@ impl AppRoot {
                 .w_full()
                 .h(row_height)
                 .hover(|d| d.bg(theme_for_rows.list_hover))
-                .child(div().w(px(RAIL_W)).h_full().flex_none().bg(rail_color))
                 .child(
                     h_flex()
                         .flex_1()
                         .min_w_0()
                         .items_center()
                         .gap_2p5()
-                        .pl(px(16. - RAIL_W))
+                        .pl_4()
                         .pr_4()
                         .child(
                             div().w(px(LANE_TIME)).flex_none().child(

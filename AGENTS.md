@@ -1,0 +1,7 @@
+- `gpui` 分支的桌面应用仅面向 macOS；实现、设计与验证均以 macOS 为准，无需增加 Windows 兼容路径
+- 不开 GUI 起网关验证:`cargo run -p gateway-core --example serve_headless`,按 `~/.config/gatewayhub/gatewayhub.config.json` 的 `server.host:port`(默认 `127.0.0.1:9743`)监听,用 `Authorization: Bearer <apiKey>` 打 `/v1/chat/completions`、`/v1/messages`
+- 各 provider 的上游协议笔记在 `docs/`(如 `docs/traework-upstream.md`);改 provider 前先读对应文档,避免踩已踩过的坑
+- 不要写死模型 id;模型列表一律请求上游,除非 provider 不支持
+- 模型目录按"权益组"共享:上游 catalog 对同权益账号相同,走 `providers::catalog::SharedCatalog` 单飞+TTL(group key 为权益轴,无差异用 `""`);不要每账号各发一次模型列表请求
+- 运行时不得读本地 app 文件(bundle/user-data 都不行),不用 CDP:网关必须在未安装任何 app 时可用。无远程模型接口的 provider 用代码内嵌的厂商目录快照(如 workbuddy 的 `WORKBUDDY_PRODUCT_MODELS`);用户显式配置的路径(如 `productJsonPath`)例外
+- 不使用 CDP 驱动本地 app 的方式实现 provider 功能

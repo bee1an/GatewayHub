@@ -2009,7 +2009,7 @@ impl Render for AppRoot {
                         .into();
                         move |window, cx| Tooltip::new(tip.clone()).build(window, cx)
                     })
-                    .on_click(cx.listener(|this, _, _w, cx| {
+                    .on_click(cx.listener(|this, _, window, cx| {
                         let next = if cx.theme().mode.is_dark() {
                             ThemeMode::Light
                         } else {
@@ -2017,6 +2017,15 @@ impl Render for AppRoot {
                         };
                         this.mode_choice = Some(next);
                         Theme::change(next, None, cx);
+                        // Keep the native frosted material on the same
+                        // appearance as the in-app theme.
+                        #[cfg(target_os = "macos")]
+                        if let Err(error) = crate::macos_blur::set_window_appearance(
+                            window,
+                            matches!(next, ThemeMode::Dark),
+                        ) {
+                            tracing::warn!(%error, "failed to pin window appearance");
+                        }
                         cx.notify();
                     }))
                     .child(
@@ -2212,7 +2221,8 @@ impl Render for AppRoot {
                 h_flex()
                     .items_stretch()
                     .size_full()
-                    .bg(theme.sidebar)
+                    // No fill — the native frosted backdrop shows through the
+                    // sidebar chrome; the content card stays opaque.
                     .p_3()
                     .px_1()
                     .gap_3()

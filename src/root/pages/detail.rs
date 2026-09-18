@@ -7,20 +7,21 @@ use gateway_core::GatewayStatusSnapshot;
 use gateway_core::types::{AccountRuntimeState, AccountStatus};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
-    ActiveTheme, Disableable, Icon, Sizable, Size, StyledExt,
+    ActiveTheme, Disableable, Icon, Sizable, StyledExt,
     button::{Button, ButtonVariants},
     h_flex,
     input::Input,
     label::Label,
-    spinner::Spinner,
+    menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem},
     switch::Switch,
+    tooltip::Tooltip,
     v_flex,
 };
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use crate::root::{
-    AppRoot, MONO, OverlayRequest, card, card_uniform_list, enter, provider_logo, row,
+    AppRoot, MONO, OverlayRequest, card, card_uniform_list, enter, hairline, provider_logo, row,
     section_header, skeleton_rows, status_label, t, tf,
 };
 
@@ -28,7 +29,7 @@ use crate::root::{
 pub(crate) const CHECKIN_PROVIDERS: &[&str] = &["traework", "workbuddy"];
 
 /// YYYY-MM-DD in Asia/Shanghai — same day key the checkin state stores.
-fn cn_today() -> String {
+pub(crate) fn cn_today() -> String {
     chrono::DateTime::from_timestamp_millis(gateway_core::pool::now_ms())
         .map(|d| {
             d.with_timezone(&chrono::FixedOffset::east_opt(8 * 3600).unwrap())
@@ -104,20 +105,8 @@ impl AppRoot {
         let enabled = status.map(|p| p.enabled).unwrap_or(false);
         let supports_checkin = CHECKIN_PROVIDERS.contains(&provider);
 
-        // ---- header: back + 40px icon tile + name/status | toggles ----
+        // ---- header: back + bare brand mark + name/status | toggles ----
         let provider_type = status.map(|p| p.provider_type.as_str()).unwrap_or_default();
-        let icon_tile = div()
-            .w(px(40.))
-            .h(px(40.))
-            .flex_none()
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(theme.muted)
-            .border_1()
-            .border_color(theme.border)
-            .rounded(theme.radius)
-            .child(provider_logo(provider_type, 20., false, cx));
 
         let status_text = status.map(status_label).unwrap_or("off");
         let status_color = match status_text {
@@ -126,6 +115,7 @@ impl AppRoot {
             _ => theme.muted_foreground,
         };
         let message = status.and_then(|p| p.message.clone()).unwrap_or_default();
+        let use_proxy = status.and_then(|p| p.use_proxy).unwrap_or(false);
 
         let header = h_flex()
             .w_full()
@@ -146,7 +136,7 @@ impl AppRoot {
                         cx.notify();
                     })),
             )
-            .child(icon_tile)
+            .child(provider_logo(provider_type, 32., !enabled, cx))
             .child(
                 v_flex()
                     .flex_1()
@@ -164,42 +154,59 @@ impl AppRoot {
                         h_flex()
                             .gap_1p5()
                             .child(div().size_1p5().rounded_full().bg(status_color))
-                            .child(Label::new(status_text).text_xs().text_color(status_color))
-                            .when(!message.is_empty(), |d| {
-                                d.child(
-                                    Label::new(format!("· {message}"))
+                            .child(Label::new(status_text).text_xs().text_color(status_color)),
+                    )
+                    // Upstream/provider message on its own line — it can be
+                    // long (quota/auth errors); truncation keeps a tooltip.
+                    .when(!message.is_empty(), |d| {
+                        let full: SharedString = message.clone().into();
+                        d.child(
+                            div()
+                                .id("provider-message")
+                                .tooltip(move |window, cx| {
+                                    Tooltip::new(full.clone()).build(window, cx)
+                                })
+                                .w_full()
+                                .min_w_0()
+                                .child(
+                                    Label::new(message.clone())
                                         .text_xs()
                                         .text_color(theme.muted_foreground)
                                         .truncate(),
-                                )
-                            }),
-                    ),
+                                ),
+                        )
+                    }),
             )
             .child(
                 h_flex()
                     .flex_none()
                     .items_center()
-                    .gap_2()
+                    .gap_3()
                     .child(
-                        Button::new("toggle-proxy")
-                            .outline()
-                            .small()
-                            .label(if status.and_then(|p| p.use_proxy).unwrap_or(false) {
-                                t(lang, "proxy_on")
-                            } else {
-                                t(lang, "proxy_off")
-                            })
-                            .loading(provider_applying)
-                            .on_click(cx.listener({
-                                let p = provider_name.clone();
-                                move |this, _, _w, cx| {
-                                    this.toggle_provider_flag(&p, "useProxy", cx);
-                                }
-                            })),
+                        h_flex()
+                            .items_center()
+                            .gap_1p5()
+                            .child(
+                                Label::new(t(lang, "proxy"))
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground),
+                            )
+                            .child(
+                                Switch::new("toggle-proxy")
+                                    .small()
+                                    .checked(use_proxy)
+                                    .disabled(provider_applying)
+                                    .on_change(cx.listener({
+                                        let p = provider_name.clone();
+                                        move |this, _checked, _w, cx| {
+                                            this.toggle_provider_flag(&p, "useProxy", cx);
+                                        }
+                                    })),
+                            ),
                     )
                     .child(
                         Button::new("toggle-enabled")
-                            .when(enabled, |b| b.danger())
+                            .when(enabled, |b| b.outline())
                             .when(!enabled, |b| b.primary())
                             .small()
                             .label(t(lang, if enabled { "disable" } else { "enable" }))
@@ -277,8 +284,6 @@ impl AppRoot {
         let accounts_for_rows = accounts.clone();
         let theme_for_rows = theme.clone();
         let provider_for_rows = provider.to_string();
-        let test_results = self.test_results.clone();
-        let test_pending_keys = self.test_pending.clone();
         let checkin_pending_keys = self.checkin_pending.clone();
         let states_for_rows = states.clone();
         let weak = cx.weak_entity();
@@ -291,25 +296,22 @@ impl AppRoot {
             let runtime = states_for_rows.get(&account.id);
             let account_id = account.id.clone();
             let account_for_dialog = account.clone();
-            let (p1, p2, p3, p4, p5) = (
-                provider_for_rows.clone(),
+            let (p2, p3, p4, p5) = (
                 provider_for_rows.clone(),
                 provider_for_rows.clone(),
                 provider_for_rows.clone(),
                 provider_for_rows.clone(),
             );
-            let (a1, a2, a3) = (account_id.clone(), account_id.clone(), account_id.clone());
-            let is_testing = test_pending_keys.contains(&key);
+            let (a2, a3) = (account_id.clone(), account_id.clone());
             let is_checkin = checkin_pending_keys.contains(&key);
 
-            // meta line: test result > cooldown/status > enabled/disabled
+            // meta line: cooldown/status > enabled/disabled. The test
+            // probe lives in the account dialog now, not on the row.
             let now = gateway_core::pool::now_ms();
             let cooling = runtime
                 .and_then(|s| s.cooldown_until)
                 .filter(|until| *until > now);
-            let meta = if let Some(result) = test_results.get(&key) {
-                result.clone()
-            } else if let Some(until) = cooling {
+            let meta = if let Some(until) = cooling {
                 tf(
                     lang,
                     "cooling_for",
@@ -389,72 +391,103 @@ impl AppRoot {
                 None
             };
 
+            // Object-scoped commands (enable/disable, delete) live in a menu:
+            // right-click on the row or the trailing ellipsis button opens
+            // the same PopupMenu — only the frequent `Test` stays visible.
+            let label_for_menu = label.clone();
+            let weak_for_menu = weak.clone();
+            let account_enabled = account.enabled;
+            let menu_for: std::rc::Rc<
+                dyn Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu,
+            > = std::rc::Rc::new(move |menu, _window, _cx| {
+                let (weak2, weak3) = (weak_for_menu.clone(), weak_for_menu.clone());
+                let (p2, p3) = (p2.clone(), p3.clone());
+                let (a2, a2d) = (a2.clone(), a2.clone());
+                let acct_enabled = account_enabled;
+                let label2 = label_for_menu.clone();
+                menu.item(
+                    PopupMenuItem::new(t(lang, if acct_enabled { "disable" } else { "enable" }))
+                        .icon(if acct_enabled {
+                            IconName::Pause
+                        } else {
+                            IconName::Play
+                        })
+                        .on_click(move |_, _, cx| {
+                            let (p2, a2) = (p2.clone(), a2.clone());
+                            let _ = weak2.update(cx, |this, cx| {
+                                this.toggle_account(&p2, &a2, cx);
+                            });
+                        }),
+                )
+                .separator()
+                .item(
+                    PopupMenuItem::new(t(lang, "delete"))
+                        .icon(IconName::Delete)
+                        .on_click(move |_, _, cx| {
+                            let (p3, a2d, label2) = (p3.clone(), a2d.clone(), label2.clone());
+                            let _ = weak3.update(cx, |this, cx| {
+                                this.confirm(
+                                    t(this.lang, "delete_account_title"),
+                                    tf(this.lang, "delete_account_desc", &[("label", &label2)]),
+                                    "delete",
+                                    cx,
+                                    move |this, cx| {
+                                        this.delete_account(&p3, &a2d, cx);
+                                    },
+                                );
+                            });
+                        }),
+                )
+            });
+
             row()
+                .id(SharedString::from(format!("acct-row-{key}")))
                 .h(row_height)
+                // Whole-row hover + click opens the account dialog — Heimdall
+                // list-row style. Buttons inside stop propagation.
+                .hover(|d| d.bg(theme_for_rows.list_hover))
+                .on_click({
+                    let weak = weak.clone();
+                    move |_e, _window, cx| {
+                        let _ = weak.update(cx, |this, cx| {
+                            this.open_account_overlay(&p5, &account_for_dialog, cx);
+                        });
+                    }
+                })
                 .child(
-                    // Clickable label area → account detail dialog.
-                    div()
-                        .id(SharedString::from(format!("acct-open-{key}")))
+                    v_flex()
+                        .gap_0p5()
                         .flex_1()
                         .min_w_0()
-                        .h_full()
-                        .cursor_pointer()
-                        .flex()
-                        .items_center()
-                        .gap_2()
                         .child(
-                            v_flex()
-                                .gap_0p5()
-                                .flex_1()
-                                .min_w_0()
-                                .child(
-                                    Label::new(label)
-                                        .text_sm()
-                                        .font_medium()
-                                        .text_color(theme_for_rows.foreground)
-                                        .truncate(),
-                                )
-                                .child(
-                                    Label::new(meta)
-                                        .font_family(MONO)
-                                        .text_xs()
-                                        .text_color(theme_for_rows.muted_foreground)
-                                        .truncate(),
-                                ),
+                            Label::new(label)
+                                .text_sm()
+                                .font_medium()
+                                .text_color(theme_for_rows.foreground)
+                                .truncate(),
                         )
-                        .on_click({
-                            let weak = weak.clone();
-                            move |_e, _window, cx| {
-                                let _ = weak.update(cx, |this, cx| {
-                                    this.open_account_overlay(&p5, &account_for_dialog, cx);
-                                });
-                            }
-                        }),
+                        .child(
+                            Label::new(meta)
+                                .text_xs()
+                                .text_color(theme_for_rows.muted_foreground)
+                                .truncate(),
+                        ),
+                )
+                .child(
+                    Icon::new(IconName::ChevronRight)
+                        .size_3p5()
+                        .text_color(theme_for_rows.muted_foreground),
                 )
                 .when_some(checkin_badge, |r, badge| r.child(badge))
-                .child(
-                    Button::new(SharedString::from(format!("test-{key}")))
-                        .outline()
-                        .xsmall()
-                        .label(t(lang, "test"))
-                        .loading(is_testing)
-                        .on_click({
-                            let weak = weak.clone();
-                            move |_, _w, cx| {
-                                let _ = weak.update(cx, |this, cx| {
-                                    this.test_account(&p1, &a1, cx);
-                                });
-                            }
-                        }),
-                )
                 .when(supports_checkin, |r| {
                     r.child(
                         Button::new(SharedString::from(format!("checkin-{key}")))
                             .ghost()
                             .xsmall()
-                            .icon(IconName::CalendarCheck)
+                            .icon(IconName::Calendar)
                             .tooltip(t(lang, "checkin"))
                             .loading(is_checkin)
+                            .disabled(checked_today)
                             .on_click({
                                 let weak = weak.clone();
                                 move |_, _w, cx| {
@@ -466,44 +499,17 @@ impl AppRoot {
                     )
                 })
                 .child(
-                    Button::new(SharedString::from(format!("tog-{key}")))
+                    Button::new(SharedString::from(format!("acct-menu-{key}")))
                         .ghost()
                         .xsmall()
-                        .label(t(lang, if account.enabled { "disable" } else { "enable" }))
-                        .on_click({
-                            let weak = weak.clone();
-                            move |_, _w, cx| {
-                                let (p2, account_id) = (p2.clone(), account_id.clone());
-                                let _ = weak.update(cx, |this, cx| {
-                                    this.toggle_account(&p2, &account_id, cx);
-                                });
-                            }
+                        .icon(IconName::Ellipsis)
+                        .tooltip(t(lang, "actions"))
+                        .dropdown_menu({
+                            let menu_for = menu_for.clone();
+                            move |menu, window, cx| menu_for(menu, window, cx)
                         }),
                 )
-                .child(
-                    Button::new(SharedString::from(format!("del-{key}")))
-                        .ghost()
-                        .xsmall()
-                        .label(t(lang, "delete"))
-                        .on_click({
-                            let weak = weak.clone();
-                            let label = account.display_label().to_string();
-                            move |_e, _window, cx| {
-                                let (p3, a2, label) = (p3.clone(), a2.clone(), label.clone());
-                                let _ = weak.update(cx, |this, cx| {
-                                    this.confirm(
-                                        t(this.lang, "delete_account_title"),
-                                        tf(this.lang, "delete_account_desc", &[("label", &label)]),
-                                        "delete",
-                                        cx,
-                                        move |this, cx| {
-                                            this.delete_account(&p3, &a2, cx);
-                                        },
-                                    );
-                                });
-                            }
-                        }),
-                )
+                .context_menu(move |menu, window, cx| menu_for(menu, window, cx))
                 .into_any_element()
         };
 
@@ -658,6 +664,7 @@ impl AppRoot {
                     let checking = root.checkin_pending.contains(&key);
                     let checkin_msg = root.checkin_results.get(&key).cloned();
                     let refreshing = root.models_refresh_pending.contains(&key);
+                    let testing = root.test_pending.contains(&key);
                     let test_msg = root.test_results.get(&key).cloned();
                     let state: Option<AccountRuntimeState> = state;
 
@@ -716,6 +723,21 @@ impl AppRoot {
                                 .text_color(theme.muted_foreground),
                         );
                     }
+                    // Test probe lives here (was a row button) — right side of
+                    // the status strip.
+                    top = top.child(div().flex_1()).child(
+                        Button::new(SharedString::from(format!("dlg-test-{key}")))
+                            .outline()
+                            .xsmall()
+                            .label(t(lang, "test"))
+                            .loading(testing)
+                            .on_click(cx.listener({
+                                let (p, a) = (p.clone(), a.clone());
+                                move |this, _, _w, cx| {
+                                    this.test_account(&p, &a, cx);
+                                }
+                            })),
+                    );
                     let mut body = v_flex().gap_3().child(top);
 
                     if let Some(err) = state.as_ref().and_then(|s| s.last_error.clone()) {
@@ -726,84 +748,108 @@ impl AppRoot {
                         );
                     }
                     if let Some(msg) = test_msg {
+                        // What the test actually did — one line per step.
+                        let log_lines = msg
+                            .lines()
+                            .map(|line| {
+                                Label::new(line.to_string())
+                                    .font_family(MONO)
+                                    .text_xs()
+                                    .text_color(theme.secondary_foreground)
+                                    .into_any_element()
+                            })
+                            .collect::<Vec<_>>();
                         body = body.child(
-                            Label::new(msg)
-                                .font_family(MONO)
-                                .text_xs()
-                                .text_color(theme.muted_foreground),
+                            div()
+                                .w_full()
+                                .rounded(theme.radius)
+                                .border_1()
+                                .border_color(theme.border)
+                                .bg(theme.muted)
+                                .px_2p5()
+                                .py_2()
+                                .child(v_flex().gap_1().children(log_lines)),
                         );
                     }
 
                     // ---- check-in ----
                     if supports_checkin {
                         let checkin = state.as_ref().and_then(|s| s.checkin.clone());
-                        let mut line = h_flex().gap_2().items_center().flex_wrap().child(
-                            Label::new(t(lang, "checkin"))
-                                .text_xs()
-                                .font_semibold()
-                                .text_color(theme.secondary_foreground),
-                        );
-                        match &checkin {
+                        let today = cn_today();
+                        let checked = checkin.as_ref().and_then(|c| c.last_day.as_deref())
+                            == Some(today.as_str());
+                        let value = match &checkin {
                             Some(c) => {
-                                let mut desc = String::new();
+                                let mut v = String::new();
                                 if let Some(day) = &c.last_day {
-                                    desc.push_str(day);
+                                    v.push_str(day);
                                 }
                                 if let Some(credits) = c.last_credits {
-                                    desc.push_str(&format!("  +{credits:.0}"));
+                                    v.push_str(&format!("  +{credits:.0}"));
                                 }
-                                if let Some(err) = &c.last_error {
-                                    desc.push_str(&format!("  ✗ {err}"));
+                                if v.is_empty() {
+                                    v = t(lang, "never_checked_in").to_string();
                                 }
-                                if desc.is_empty() {
-                                    desc = t(lang, "never_checked_in").to_string();
-                                }
-                                line = line.child(
-                                    Label::new(desc).font_family(MONO).text_xs().text_color(
-                                        if c.last_error.is_some() {
-                                            theme.danger
-                                        } else {
-                                            theme.muted_foreground
-                                        },
-                                    ),
-                                );
+                                v
                             }
-                            None => {
-                                line = line.child(
-                                    Label::new(t(lang, "never_checked_in"))
+                            None => t(lang, "never_checked_in").to_string(),
+                        };
+                        let last_err = checkin.as_ref().and_then(|c| c.last_error.clone());
+                        body = body.child(hairline(cx)).child(
+                            h_flex()
+                                .items_center()
+                                .gap_2()
+                                .child(
+                                    Label::new(t(lang, "checkin"))
+                                        .text_xs()
+                                        .font_semibold()
+                                        .text_color(theme.secondary_foreground),
+                                )
+                                .child(
+                                    Label::new(value)
+                                        .font_family(MONO)
                                         .text_xs()
                                         .text_color(theme.muted_foreground),
-                                );
-                            }
-                        }
-                        if checking {
-                            line = line.child(
-                                Spinner::new()
-                                    .with_size(Size::XSmall)
-                                    .color(theme.muted_foreground),
+                                )
+                                .child(div().flex_1())
+                                .child(
+                                    Button::new(SharedString::from(format!("dlg-checkin-{key}")))
+                                        .ghost()
+                                        .xsmall()
+                                        .label(t(
+                                            lang,
+                                            if checked {
+                                                "checked_in_today"
+                                            } else {
+                                                "checkin_now"
+                                            },
+                                        ))
+                                        .disabled(checked)
+                                        .loading(checking)
+                                        .on_click(cx.listener({
+                                            let (p, a) = (p.clone(), a.clone());
+                                            move |this, _, _w, cx| {
+                                                this.checkin_account(&p, &a, cx);
+                                            }
+                                        })),
+                                ),
+                        );
+                        if let Some(err) = last_err {
+                            body = body.child(
+                                Label::new(err)
+                                    .text_xs()
+                                    .text_color(theme.danger)
+                                    .truncate(),
                             );
                         }
                         if let Some(msg) = &checkin_msg {
-                            line = line.child(
+                            body = body.child(
                                 Label::new(msg.clone())
-                                    .font_family(MONO)
                                     .text_xs()
-                                    .text_color(theme.muted_foreground),
+                                    .text_color(theme.muted_foreground)
+                                    .truncate(),
                             );
                         }
-                        body = body.child(line).child(
-                            Button::new(SharedString::from(format!("dlg-checkin-{key}")))
-                                .outline()
-                                .xsmall()
-                                .label(t(lang, "checkin_now"))
-                                .loading(checking)
-                                .on_click(cx.listener({
-                                    let (p, a) = (p.clone(), a.clone());
-                                    move |this, _, _w, cx| {
-                                        this.checkin_account(&p, &a, cx);
-                                    }
-                                })),
-                        );
                     }
 
                     // ---- models (per-account) ----
@@ -826,8 +872,6 @@ impl AppRoot {
                                     .py_1()
                                     .rounded(theme.radius)
                                     .bg(theme.muted)
-                                    .border_1()
-                                    .border_color(theme.border)
                                     .child(
                                         Label::new(m.clone())
                                             .font_family(MONO)
@@ -850,6 +894,7 @@ impl AppRoot {
                         }
                     }
                     body = body
+                        .child(hairline(cx))
                         .child(
                             h_flex()
                                 .items_center()
@@ -864,7 +909,7 @@ impl AppRoot {
                                     Button::new(SharedString::from(format!("dlg-models-{key}")))
                                         .ghost()
                                         .xsmall()
-                                        .icon(IconName::RefreshCw)
+                                        .icon(IconName::RotateCw)
                                         .tooltip(t(lang, "refresh_models"))
                                         .loading(refreshing)
                                         .on_click(cx.listener({

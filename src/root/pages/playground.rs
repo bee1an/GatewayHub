@@ -206,7 +206,7 @@ impl AppRoot {
                     .ghost()
                     .small()
                     .label(t(lang, "clear"))
-                    .icon(IconName::Trash)
+                    .icon(IconName::Delete)
                     .disabled(self.pg_msgs.is_empty())
                     .on_click(cx.listener(|this, _, _w, cx| this.pg_clear(cx))),
             );
@@ -221,7 +221,7 @@ impl AppRoot {
                     .py_8()
                     .gap_3()
                     .child(
-                        Icon::new(IconName::MessageCircle)
+                        Icon::new(IconName::Bot)
                             .size(px(32.))
                             .text_color(theme.muted_foreground),
                     )
@@ -392,7 +392,7 @@ fn pg_message(m: &PgMsg, lang: crate::root::Lang, cx: &mut Context<AppRoot>) -> 
                             .ghost()
                             .xsmall()
                             .label(t(lang, "retry"))
-                            .icon(IconName::RefreshCw)
+                            .icon(IconName::RotateCw)
                             .on_click(cx.listener(move |this, _, _w, cx| {
                                 this.pg_retry(id, cx);
                             })),

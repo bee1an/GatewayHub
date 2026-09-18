@@ -990,6 +990,9 @@ impl AppRoot {
                 let lang = this.lang;
                 match result {
                     Ok(result) => {
+                        // Multi-line activity log — what the probe actually
+                        // did (auth probe, metadata refresh, model count).
+                        let stamp = clock_time(gateway_core::pool::now_ms() / 1000);
                         let prefix = t(
                             lang,
                             if result.ok {
@@ -998,8 +1001,20 @@ impl AppRoot {
                                 "fail_prefix"
                             },
                         );
-                        this.test_results
-                            .insert(key, format!("{prefix}{}", result.message));
+                        let mut lines = vec![format!("[{stamp}] {prefix}{}", result.message)];
+                        if let Some(auth_type) = &result.auth_type {
+                            lines.push(format!("auth_type: {auth_type}"));
+                        }
+                        if let Some(expires) = &result.expires_at {
+                            lines.push(format!("expires_at: {expires}"));
+                        }
+                        if !result.models.is_empty() {
+                            lines.push(
+                                tf(lang, "models_n", &[("n", &result.models.len().to_string())])
+                                    .to_string(),
+                            );
+                        }
+                        this.test_results.insert(key, lines.join("\n"));
                     }
                     Err(_) => {
                         this.test_results
@@ -1022,10 +1037,27 @@ impl AppRoot {
         cx: &mut Context<Self>,
     ) {
         let key = format!("{provider}/{account_id}");
+        let lang = self.lang;
+        // Already claimed today — the daily check-in is idempotent, so skip
+        // the upstream round-trip entirely (manual clicks used force=true,
+        // which re-verified upstream on every tap and looked like a bug).
+        let checked_today = self
+            .account_states
+            .get(provider)
+            .and_then(|m| m.get(account_id))
+            .and_then(|s| s.checkin.as_ref())
+            .and_then(|c| c.last_day.as_deref())
+            .map(|day| day == crate::root::pages::detail::cn_today())
+            .unwrap_or(false);
+        if checked_today {
+            self.checkin_results
+                .insert(key, t(lang, "checked_in_today").into());
+            cx.notify();
+            return;
+        }
         if !self.checkin_pending.insert(key.clone()) {
             return;
         }
-        let lang = self.lang;
         let Some(adapter) = self.service.registry().provider(provider) else {
             self.checkin_pending.remove(&key);
             self.checkin_results
@@ -1038,7 +1070,7 @@ impl AppRoot {
         let svc = service.clone();
         let name2 = name.clone();
         let handle = service.spawn_ui(async move {
-            let result = adapter.checkin_accounts(Some(&aid), true).await;
+            let result = adapter.checkin_accounts(Some(&aid), false).await;
             (result, svc.account_states(&name2))
         });
         cx.spawn(async move |this, cx| {
@@ -1247,11 +1279,14 @@ impl AppRoot {
             });
         }
         if finished {
-            // Exit landed: drop the layer entirely — no lingering dim or
-            // invisible panel.
+            // Exit landed: drop the layer entirely — AND return no element
+            // this frame. Clearing state but still emitting the layer left
+            // an invisible occluding backdrop mounted forever, which ate
+            // every later click in the window.
             self.overlay = None;
             self.overlay_closing = None;
             self.overlay_sample = None;
+            return None;
         }
 
         // Offsets in rem — they follow the user's UI scale.
@@ -1844,18 +1879,23 @@ impl Render for AppRoot {
                 IconName::LayoutDashboard,
                 "nav_dashboard",
             ),
-            (Page::Logs, "nav-logs", IconName::List, "nav_logs"),
+            (Page::Logs, "nav-logs", IconName::FileText, "nav_logs"),
             (
                 Page::Playground,
                 "nav-playground",
-                IconName::MessageCircle,
+                IconName::Bot,
                 "nav_playground",
             ),
-            (Page::ApiKeys, "nav-apikeys", IconName::Key, "nav_api_keys"),
+            (
+                Page::ApiKeys,
+                "nav-apikeys",
+                IconName::Asterisk,
+                "nav_api_keys",
+            ),
             (
                 Page::Mappings,
                 "nav-mappings",
-                IconName::ArrowLeftRight,
+                IconName::Replace,
                 "nav_mappings",
             ),
             (Page::Usage, "nav-usage", IconName::ChartPie, "nav_usage"),
@@ -1890,33 +1930,52 @@ impl Render for AppRoot {
                     .child(sidebar_section_label(t(lang, "nav_providers"), cx)),
             );
         }
-        let enabled_providers: Vec<_> = snapshot
+        // All real providers stay in the rail — a disabled one is dimmed
+        // but still reachable (it must stay openable to be re-enabled).
+        let visible_providers: Vec<_> = snapshot
             .providers
             .iter()
-            .filter(|p| {
-                p.enabled && p.status != "placeholder" && !self.hidden_providers.contains(&p.name)
-            })
+            .filter(|p| p.status != "placeholder" && !self.hidden_providers.contains(&p.name))
             .collect();
-        for p in &enabled_providers {
+        for p in &visible_providers {
             let active = self.detail.as_deref() == Some(p.name.as_str());
             let name = p.name.clone();
-            let dim = !p.configured;
+            let dim = !p.configured || !p.enabled;
             let glyph = provider_logo(&p.provider_type, NAV_ICON, dim, cx);
             let label = p.display_name.clone().unwrap_or_else(|| p.name.clone());
-            providers_section = providers_section.child(
-                nav_row(
-                    SharedString::from(format!("nav-p-{}", p.name)),
-                    glyph,
-                    label.into(),
-                    active,
-                    collapsed,
-                    cx,
+            let status_color = if !p.enabled {
+                theme.muted_foreground.opacity(0.5)
+            } else {
+                match status_label(p) {
+                    "ready" => theme.success,
+                    "error" => theme.danger,
+                    _ => theme.muted_foreground,
+                }
+            };
+            let row = nav_row(
+                SharedString::from(format!("nav-p-{}", p.name)),
+                glyph,
+                label.into(),
+                active,
+                collapsed,
+                cx,
+            )
+            .on_click(cx.listener(move |this, _, _w, cx| {
+                this.open_detail(&name, cx);
+                cx.notify();
+            }));
+            providers_section = providers_section.child(if collapsed {
+                row
+            } else {
+                row.child(div().flex_1()).child(
+                    div()
+                        .size_1p5()
+                        .flex_none()
+                        .mr_1()
+                        .rounded_full()
+                        .bg(status_color),
                 )
-                .on_click(cx.listener(move |this, _, _w, cx| {
-                    this.open_detail(&name, cx);
-                    cx.notify();
-                })),
-            );
+            });
         }
 
         // Settings at the bottom of nav
@@ -1990,7 +2049,7 @@ impl Render for AppRoot {
                 Button::new("rail-lang")
                     .ghost()
                     .xsmall()
-                    .icon(IconName::Languages)
+                    .icon(IconName::Globe)
                     .tooltip(t(lang, "language"))
                     .on_click(cx.listener(|this, _, _w, cx| {
                         this.set_language(this.lang.next(), cx);

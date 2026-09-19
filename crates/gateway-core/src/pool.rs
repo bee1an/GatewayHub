@@ -15,7 +15,7 @@ use std::collections::{HashMap, HashSet};
 use serde_json::Value;
 
 use crate::types::{
-    AccountFile, AccountRuntimeState, AccountStatus, ClassifiedError, ResponseKind,
+    AccountFile, AccountRuntimeState, AccountStatus, CheckinState, ClassifiedError, ResponseKind,
 };
 
 #[derive(Debug, Clone)]
@@ -218,6 +218,33 @@ impl<B: PoolBehavior> AccountPool<B> {
 
     pub fn find_mut(&mut self, account_id: &str) -> Option<&mut AccountWithState> {
         self.accounts.iter_mut().find(|a| a.config.id == account_id)
+    }
+
+    /// Merge a check-in update into the account state and persist — bare
+    /// `find_mut` writes never reach the state file because they skip
+    /// `changed()`.
+    pub fn set_checkin(
+        &mut self,
+        account_id: &str,
+        update: impl FnOnce(&mut CheckinState),
+    ) {
+        if let Some(acc) = self.find_mut(account_id) {
+            let mut state = acc.state.checkin.clone().unwrap_or_default();
+            update(&mut state);
+            acc.state.checkin = Some(state);
+            self.changed();
+        }
+    }
+
+    /// Store the account's model list and persist — same `changed()`
+    /// requirement as `set_checkin`; bare `find_mut` writes stay invisible
+    /// to the state file and the UI snapshot.
+    pub fn set_models(&mut self, account_id: &str, model_ids: Vec<String>) {
+        if let Some(acc) = self.find_mut(account_id) {
+            acc.state.model_ids = model_ids;
+            acc.state.models_cached_at = now_ms();
+            self.changed();
+        }
     }
 
     pub fn reset_account(&mut self, account_id: &str) {

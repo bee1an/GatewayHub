@@ -29,7 +29,7 @@ use crate::providers::traework_checkin::{
     claim_checkin, cn_day_key, get_checkin_status, get_credits_usage,
 };
 use crate::types::{
-    AccountFile, AccountRuntimeState, AccountStatus, AccountTestResult, CheckinState,
+    AccountFile, AccountRuntimeState, AccountStatus, AccountTestResult,
     ClassifiedError, GatewayLogEntry, GatewayRequestContext, GatewayResponse, JsonMap, LogLevel,
     LogSink, ProviderModel, ProviderStatus, ResponseKind,
 };
@@ -166,20 +166,19 @@ impl TraeWorkProvider {
                 tokio::time::sleep(CHECKIN_STARTUP_DELAY).await;
                 loop {
                     let result = view.checkin_accounts(None, false).await;
-                    if result.0 > 0 || result.1 > 0 {
-                        view.log_entry(
-                            LogLevel::Info,
-                            format!(
-                                "TraeWork daily check-in: {} claimed, {} failed",
-                                result.0, result.1
-                            ),
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                        );
-                    }
+                    // Always log the sweep — silent skips read as a dead task.
+                    view.log_entry(
+                        LogLevel::Info,
+                        format!(
+                            "TraeWork daily check-in: {} claimed, {} failed",
+                            result.0, result.1
+                        ),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    );
                     tokio::time::sleep(CHECKIN_INTERVAL).await;
                 }
             });
@@ -439,7 +438,8 @@ impl ProviderAdapter for TraeWorkProvider {
             "subscription": {"title": "TraeWork", "type": "unknown"},
             "email": email,
             "countryCode": country,
-            "creditsRemaining": credits,
+            "creditsRemaining": credits.as_ref().map(|u| u.total),
+            "creditsWork": credits.as_ref().map(|u| u.work),
             "endpoints": {"authBaseUrl": auth_base, "coreBaseUrl": core_base},
             "models": models.iter().map(|m| json!({
                 "modelId": m,

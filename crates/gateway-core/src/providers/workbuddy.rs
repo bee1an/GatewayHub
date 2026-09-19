@@ -26,7 +26,7 @@ use crate::providers::workbuddy_checkin::{
     claim_checkin, cn_day_key, get_checkin_status, get_credits_usage,
 };
 use crate::types::{
-    AccountFile, AccountRuntimeState, AccountStatus, AccountTestResult, CheckinState,
+    AccountFile, AccountRuntimeState, AccountStatus, AccountTestResult,
     ClassifiedError, GatewayLogEntry, GatewayRequestContext, GatewayResponse, JsonMap, LogLevel,
     LogSink, ProviderModel, ProviderStatus, ResponseKind, UsageMeta, UsageStats,
 };
@@ -136,18 +136,20 @@ impl WorkBuddyProvider {
             let handle = tokio::spawn(async move {
                 tokio::time::sleep(CHECKIN_STARTUP_DELAY).await;
                 loop {
-                    let (claimed, _, _, failed, _, _) = view.checkin_result(None, false).await;
-                    if claimed > 0 || failed > 0 {
-                        view.log_entry(
-                            LogLevel::Info,
-                            format!("WorkBuddy daily check-in: {claimed} claimed, {failed} failed"),
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                        );
-                    }
+                    let (claimed, already, skipped, failed, _, _) =
+                        view.checkin_result(None, false).await;
+                    // Always log the sweep — silent skips read as a dead task.
+                    view.log_entry(
+                        LogLevel::Info,
+                        format!(
+                            "WorkBuddy daily check-in: {claimed} claimed, {already} already, {skipped} skipped, {failed} failed"
+                        ),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    );
                     tokio::time::sleep(CHECKIN_INTERVAL).await;
                 }
             });

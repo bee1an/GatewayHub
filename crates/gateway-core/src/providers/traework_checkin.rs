@@ -197,13 +197,27 @@ pub async fn claim_checkin(
         .map(to_count))
 }
 
-/// `getCreditsUsage` — usage_summary or entitlement pack sum.
+/// Remaining balance plus the per-scope split — packs carry
+/// `available_endpoint`, and endpoint-1 packs are usable only inside
+/// Trae Work (SOLO), not the IDE chat path this gateway drives.
+#[derive(Debug, Clone, Default)]
+pub struct CreditsUsage {
+    pub total: u64,
+    /// Remaining credits usable on the general (IDE) endpoint.
+    pub general: u64,
+    /// Remaining credits scoped to the Work/SOLO endpoint
+    /// (`available_endpoint == 1` packs).
+    pub work: u64,
+}
+
+/// `getCreditsUsage` — usage_summary for the headline number, then the
+/// pack list splits general vs Work-only remaining.
 pub async fn get_credits_usage(
     client: &reqwest::Client,
     account: &AccountFile,
     token: &str,
     auth_base_url: &str,
-) -> anyhow::Result<Option<u64>> {
+) -> anyhow::Result<Option<CreditsUsage>> {
     let payload = ug_post(
         client,
         account,
@@ -212,6 +226,46 @@ pub async fn get_credits_usage(
         TRAEWORK_ENT_USAGE_PATH,
     )
     .await?;
+    let mut usage = CreditsUsage::default();
+    let packs = payload
+        .get("user_entitlement_pack_list")
+        .or_else(|| payload.get("userEntitlementPackList"))
+        .and_then(Value::as_array);
+    if let Some(packs) = packs {
+        for pack in packs {
+            let base = pack
+                .get("entitlement_base_info")
+                .or_else(|| pack.get("entitlementBaseInfo"));
+            let endpoint = base
+                .and_then(|e| {
+                    e.get("available_endpoint").or_else(|| e.get("availableEndpoint"))
+                })
+                .and_then(Value::as_i64)
+                .unwrap_or(0);
+            let quota = pack
+                .get("entitlement_base_info")
+                .or_else(|| pack.get("entitlementBaseInfo"))
+                .and_then(|e| e.get("quota"))
+                .cloned()
+                .unwrap_or(Value::Null);
+            let limit = quota
+                .get("credits_limit")
+                .or_else(|| quota.get("creditsLimit"))
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            let used = pack
+                .get("usage")
+                .and_then(|u| u.get("credits_amount").or_else(|| u.get("creditsAmount")))
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            let remaining = (limit - used).max(0.0).round() as u64;
+            if endpoint == 1 {
+                usage.work += remaining;
+            } else {
+                usage.general += remaining;
+            }
+        }
+    }
     let summary = payload
         .get("usage_summary")
         .or_else(|| payload.get("usageSummary"))
@@ -228,31 +282,12 @@ pub async fn get_credits_usage(
     if let Some(total) = total
         && total > 0.0
     {
-        return Ok(Some(
-            (total - consumed.unwrap_or(0.0)).max(0.0).round() as u64
-        ));
+        usage.total = (total - consumed.unwrap_or(0.0)).max(0.0).round() as u64;
+        return Ok(Some(usage));
     }
-    let packs = payload
-        .get("user_entitlement_pack_list")
-        .or_else(|| payload.get("userEntitlementPackList"))
-        .and_then(Value::as_array);
-    let Some(packs) = packs else { return Ok(None) };
-    let sum: u64 = packs
-        .iter()
-        .map(|pack| {
-            let quota = pack
-                .get("entitlement_base_info")
-                .or_else(|| pack.get("entitlementBaseInfo"))
-                .and_then(|e| e.get("quota"))
-                .cloned()
-                .unwrap_or(Value::Null);
-            to_count(
-                quota
-                    .get("credits_limit")
-                    .or_else(|| quota.get("creditsLimit"))
-                    .unwrap_or(&Value::Null),
-            )
-        })
-        .sum();
-    Ok(Some(sum))
+    if packs.is_none() {
+        return Ok(None);
+    }
+    usage.total = usage.general + usage.work;
+    Ok(Some(usage))
 }

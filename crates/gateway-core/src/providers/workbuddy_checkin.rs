@@ -119,6 +119,12 @@ pub async fn get_credits_usage(
     let Some(packages) = packages else {
         return Ok(None);
     };
+    // Capacities arrive as JSON strings ("2300") — `as_f64` alone reads
+    // nothing, so accept both shapes.
+    let to_f64 = |v: &Value| {
+        v.as_f64()
+            .or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok()))
+    };
     let mut total = 0.0f64;
     let mut found = false;
     for pkg in packages {
@@ -133,7 +139,7 @@ pub async fn get_credits_usage(
         let remain = pkg
             .get("CycleRemainCapacity")
             .or_else(|| pkg.get("cycle_remain_capacity"))
-            .and_then(Value::as_f64);
+            .and_then(to_f64);
         if let Some(remain) = remain {
             total += remain;
             found = true;
@@ -179,6 +185,8 @@ pub async fn claim_checkin(
 }
 
 /// `billingPost` — host fallback with business-error short-circuit.
+/// 5xx from the APISIX front is intermittent — retry the same host once
+/// before falling through to the next one.
 async fn billing_post(
     client: &reqwest::Client,
     account: &AccountFile,
@@ -192,21 +200,29 @@ async fn billing_post(
     let mut last_error = anyhow::anyhow!("no billing hosts");
     for host in hosts {
         let url = format!("https://{host}{path}");
-        let mut req = client
-            .post(&url)
-            .timeout(Duration::from_secs(20))
-            .body("{}");
-        for (k, v) in build_workbuddy_headers(account, token) {
-            req = req.header(k, v);
-        }
-        req = req.header("x-domain", &host);
-        let res = match req.send().await {
-            Ok(r) => r,
-            Err(e) => {
-                last_error = e.into();
-                continue;
+        let mut res = None;
+        for attempt in 0..2 {
+            let mut req = client
+                .post(&url)
+                .timeout(Duration::from_secs(20))
+                .body("{}");
+            for (k, v) in build_workbuddy_headers(account, token) {
+                req = req.header(k, v);
             }
-        };
+            match req.send().await {
+                Ok(r) => {
+                    res = Some(r);
+                    break;
+                }
+                Err(e) => {
+                    last_error = anyhow::anyhow!("{path} on {host}: {e}");
+                    if attempt == 0 {
+                        tokio::time::sleep(Duration::from_millis(800)).await;
+                    }
+                }
+            }
+        }
+        let Some(res) = res else { continue };
         let status = res.status().as_u16();
         let text = res.text().await.unwrap_or_default();
         let payload: Value = serde_json::from_str(&text).unwrap_or_else(|_| {
@@ -231,15 +247,39 @@ async fn billing_post(
                 return Ok(payload);
             }
             anyhow::bail!(
-                "WorkBuddy check-in request failed: HTTP {status} {}",
+                "WorkBuddy check-in {path} failed: HTTP {status} {}",
                 text.chars().take(500).collect::<String>()
             );
         }
         if status >= 400 {
             last_error = anyhow::anyhow!(
-                "WorkBuddy check-in HTTP {status}: {}",
+                "WorkBuddy check-in {path} HTTP {status} on {host}: {}",
                 text.chars().take(500).collect::<String>()
             );
+            // A 5xx response from the gateway is worth retrying on the
+            // same host before moving on; 4xx is authoritative, move on.
+            for _ in 0..2 {
+                if status < 500 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(1500)).await;
+                let mut req = client
+                    .post(&url)
+                    .timeout(Duration::from_secs(20))
+                    .body("{}");
+                for (k, v) in build_workbuddy_headers(account, token) {
+                    req = req.header(k, v);
+                }
+                if let Ok(r2) = req.send().await {
+                    let status2 = r2.status().as_u16();
+                    if status2 < 400 {
+                        let text2 = r2.text().await.unwrap_or_default();
+                        if let Ok(p2) = serde_json::from_str::<Value>(&text2) {
+                            return Ok(p2);
+                        }
+                    }
+                }
+            }
             continue;
         }
         return Ok(payload);

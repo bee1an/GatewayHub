@@ -152,14 +152,9 @@ impl WorkBuddyCore {
                 .unwrap_or_default()
         };
         let mut pool = self.pool.lock().await;
-        if let Some(acc) = pool.find_mut(account_id) {
-            acc.state.model_ids = {
-                let mut m = models;
-                m.sort();
-                m
-            };
-            acc.state.models_cached_at = now_ms();
-        }
+        let mut models = models;
+        models.sort();
+        pool.set_models(account_id, models);
     }
 
     pub(crate) async fn maybe_refresh_models(&self, account_id: &str) {
@@ -542,6 +537,59 @@ impl WorkBuddyCore {
             if !force
                 && existing.as_ref().and_then(|c| c.last_day.as_deref()) == Some(today.as_str())
             {
+                // Already checked in — but refresh the stored balance once
+                // if the sweep has never fetched it (older state files have
+                // no `creditsTotal`).
+                if !existing
+                    .as_ref()
+                    .is_some_and(|c| c.extra.contains_key("creditsTotal"))
+                {
+                    let refreshed = async {
+                        let auth = self.ensure_auth(id).await?;
+                        let token = auth.get_access_token().await?;
+                        let account = {
+                            let pool = self.pool.lock().await;
+                            pool.find(id).map(|a| a.config.clone())
+                        }
+                        .ok_or_else(|| anyhow::anyhow!("Account not found"))?;
+                        get_credits_usage(
+                            &self.http.client(),
+                            &account,
+                            &token,
+                            &self.settings.backend,
+                            &self.settings.billing_hosts,
+                        )
+                        .await
+                    }
+                    .await;
+                    match refreshed {
+                        Ok(Some(balance)) => {
+                            let mut pool = self.pool.lock().await;
+                            pool.set_checkin(id, |s| {
+                                s.extra
+                                    .insert("creditsTotal".into(), serde_json::json!(balance));
+                            });
+                        }
+                        Ok(None) => self.log_entry(
+                            LogLevel::Warn,
+                            "WorkBuddy balance refresh returned no packages",
+                            None,
+                            None,
+                            None,
+                            None,
+                            Some(json!({"account": id})),
+                        ),
+                        Err(e) => self.log_entry(
+                            LogLevel::Warn,
+                            format!("WorkBuddy balance refresh failed: {e}"),
+                            None,
+                            None,
+                            None,
+                            None,
+                            Some(json!({"account": id})),
+                        ),
+                    }
+                }
                 skipped += 1;
                 results.push(json!({
                     "accountId": id,
@@ -574,24 +622,29 @@ impl WorkBuddyCore {
                     // sweep must not retry (and re-log) a completed check-in.
                     let total = status.total_credits;
                     let mut pool = self.pool.lock().await;
-                    if let Some(acc) = pool.find_mut(id) {
-                        acc.state.checkin = Some(CheckinState {
-                            last_day: Some(today.clone()),
-                            last_at: Some(now_ms()),
-                            last_credits: total.map(|t| t as f64),
-                            last_error: None,
-                            extra: Default::default(),
-                        });
-                    }
-                } else if status.active {
-                    let _ = claim_checkin(
+                    pool.set_checkin(id, |s| {
+                        s.last_day = Some(today.clone());
+                        s.last_at = Some(now_ms());
+                        s.last_credits = total.map(|t| t as f64);
+                        s.last_error = None;
+                    });
+                }
+                let mut claim_already = false;
+                let mut did_claim = false;
+                if !status.checked_in && status.active {
+                    // (already, credits) — "已签到" from the claim endpoint
+                    // is itself an upstream confirmation; keep it for the
+                    // day-stamp decision below.
+                    claim_already = claim_checkin(
                         &self.http.client(),
                         &account,
                         &token,
                         &self.settings.backend,
                         &self.settings.billing_hosts,
                     )
-                    .await?;
+                    .await?
+                    .0;
+                    did_claim = true;
                 }
                 let final_status = if status.checked_in {
                     status.clone()
@@ -605,25 +658,52 @@ impl WorkBuddyCore {
                     )
                     .await?
                 };
+                // Real balance lives on the resource-summary endpoint —
+                // the checkin status only reports activity credits.
+                let balance = get_credits_usage(
+                    &self.http.client(),
+                    &account,
+                    &token,
+                    &self.settings.backend,
+                    &self.settings.billing_hosts,
+                )
+                .await
+                .ok()
+                .flatten();
                 Ok::<WorkBuddyStatusRun, anyhow::Error>(WorkBuddyStatusRun {
                     status,
                     final_status,
+                    claim_already,
+                    did_claim,
+                    balance,
                 })
             };
             match run.await {
                 Ok(run) => {
                     let total = run.final_status.total_credits;
+                    // Stamp `last_day` only on upstream confirmation —
+                    // the status endpoint agreeing, the claim answering
+                    // 已签到, or a successful claim call itself (the status
+                    // re-query can lag behind a just-accepted claim).
+                    // Writing it unconditionally used to mark failed /
+                    // inactive claims as done, after which the local
+                    // same-day guard suppressed every retry that day.
+                    let confirmed =
+                        run.final_status.checked_in || run.claim_already || run.did_claim;
                     {
                         let mut pool = self.pool.lock().await;
-                        if let Some(acc) = pool.find_mut(id) {
-                            acc.state.checkin = Some(CheckinState {
-                                last_day: Some(today.clone()),
-                                last_at: Some(now_ms()),
-                                last_credits: total.map(|t| t as f64),
-                                last_error: None,
-                                extra: Default::default(),
-                            });
-                        }
+                        let balance = run.balance;
+                        pool.set_checkin(id, |s| {
+                            s.last_at = Some(now_ms());
+                            if confirmed {
+                                s.last_day = Some(today.clone());
+                                s.last_credits = total.map(|t| t as f64);
+                                s.last_error = None;
+                            }
+                            if let Some(b) = balance {
+                                s.extra.insert("creditsTotal".into(), serde_json::json!(b));
+                            }
+                        });
                     }
                     if !run.status.active {
                         skipped += 1;
@@ -665,12 +745,10 @@ impl WorkBuddyCore {
                     let message = e.to_string();
                     {
                         let mut pool = self.pool.lock().await;
-                        if let Some(acc) = pool.find_mut(id) {
-                            let mut state = acc.state.checkin.clone().unwrap_or_default();
-                            state.last_at = Some(now_ms());
-                            state.last_error = Some(message.chars().take(300).collect());
-                            acc.state.checkin = Some(state);
-                        }
+                        pool.set_checkin(id, |s| {
+                            s.last_at = Some(now_ms());
+                            s.last_error = Some(message.chars().take(300).collect());
+                        });
                     }
                     failed += 1;
                     ok = false;
@@ -694,24 +772,15 @@ impl WorkBuddyCore {
 pub(crate) struct WorkBuddyStatusRun {
     status: crate::providers::workbuddy_checkin::WorkBuddyCheckinStatus,
     final_status: crate::providers::workbuddy_checkin::WorkBuddyCheckinStatus,
-}
-impl
-    From<(
-        crate::providers::workbuddy_checkin::WorkBuddyCheckinStatus,
-        crate::providers::workbuddy_checkin::WorkBuddyCheckinStatus,
-    )> for WorkBuddyStatusRun
-{
-    fn from(
-        v: (
-            crate::providers::workbuddy_checkin::WorkBuddyCheckinStatus,
-            crate::providers::workbuddy_checkin::WorkBuddyCheckinStatus,
-        ),
-    ) -> Self {
-        Self {
-            status: v.0,
-            final_status: v.1,
-        }
-    }
+    /// The claim endpoint itself answered 已签到 — counts as confirmation
+    /// even when the status re-query lags behind.
+    claim_already: bool,
+    /// The claim call completed without error — the upstream accepted the
+    /// check-in, so the day is claimable regardless of status-query lag.
+    did_claim: bool,
+    /// Real remaining balance from the resource-summary endpoint —
+    /// `total_credits` on the status is only the activity-epoch number.
+    balance: Option<u64>,
 }
 
 /// `prepareUpstreamBody` — force stream:true, developer→system, default

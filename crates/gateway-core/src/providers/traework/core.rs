@@ -200,10 +200,7 @@ impl TraeWorkCore {
             .into_iter()
             .collect();
         let mut pool = self.pool.lock().await;
-        if let Some(acc) = pool.find_mut(account_id) {
-            acc.state.model_ids = usable;
-            acc.state.models_cached_at = now_ms();
-        }
+        pool.set_models(account_id, usable);
     }
 
     pub(crate) async fn maybe_refresh_models(&self, account_id: &str) {
@@ -263,6 +260,39 @@ impl TraeWorkCore {
             if !force
                 && existing.as_ref().and_then(|c| c.last_day.as_deref()) == Some(today.as_str())
             {
+                // Already checked in — refresh the stored balance once if
+                // the sweep has never fetched it (older state files have
+                // no `creditsTotal`).
+                if !existing
+                    .as_ref()
+                    .is_some_and(|c| c.extra.contains_key("creditsTotal"))
+                    && let Ok(auth) = self.ensure_auth(id).await
+                    && let Ok(token) = auth.get_jwt_token().await
+                {
+                    let account = {
+                        let pool = self.pool.lock().await;
+                        pool.find(id).map(|a| a.config.clone())
+                    };
+                    if let Some(account) = account
+                        && let Ok(Some(u)) = get_credits_usage(
+                            &self.http.client(),
+                            &account,
+                            &token,
+                            &self.settings.auth_base_url,
+                        )
+                        .await
+                    {
+                        let mut pool = self.pool.lock().await;
+                        pool.set_checkin(id, |s| {
+                            s.extra.insert("creditsTotal".into(), serde_json::json!(u.total));
+                            s.extra.insert("creditsWork".into(), serde_json::json!(u.work));
+                            s.extra.insert(
+                                "creditsGeneral".into(),
+                                serde_json::json!(u.general),
+                            );
+                        });
+                    }
+                }
                 skipped += 1;
                 results.push(json!({
                     "accountId": id,
@@ -305,24 +335,57 @@ impl TraeWorkCore {
                     )
                     .await?;
                 }
-                Ok::<(crate::providers::traework_checkin::CheckinStatus, bool), anyhow::Error>((
-                    status, did_claim,
-                ))
+                // Real balance lives on the entitlement usage endpoint —
+                // the checkin status only reports today's reward.
+                let usage = get_credits_usage(
+                    &self.http.client(),
+                    &account,
+                    &token,
+                    &self.settings.auth_base_url,
+                )
+                .await
+                .ok()
+                .flatten();
+                Ok::<(
+                    crate::providers::traework_checkin::CheckinStatus,
+                    bool,
+                    Option<crate::providers::traework_checkin::CreditsUsage>,
+                ), anyhow::Error>((status, did_claim, usage))
             };
             match run.await {
-                Ok((status, did_claim)) => {
+                Ok((status, did_claim, usage)) => {
                     let total = status.credits + status.extra_credits;
+                    // Stamp `last_day` only on upstream confirmation —
+                    // a successful claim call counts too, since the status
+                    // re-query can lag behind a just-accepted claim.
+                    // Writing it unconditionally marked failed/disabled
+                    // claims as done, after which the local same-day guard
+                    // suppressed every retry for the rest of the day.
+                    let confirmed = status.checked_in || did_claim;
                     {
                         let mut pool = self.pool.lock().await;
-                        if let Some(acc) = pool.find_mut(id) {
-                            acc.state.checkin = Some(CheckinState {
-                                last_day: Some(today.clone()),
-                                last_at: Some(now_ms()),
-                                last_credits: Some(total as f64),
-                                last_error: None,
-                                extra: Default::default(),
-                            });
-                        }
+                        pool.set_checkin(id, |s| {
+                            s.last_at = Some(now_ms());
+                            if confirmed {
+                                s.last_day = Some(today.clone());
+                                s.last_credits = Some(total as f64);
+                                s.last_error = None;
+                            }
+                            if let Some(u) = &usage {
+                                s.extra.insert(
+                                    "creditsTotal".into(),
+                                    serde_json::json!(u.total),
+                                );
+                                s.extra.insert(
+                                    "creditsWork".into(),
+                                    serde_json::json!(u.work),
+                                );
+                                s.extra.insert(
+                                    "creditsGeneral".into(),
+                                    serde_json::json!(u.general),
+                                );
+                            }
+                        });
                     }
                     if !status.enable {
                         skipped += 1;
@@ -359,12 +422,10 @@ impl TraeWorkCore {
                     let message = e.to_string();
                     {
                         let mut pool = self.pool.lock().await;
-                        if let Some(acc) = pool.find_mut(id) {
-                            let mut state = acc.state.checkin.clone().unwrap_or_default();
-                            state.last_at = Some(now_ms());
-                            state.last_error = Some(message.chars().take(300).collect());
-                            acc.state.checkin = Some(state);
-                        }
+                        pool.set_checkin(id, |s| {
+                            s.last_at = Some(now_ms());
+                            s.last_error = Some(message.chars().take(300).collect());
+                        });
                     }
                     failed += 1;
                     ok = false;

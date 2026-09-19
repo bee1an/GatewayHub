@@ -33,6 +33,7 @@ pub const PROXY_CAPABLE: &[&str] = &[
     "codex",
     "trae",
     "traework",
+    "workbuddy",
     "gptWeb",
     "grokWeb",
     "qoder",

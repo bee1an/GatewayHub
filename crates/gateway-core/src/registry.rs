@@ -17,6 +17,9 @@ pub struct Registry {
     providers: HashMap<String, Arc<dyn ProviderAdapter>>,
     route_to_name: HashMap<String, String>,
     alias_map: HashMap<String, ModelMapping>,
+    /// Configured `useProxy` per provider — adapters hardcode the field in
+    /// their `status()`, so the registry carries the live flag itself.
+    use_proxy: HashMap<String, bool>,
 }
 
 impl Registry {
@@ -32,6 +35,7 @@ impl Registry {
             providers: HashMap::new(),
             route_to_name: HashMap::new(),
             alias_map,
+            use_proxy: HashMap::new(),
         }
     }
 
@@ -40,9 +44,13 @@ impl Registry {
         name: impl Into<String>,
         adapter: Arc<dyn ProviderAdapter>,
         route_name: impl Into<String>,
+        use_proxy: Option<bool>,
     ) {
         let name = name.into();
         let route = route_name.into();
+        if let Some(v) = use_proxy {
+            self.use_proxy.insert(name.clone(), v);
+        }
         self.providers.insert(name.clone(), adapter);
         self.route_to_name.insert(route, name);
     }
@@ -213,6 +221,12 @@ impl Registry {
                 let mut s = p.status();
                 s.name = self.route_name(name);
                 s.provider_type = name.clone();
+                // Adapters hardcode `use_proxy: None` — report the flag the
+                // build pass recorded instead, or the proxy toggle can
+                // never reflect what the user saved.
+                if crate::provider::PROXY_CAPABLE.contains(&name.as_str()) {
+                    s.use_proxy = Some(self.use_proxy.get(name).copied().unwrap_or(false));
+                }
                 s
             })
             .collect();

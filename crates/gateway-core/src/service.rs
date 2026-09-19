@@ -372,7 +372,14 @@ impl GatewayService {
                     pcfg.enabled,
                 )),
             };
-            registry.register(*name, adapter, route);
+            registry.register(
+                *name,
+                adapter,
+                route,
+                provider::PROXY_CAPABLE
+                    .contains(name)
+                    .then(|| pcfg.use_proxy.unwrap_or(false)),
+            );
         }
         registry
     }

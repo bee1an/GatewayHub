@@ -123,6 +123,7 @@ impl AppRoot {
             _ => theme.muted_foreground,
         };
         let message = status.and_then(|p| p.message.clone()).unwrap_or_default();
+        let proxy_capable = status.is_some_and(|p| p.use_proxy.is_some());
         let use_proxy = status.and_then(|p| p.use_proxy).unwrap_or(false);
 
         let header = h_flex()
@@ -190,28 +191,30 @@ impl AppRoot {
                     .flex_none()
                     .items_center()
                     .gap_3()
-                    .child(
-                        h_flex()
-                            .items_center()
-                            .gap_1p5()
-                            .child(
-                                Label::new(t(lang, "proxy"))
-                                    .text_xs()
-                                    .text_color(theme.muted_foreground),
-                            )
-                            .child(
-                                Switch::new("toggle-proxy")
-                                    .small()
-                                    .checked(use_proxy)
-                                    .disabled(provider_applying)
-                                    .on_change(cx.listener({
-                                        let p = provider_name.clone();
-                                        move |this, _checked, _w, cx| {
-                                            this.toggle_provider_flag(&p, "useProxy", cx);
-                                        }
-                                    })),
-                            ),
-                    )
+                    .when(proxy_capable, |d| {
+                        d.child(
+                            h_flex()
+                                .items_center()
+                                .gap_1p5()
+                                .child(
+                                    Label::new(t(lang, "proxy"))
+                                        .text_xs()
+                                        .text_color(theme.muted_foreground),
+                                )
+                                .child(
+                                    Switch::new("toggle-proxy")
+                                        .small()
+                                        .checked(use_proxy)
+                                        .disabled(provider_applying)
+                                        .on_change(cx.listener({
+                                            let p = provider_name.clone();
+                                            move |this, _checked, _w, cx| {
+                                                this.toggle_provider_flag(&p, "useProxy", cx);
+                                            }
+                                        })),
+                                ),
+                        )
+                    })
                     .child(
                         Button::new("toggle-enabled")
                             .when(enabled, |b| b.outline())

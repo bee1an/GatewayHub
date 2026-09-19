@@ -32,7 +32,7 @@ pub struct CostStats {
     pub total_usd: f64,
     pub currency: &'static str,
     pub known: bool,
-    /// 'credit' | 'token' | 'none'
+    /// 'credit' | 'token' | 'free' | 'none'
     pub basis: &'static str,
 }
 
@@ -197,6 +197,130 @@ fn builtin() -> HashMap<String, ModelPrice> {
             ..price_cache(2.0, 8.0, 0.5, 0.0, 0.0)
         },
     );
+    // ---- z.ai GLM (glm-5.x share one rate card; flash line is cheaper) ----
+    for key in ["glm-5.1", "glm-5.2", "glm-5.3"] {
+        m.insert(
+            key.to_string(),
+            ModelPrice {
+                cache_write5m_per_m_tokens: None,
+                cache_write1h_per_m_tokens: None,
+                ..price_cache(1.4, 4.4, 0.26, 0.0, 0.0)
+            },
+        );
+    }
+    m.insert(
+        "glm-5".into(),
+        ModelPrice {
+            cache_write5m_per_m_tokens: None,
+            cache_write1h_per_m_tokens: None,
+            ..price_cache(1.0, 3.2, 0.2, 0.0, 0.0)
+        },
+    );
+    for key in ["glm-5.3-flash", "glm-4.7-flashx", "glm-4.5-flash"] {
+        m.insert(
+            key.to_string(),
+            ModelPrice {
+                cache_write5m_per_m_tokens: None,
+                cache_write1h_per_m_tokens: None,
+                ..price_cache(0.1, 0.5, 0.01, 0.0, 0.0)
+            },
+        );
+    }
+    // ---- DeepSeek direct API ----
+    // cache_read = the discounted cache-hit input rate; DeepSeek doesn't
+    // meter cache writes separately so write lanes stay unpriced.
+    for key in [
+        "deepseek-v4-flash",
+        "deepseek-v4-flash-official",
+        "deepseek-chat",
+    ] {
+        m.insert(
+            key.to_string(),
+            ModelPrice {
+                cache_write5m_per_m_tokens: None,
+                cache_write1h_per_m_tokens: None,
+                ..price_cache(0.14, 0.28, 0.0028, 0.0, 0.0)
+            },
+        );
+    }
+    for key in ["deepseek-v4-pro", "deepseek-reasoner"] {
+        m.insert(
+            key.to_string(),
+            ModelPrice {
+                cache_write5m_per_m_tokens: None,
+                cache_write1h_per_m_tokens: None,
+                ..price_cache(0.435, 0.87, 0.0036, 0.0, 0.0)
+            },
+        );
+    }
+    // ---- Moonshot Kimi ----
+    for key in ["kimi-k2", "kimi-k2.6", "kimi-k2.7-code"] {
+        m.insert(
+            key.to_string(),
+            ModelPrice {
+                cache_write5m_per_m_tokens: None,
+                cache_write1h_per_m_tokens: None,
+                ..price_cache(0.95, 4.0, 0.16, 0.0, 0.0)
+            },
+        );
+    }
+    m.insert(
+        "kimi-k3".into(),
+        ModelPrice {
+            cache_write5m_per_m_tokens: None,
+            cache_write1h_per_m_tokens: None,
+            ..price_cache(3.0, 15.0, 0.3, 0.0, 0.0)
+        },
+    );
+    // ---- Google Gemini ----
+    m.insert(
+        "gemini-3-pro".into(),
+        ModelPrice {
+            cache_write5m_per_m_tokens: None,
+            cache_write1h_per_m_tokens: None,
+            ..price_cache(2.0, 12.0, 0.2, 0.0, 0.0)
+        },
+    );
+    for key in ["gemini-3-flash", "gemini-2.5-flash"] {
+        m.insert(
+            key.to_string(),
+            ModelPrice {
+                cache_write5m_per_m_tokens: None,
+                cache_write1h_per_m_tokens: None,
+                ..price_cache(0.3, 2.5, 0.03, 0.0, 0.0)
+            },
+        );
+    }
+    m.insert(
+        "gemini-2.5-pro".into(),
+        ModelPrice {
+            cache_write5m_per_m_tokens: None,
+            cache_write1h_per_m_tokens: None,
+            ..price_cache(1.25, 10.0, 0.125, 0.0, 0.0)
+        },
+    );
+    // ---- Alibaba Qwen / xAI Grok / MiniMax ----
+    m.insert("qwen3-max".into(), price(1.2, 6.0));
+    m.insert("qwen3-coder".into(), price(0.5, 2.0));
+    m.insert(
+        "grok-4-fast".into(),
+        ModelPrice {
+            cache_write5m_per_m_tokens: None,
+            cache_write1h_per_m_tokens: None,
+            ..price_cache(0.2, 0.5, 0.02, 0.0, 0.0)
+        },
+    );
+    m.insert(
+        "grok-4".into(),
+        ModelPrice {
+            cache_write5m_per_m_tokens: None,
+            cache_write1h_per_m_tokens: None,
+            ..price_cache(3.0, 15.0, 0.3, 0.0, 0.0)
+        },
+    );
+    for key in ["minimax-m2", "minimax-m2.5"] {
+        m.insert(key.to_string(), price(0.3, 1.2));
+    }
     m
 }
 
@@ -259,8 +383,18 @@ impl PricingTable {
         None
     }
 
-    /// `compute` port — credit-basis first (kiro), else token pricing.
+    /// `compute` port — `:free` ids are known-zero (aggregator free tier),
+    /// then credit-basis (kiro), else token pricing.
     pub fn compute(&self, model: &str, usage: &UsageStats, provider: Option<&str>) -> CostStats {
+        // Must run before `resolve`: `deepseek-v4-flash-0731:free` would
+        // otherwise fall back to the paid `deepseek-v4-flash` row.
+        if normalize_model_key(model).ends_with(":free") {
+            return CostStats {
+                known: true,
+                basis: "free",
+                ..zero_cost()
+            };
+        }
         if let Some(credit_price) = provider.and_then(|p| self.credit_price(p))
             && let Some(credits) = usage.credits.filter(|c| *c > 0.0)
         {
@@ -380,6 +514,44 @@ mod tests {
         assert!(table.resolve("claude-opus-4.7").is_some());
         assert!(table.resolve("openrouter/gpt-5").is_some());
         assert!(table.resolve("totally-unknown-model").is_none());
+    }
+
+    #[test]
+    fn gateway_models_resolve() {
+        let table = PricingTable::default();
+        for model in [
+            "glm-5.3",
+            "glm-5.3-flash",
+            "deepseek-v4-flash-official",
+            "deepseek-v4-pro",
+            "kimi-k2.6",
+            "gemini-3-pro",
+            "minimax-m2.5",
+        ] {
+            assert!(table.resolve(model).is_some(), "{model}");
+        }
+        // A `:free` id must price at zero, never fall back to the paid row.
+        let cost = table.compute(
+            "deepseek-v4-flash-0731:free",
+            &UsageStats {
+                input_tokens: 1_000_000,
+                output_tokens: 1_000_000,
+                ..Default::default()
+            },
+            Some("openrouter"),
+        );
+        assert!(cost.known && cost.basis == "free" && cost.total_usd == 0.0);
+        // GLM cache reads price at the cached-input rate.
+        let cost = table.compute(
+            "glm-5.3",
+            &UsageStats {
+                input_tokens: 1_000_000,
+                cache_read_tokens: Some(1_000_000),
+                ..Default::default()
+            },
+            Some("traework"),
+        );
+        assert!((cost.total_usd - (1.4 + 0.26)).abs() < 1e-9);
     }
 
     #[test]

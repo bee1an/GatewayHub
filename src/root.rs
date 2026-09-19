@@ -274,6 +274,8 @@ pub struct AppRoot {
     pub(crate) models_refresh_pending: HashSet<String>,
     /// "provider/accountId" → last manual check-in result line.
     pub(crate) checkin_results: HashMap<String, String>,
+    /// "provider/accountId" → last model-refresh result line.
+    pub(crate) models_refresh_results: HashMap<String, String>,
     /// In-window overlay card (confirms, import, account detail, key gen) —
     /// layered motion per `overlay_motion` (Heimdall's confirm overlay).
     /// None = no overlay; `overlay_closing` drives the exit tween and
@@ -454,6 +456,7 @@ impl AppRoot {
             checkin_pending: HashSet::new(),
             models_refresh_pending: HashSet::new(),
             checkin_results: HashMap::new(),
+            models_refresh_results: HashMap::new(),
             overlay: None,
             overlay_closing: None,
             overlay_sample: None,
@@ -1043,8 +1046,10 @@ impl AppRoot {
         self.test_results
             .insert(key.clone(), t(lang, "testing").into());
         self.test_pending.insert(key.clone());
+        let started = Instant::now();
         cx.spawn(async move |this, cx| {
             let result = rx.await;
+            hold_spinner(started, cx).await;
             let _ = this.update(cx, |this, cx| {
                 this.test_pending.remove(&key);
                 let lang = this.lang;
@@ -1129,12 +1134,14 @@ impl AppRoot {
         let (name, aid) = (provider.to_string(), account_id.to_string());
         let svc = service.clone();
         let name2 = name.clone();
+        let started = Instant::now();
         let handle = service.spawn_ui(async move {
             let result = adapter.checkin_accounts(Some(&aid), false).await;
             (result, svc.account_states(&name2))
         });
         cx.spawn(async move |this, cx| {
             let outcome = handle.await;
+            hold_spinner(started, cx).await;
             let _ = this.update(cx, |this, cx| {
                 this.checkin_pending.remove(&key);
                 let lang = this.lang;
@@ -1158,6 +1165,30 @@ impl AppRoot {
         cx.notify();
     }
 
+    /// Refresh only when the cached list is missing or stale — used when
+    /// the account overlay opens so models appear without a manual click.
+    pub(crate) fn ensure_account_models(
+        &mut self,
+        provider: &str,
+        account_id: &str,
+        cx: &mut Context<Self>,
+    ) {
+        const TTL_MS: i64 = 10 * 60_000;
+        let fresh = self
+            .account_states
+            .get(provider)
+            .and_then(|m| m.get(account_id))
+            .map(|s| {
+                !s.model_ids.is_empty()
+                    && s.models_cached_at > 0
+                    && gateway_core::pool::now_ms() - s.models_cached_at < TTL_MS
+            })
+            .unwrap_or(false);
+        if !fresh {
+            self.refresh_account_models(provider, account_id, cx);
+        }
+    }
+
     /// Pull the account's own model list (`refreshAccountModels`) — models
     /// differ per account, so they live on the account, not the provider.
     pub(crate) fn refresh_account_models(
@@ -1170,6 +1201,7 @@ impl AppRoot {
         if !self.models_refresh_pending.insert(key.clone()) {
             return;
         }
+        let lang = self.lang;
         let Some(adapter) = self.service.registry().provider(provider) else {
             self.models_refresh_pending.remove(&key);
             return;
@@ -1177,18 +1209,30 @@ impl AppRoot {
         let service = self.service.clone();
         let svc = service.clone();
         let (name, aid) = (provider.to_string(), account_id.to_string());
-        let name2 = name.clone();
+        let (name2, aid2) = (name.clone(), aid.clone());
+        let started = Instant::now();
         let handle = service.spawn_ui(async move {
-            let _ = adapter.refresh_account_models(&aid).await;
-            svc.account_states(&name2)
+            let result = adapter.refresh_account_models(&aid).await;
+            (result, svc.account_states(&name2))
         });
         cx.spawn(async move |this, cx| {
-            let states = handle.await;
+            let outcome = handle.await;
+            hold_spinner(started, cx).await;
             let _ = this.update(cx, |this, cx| {
                 this.models_refresh_pending.remove(&key);
-                if let Ok(states) = states {
-                    this.account_states.insert(name, states);
-                }
+                let msg = match outcome {
+                    Ok((Ok(_), states)) => {
+                        let n = states
+                            .get(&aid2)
+                            .map(|s| s.model_ids.len())
+                            .unwrap_or_default();
+                        this.account_states.insert(name, states);
+                        tf(lang, "models_refreshed", &[("n", &n.to_string())])
+                    }
+                    Ok((Err(e), _)) => format!("{} {e}", t(lang, "fail_prefix")),
+                    Err(e) => format!("{} {e}", t(lang, "fail_prefix")),
+                };
+                this.models_refresh_results.insert(key, msg);
                 cx.notify();
             });
         })
@@ -2448,6 +2492,15 @@ fn summarize_checkin(lang: Lang, value: &serde_json::Value) -> String {
         "checkin_summary",
         &[("c", &claimed.to_string()), ("f", &failed.to_string())],
     )
+}
+
+/// Hold a pending flag visible for a minimum duration — instant completes
+/// flash the spinner for a single frame, which reads as "click did nothing".
+async fn hold_spinner(started: Instant, cx: &mut gpui::AsyncApp) {
+    const MIN: Duration = Duration::from_millis(600);
+    if let Some(rem) = MIN.checked_sub(started.elapsed()) {
+        cx.background_executor().timer(rem).await;
+    }
 }
 
 #[cfg(test)]

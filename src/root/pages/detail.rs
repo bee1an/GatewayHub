@@ -704,6 +704,7 @@ impl AppRoot {
         let (p, a) = (provider.to_string(), account.id.clone());
         let title = account.display_label().to_string();
         let supports_checkin = CHECKIN_PROVIDERS.contains(&provider);
+        self.ensure_account_models(&p, &a, cx);
         self.open_overlay(
             OverlayRequest {
                 title: title.into(),
@@ -716,6 +717,7 @@ impl AppRoot {
                     let checking = root.checkin_pending.contains(&key);
                     let checkin_msg = root.checkin_results.get(&key).cloned();
                     let refreshing = root.models_refresh_pending.contains(&key);
+                    let models_msg = root.models_refresh_results.get(&key).cloned();
                     let testing = root.test_pending.contains(&key);
                     let test_msg = root.test_results.get(&key).cloned();
                     let state: Option<AccountRuntimeState> = state;
@@ -847,6 +849,15 @@ impl AppRoot {
                             None => t(lang, "never_checked_in").to_string(),
                         };
                         let last_err = checkin.as_ref().and_then(|c| c.last_error.clone());
+                        let balance = checkin
+                            .as_ref()
+                            .and_then(|c| c.extra.get("creditsTotal"))
+                            .and_then(|v| v.as_f64());
+                        let work_credits = checkin
+                            .as_ref()
+                            .and_then(|c| c.extra.get("creditsWork"))
+                            .and_then(|v| v.as_f64())
+                            .filter(|w| *w > 0.0);
                         body = body.child(hairline(cx)).child(
                             h_flex()
                                 .items_center()
@@ -886,6 +897,22 @@ impl AppRoot {
                                         })),
                                 ),
                         );
+                        if let Some(b) = balance {
+                            let mut line =
+                                format!("{} {}", t(lang, "credits_balance"), b as u64);
+                            if let Some(w) = work_credits {
+                                line.push_str(&format!(
+                                    " · {} {}",
+                                    t(lang, "credits_work_only"),
+                                    w as u64
+                                ));
+                            }
+                            body = body.child(
+                                Label::new(line)
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground),
+                            );
+                        }
                         if let Some(err) = last_err {
                             body = body.child(
                                 Label::new(err)
@@ -983,6 +1010,14 @@ impl AppRoot {
                                 .overflow_y_scroll()
                                 .child(chips),
                         );
+                    if let Some(msg) = &models_msg {
+                        body = body.child(
+                            Label::new(msg.clone())
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .truncate(),
+                        );
+                    }
 
                     body.into_any_element()
                 })),

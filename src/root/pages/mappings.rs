@@ -13,7 +13,7 @@ use gpui_kit::component::{
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
-use crate::root::{AppRoot, MONO, card, card_rows, page_header, row, section_header, t, tf};
+use crate::root::{AppRoot, MONO, card, card_rows, row, section_header, t, tf};
 
 impl AppRoot {
     pub(crate) fn render_mappings(
@@ -112,12 +112,6 @@ impl AppRoot {
 
         v_flex()
             .gap_4()
-            .child(page_header(
-                t(lang, "mappings_title"),
-                t(lang, "mappings_desc"),
-                None,
-                cx,
-            ))
             .child(
                 card(cx).p_3().child(
                     h_flex()

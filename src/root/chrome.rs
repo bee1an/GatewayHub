@@ -97,46 +97,6 @@ pub(crate) fn status_label(p: &ProviderStatus) -> &'static str {
 /// copying. Never used for labels, status, or prose.
 pub(crate) const MONO: &str = "SF Mono";
 
-/// Page header matching Electron's 19px title, mono subtitle and bottom rule.
-pub(crate) fn page_header(
-    title: &str,
-    desc: &str,
-    trailing: Option<AnyElement>,
-    cx: &App,
-) -> impl IntoElement {
-    let theme = cx.theme().clone();
-    h_flex()
-        .items_end()
-        .justify_between()
-        .gap_4()
-        .pb_4()
-        .border_b_1()
-        .border_color(theme.border)
-        .child(
-            v_flex()
-                .min_w_0()
-                .gap_1()
-                .child(
-                    Label::new(title.to_string())
-                        .text_size(px(19.))
-                        .font_semibold()
-                        .text_color(theme.foreground),
-                )
-                .when(!desc.is_empty(), |d| {
-                    d.child(
-                        Label::new(desc.to_string())
-                            .font_family(MONO)
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .truncate(),
-                    )
-                }),
-        )
-        .when_some(trailing, |d, t| {
-            d.child(h_flex().flex_none().items_center().gap_2().child(t))
-        })
-}
-
 /// Quiet section label — `text_xs font_medium muted_foreground`.
 pub(crate) fn section_label(text: impl Into<SharedString>, cx: &App) -> impl IntoElement {
     Label::new(text.into())

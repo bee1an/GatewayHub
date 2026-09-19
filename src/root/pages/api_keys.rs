@@ -16,8 +16,8 @@ use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use crate::root::{
-    AppRoot, MONO, OverlayRequest, card, card_rows, enter, page_header, row, section_header,
-    short_date, t, tf, toggle_filter,
+    AppRoot, MONO, OverlayRequest, card, card_rows, enter, row, section_header, short_date, t, tf,
+    toggle_filter,
 };
 
 /// Expiry choices for the generate dialog — days; 0 = never.
@@ -204,22 +204,6 @@ impl AppRoot {
 
         v_flex()
             .gap_4()
-            .child(page_header(
-                t(lang, "api_keys_title"),
-                t(lang, "api_keys_desc"),
-                Some(
-                    Button::new("gen-key")
-                        .primary()
-                        .small()
-                        .label(t(lang, "generate"))
-                        .icon(IconName::Plus)
-                        .on_click(cx.listener(|this, _e: &ClickEvent, _w, cx| {
-                            this.open_key_overlay(cx);
-                        }))
-                        .into_any_element(),
-                ),
-                cx,
-            ))
             .when_some(new_key_banner, |d, b| d.child(b))
             .child(
                 v_flex()
@@ -230,7 +214,17 @@ impl AppRoot {
                             "n_keys",
                             &[("n", &cfg.server.api_keys.len().to_string())],
                         ),
-                        None,
+                        Some(
+                            Button::new("gen-key")
+                                .primary()
+                                .small()
+                                .label(t(lang, "generate"))
+                                .icon(IconName::Plus)
+                                .on_click(cx.listener(|this, _e: &ClickEvent, _w, cx| {
+                                    this.open_key_overlay(cx);
+                                }))
+                                .into_any_element(),
+                        ),
                         cx,
                     ))
                     .child(keys_card),

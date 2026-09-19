@@ -104,8 +104,6 @@ fn en(key: &str) -> Option<&'static str> {
         "language_zh" => "中文",
 
         // ---- dashboard ----
-        "dash_title" => "Dashboard",
-        "dash_desc" => "Control the gateway and review service health",
         "n_ready" => "{ready}/{enabled} ready",
         "n_errors" => "{n} errors",
         "start" => "Start",
@@ -117,8 +115,6 @@ fn en(key: &str) -> Option<&'static str> {
         "view_all" => "View all",
 
         // ---- api keys ----
-        "api_keys_title" => "API Keys",
-        "api_keys_desc" => "Bearer tokens accepted by the gateway",
         "created_last_used" => "created {created} · last used {last}",
         "created_never_used" => "created {created} · never used",
         "revoke" => "Revoke",
@@ -137,8 +133,6 @@ fn en(key: &str) -> Option<&'static str> {
         "n_keys" => "{n} keys",
 
         // ---- mappings ----
-        "mappings_title" => "Model Mappings",
-        "mappings_desc" => "Rewrite an incoming model name to a provider/model pair",
         "disable" => "Disable",
         "enable" => "Enable",
         "delete" => "Delete",
@@ -147,7 +141,6 @@ fn en(key: &str) -> Option<&'static str> {
         "n_mappings" => "{n} mappings",
 
         // ---- playground ----
-        "playground_title" => "Playground",
         "pg_desc" => {
             "Real requests through the running gateway — auth, scopes and streaming included"
         }
@@ -170,7 +163,6 @@ fn en(key: &str) -> Option<&'static str> {
         "role_gateway" => "gateway",
 
         // ---- usage ----
-        "usage_title" => "Usage",
         "usage_today" => "Today",
         "usage_30d" => "Last 30 days",
         "usage_breakdown" => "Breakdown",
@@ -191,7 +183,6 @@ fn en(key: &str) -> Option<&'static str> {
         "no_usage" => "No usage recorded yet",
 
         // ---- logs ----
-        "logs_title" => "Logs",
         "all" => "All",
         "info" => "Info",
         "warn" => "Warn",
@@ -262,8 +253,6 @@ fn en(key: &str) -> Option<&'static str> {
         "close" => "Close",
 
         // ---- settings ----
-        "settings_title" => "Settings",
-        "settings_desc" => "Configure the gateway, appearance, and sidebar",
         "kv_url" => "URL",
         "kv_config" => "Config",
         "kv_state" => "State",
@@ -354,8 +343,6 @@ fn zh(key: &str) -> Option<&'static str> {
         "language_zh" => "中文",
 
         // ---- dashboard ----
-        "dash_title" => "仪表盘",
-        "dash_desc" => "控制网关并查看服务状态",
         "n_ready" => "{ready}/{enabled} 就绪",
         "n_errors" => "{n} 个错误",
         "start" => "启动",
@@ -367,8 +354,6 @@ fn zh(key: &str) -> Option<&'static str> {
         "view_all" => "查看全部",
 
         // ---- api keys ----
-        "api_keys_title" => "API 密钥",
-        "api_keys_desc" => "网关接受的 Bearer 令牌",
         "created_last_used" => "创建于 {created} · 上次使用 {last}",
         "created_never_used" => "创建于 {created} · 从未使用",
         "revoke" => "吊销",
@@ -387,8 +372,6 @@ fn zh(key: &str) -> Option<&'static str> {
         "n_keys" => "{n} 个密钥",
 
         // ---- mappings ----
-        "mappings_title" => "模型映射",
-        "mappings_desc" => "将传入的模型名重写为服务商/模型对",
         "disable" => "禁用",
         "enable" => "启用",
         "delete" => "删除",
@@ -397,8 +380,6 @@ fn zh(key: &str) -> Option<&'static str> {
         "n_mappings" => "{n} 个映射",
 
         // ---- playground ----
-        "playground_title" => "测试场",
-        "pg_desc" => "通过运行中的网关发真实请求——鉴权、scope、流式全链路",
         "pg_empty" => "选好模型和 API 密钥，向在线网关发一条请求",
         "pg_replying" => "网关回复中…",
         "pg_model" => "模型",
@@ -418,7 +399,6 @@ fn zh(key: &str) -> Option<&'static str> {
         "role_gateway" => "网关",
 
         // ---- usage ----
-        "usage_title" => "用量",
         "usage_today" => "今日",
         "usage_30d" => "近 30 天",
         "usage_breakdown" => "明细",
@@ -439,7 +419,6 @@ fn zh(key: &str) -> Option<&'static str> {
         "no_usage" => "暂无用量记录",
 
         // ---- logs ----
-        "logs_title" => "日志",
         "all" => "全部",
         "info" => "信息",
         "warn" => "警告",
@@ -510,8 +489,6 @@ fn zh(key: &str) -> Option<&'static str> {
         "close" => "关闭",
 
         // ---- settings ----
-        "settings_title" => "设置",
-        "settings_desc" => "配置网关、外观和侧栏",
         "kv_url" => "地址",
         "kv_config" => "配置",
         "kv_state" => "状态",
@@ -592,11 +569,6 @@ mod tests {
             "nav_providers",
             "running",
             "stopped",
-            "dash_title",
-            "api_keys_title",
-            "mappings_title",
-            "playground_title",
-            "pg_desc",
             "pg_empty",
             "pg_model",
             "pg_key",
@@ -610,9 +582,6 @@ mod tests {
             "pg_input_hint",
             "pg_response_empty",
             "retry",
-            "usage_title",
-            "logs_title",
-            "settings_title",
             "back",
             "proxy",
             "status",

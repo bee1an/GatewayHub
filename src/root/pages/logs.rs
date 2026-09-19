@@ -16,8 +16,7 @@ use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use crate::root::{
-    AppRoot, MONO, MarqueeText, card, clock_time, enter, page_header, section_header, t, tf,
-    toggle_filter,
+    AppRoot, MONO, MarqueeText, card, clock_time, enter, section_header, t, tf, toggle_filter,
 };
 
 // Shared column lanes — the header row and every data row use the same
@@ -322,11 +321,6 @@ impl AppRoot {
             .h_full()
             .min_h_0()
             .gap_4()
-            .child(
-                div()
-                    .flex_none()
-                    .child(page_header(t(lang, "logs_title"), "", None, cx)),
-            )
             .child(div().flex_none().child(toolbar))
             .child(div().flex_none().child(section_header(
                 tf(lang, "n_entries", &[("n", &total.to_string())]),

@@ -11,8 +11,8 @@ use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use crate::root::{
-    AppRoot, MONO, card, card_uniform_list, fmt_count, hairline, page_header, pop_in,
-    section_header, skeleton_rows, t, toggle_filter,
+    AppRoot, MONO, card, card_uniform_list, fmt_count, hairline, pop_in, section_header,
+    skeleton_rows, t, toggle_filter,
 };
 
 impl AppRoot {
@@ -74,11 +74,6 @@ impl AppRoot {
                 .h_full()
                 .min_h_0()
                 .gap_4()
-                .child(
-                    div()
-                        .flex_none()
-                        .child(page_header(t(lang, "usage_title"), "", None, cx)),
-                )
                 .child(div().flex_none().child(stat_skel))
                 .child(div().flex_1().min_h_0().child(skeleton_rows(8, cx)))
                 .into_any_element();
@@ -456,11 +451,6 @@ impl AppRoot {
             .h_full()
             .min_h_0()
             .gap_4()
-            .child(
-                div()
-                    .flex_none()
-                    .child(page_header(t(lang, "usage_title"), "", None, cx)),
-            )
             .child(div().flex_none().child(stats))
             .child(div().flex_none().child(chart))
             .child(

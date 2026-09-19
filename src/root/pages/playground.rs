@@ -19,9 +19,7 @@ use gpui_kit::component::{
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
-use crate::root::{
-    AppRoot, MONO, PgApiType, PgKeyItem, PgMsg, PgRole, card, page_header, t, toggle_filter,
-};
+use crate::root::{AppRoot, MONO, PgApiType, PgKeyItem, PgMsg, PgRole, card, t, toggle_filter};
 
 /// Models + key select contents change with the snapshot — pushed into the
 /// SelectState entities here, and a sane default is picked when the current
@@ -342,12 +340,6 @@ impl AppRoot {
             .flex_1()
             .min_h_0()
             .gap_3()
-            .child(page_header(
-                t(lang, "playground_title"),
-                t(lang, "pg_desc"),
-                None,
-                cx,
-            ))
             .child(toolbar)
             .child(
                 card(cx).flex_1().min_h(px(200.)).overflow_hidden().child(

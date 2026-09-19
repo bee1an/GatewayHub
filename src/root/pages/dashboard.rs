@@ -12,9 +12,7 @@ use gpui_kit::component::{
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
-use crate::root::{
-    AppRoot, MONO, Page, card, card_rows, one_line, page_header, section_header, t, tf,
-};
+use crate::root::{AppRoot, MONO, Page, card, card_rows, one_line, section_header, t, tf};
 
 const RECENT_ERROR_LIMIT: usize = 5;
 
@@ -185,12 +183,6 @@ impl AppRoot {
 
         v_flex()
             .gap_4()
-            .child(page_header(
-                t(lang, "dash_title"),
-                t(lang, "dash_desc"),
-                None,
-                cx,
-            ))
             .child(gateway_card)
             .child(
                 v_flex()

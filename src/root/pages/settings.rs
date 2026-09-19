@@ -15,9 +15,7 @@ use gpui_kit::component::{
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
-use crate::root::{
-    AppRoot, Lang, MONO, card, enter, page_header, provider_logo, shake, t, tf, toggle_filter,
-};
+use crate::root::{AppRoot, Lang, MONO, card, enter, provider_logo, shake, t, tf, toggle_filter};
 
 fn settings_section(
     title: &str,
@@ -353,12 +351,6 @@ impl AppRoot {
             .into_any_element();
 
         let mut page = v_flex()
-            .child(page_header(
-                t(lang, "settings_title"),
-                t(lang, "settings_desc"),
-                None,
-                cx,
-            ))
             .child(settings_section(
                 t(lang, "sec_connection"),
                 "",

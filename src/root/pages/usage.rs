@@ -10,8 +10,8 @@ use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use crate::root::{
-    AppRoot, MONO, card, card_uniform_list, hairline, page_header, pop_in, section_header,
-    skeleton_rows, t, toggle_filter,
+    AppRoot, MONO, card, card_uniform_list, fmt_count, hairline, page_header, pop_in,
+    section_header, skeleton_rows, t, toggle_filter,
 };
 
 impl AppRoot {
@@ -150,16 +150,34 @@ impl AppRoot {
             *day_totals.entry(e.date.clone()).or_default() += e.input_tokens + e.output_tokens;
         }
         let today = chrono::Local::now().date_naive();
-        let series: Vec<(String, i64)> = (0..30_i64)
+        // The built-in tooltip prints raw values — feed it a scaled series so
+        // hover reads "26.61" under a "Tokens (M)" label instead of eight
+        // raw digits. The divisor follows the window's largest day.
+        let max_tok = day_totals.values().copied().max().unwrap_or(0) as f64;
+        let (unit, divisor) = if max_tok >= 1e9 {
+            ("B", 1e9)
+        } else if max_tok >= 1e6 {
+            ("M", 1e6)
+        } else if max_tok >= 1e3 {
+            ("k", 1e3)
+        } else {
+            ("", 1.)
+        };
+        let series: Vec<(String, f64)> = (0..30_i64)
             .rev()
             .map(|i| {
                 let date = (today - chrono::Duration::days(i))
                     .format("%Y-%m-%d")
                     .to_string();
-                let tokens = *day_totals.get(&date).unwrap_or(&0);
-                (date, tokens)
+                let scaled = *day_totals.get(&date).unwrap_or(&0) as f64 / divisor;
+                (date, (scaled * 100.).round() / 100.)
             })
             .collect();
+        let series_name = if unit.is_empty() {
+            t(lang, "col_tokens").to_string()
+        } else {
+            format!("{} ({})", t(lang, "col_tokens"), unit)
+        };
         let chart = card(cx).px_4().py_3().child(
             v_flex()
                 .gap_2()
@@ -173,9 +191,9 @@ impl AppRoot {
                     div().h(px(110.)).child(
                         gpui_kit::component::chart::BarChart::new(series)
                             .id("usage-tokens-chart")
-                            .name(t(lang, "col_tokens"))
+                            .name(series_name)
                             .band(|(d, _)| d[5..].to_string())
-                            .value(|(_, v)| *v as f64)
+                            .value(|(_, v)| *v)
                             .tick_margin(5)
                             // No value axis — token counts render as
                             // unreadable 8-digit ticks; the hover tooltip
@@ -391,18 +409,5 @@ impl AppRoot {
                     .child(table),
             )
             .into_any_element()
-    }
-}
-
-/// Compact count for token-scale numbers: 999 → "999", 12_345 → "12.3k",
-/// 1_234_567 → "1.23M".
-fn fmt_count(n: i64) -> String {
-    let n = n as f64;
-    if n >= 1_000_000. {
-        format!("{:.2}M", n / 1_000_000.)
-    } else if n >= 1_000. {
-        format!("{:.1}k", n / 1_000.)
-    } else {
-        format!("{}", n as i64)
     }
 }

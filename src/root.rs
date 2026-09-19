@@ -21,9 +21,9 @@ use gateway_core::{
 };
 
 pub(crate) use chrome::{
-    MONO, MarqueeText, card, card_rows, card_uniform_list, clock_time, enter, hairline, one_line,
-    page_header, pop_in, provider_logo, row, section_header, shake, short_date, skeleton_rows,
-    status_label, toggle_filter,
+    MONO, MarqueeText, card, card_rows, card_uniform_list, clock_time, enter, fmt_count, hairline,
+    one_line, page_header, pop_in, provider_logo, row, section_header, shake, short_date,
+    skeleton_rows, status_label, toggle_filter,
 };
 
 use gpui_kit::assets::IconName;
@@ -1940,7 +1940,11 @@ fn pg_meta(started: Instant, usage: Option<&serde_json::Value>) -> Option<String
                 .or_else(|| u.pointer("/output_tokens"))
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0);
-            Some(format!("{secs} · {inp} in / {out} out"))
+            Some(format!(
+                "{secs} · {} in / {} out",
+                fmt_count(inp as i64),
+                fmt_count(out as i64)
+            ))
         }
         None => Some(secs),
     }

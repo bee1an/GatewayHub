@@ -401,6 +401,37 @@ pub(crate) fn skeleton_rows(count: usize, cx: &App) -> AnyElement {
     card(cx).overflow_hidden().child(rows).into_any_element()
 }
 
+/// Compact count for token-scale numbers: 999 → "999", 12_345 → "12.3k",
+/// 1_234_567 → "1.23M", 2_345_678_901 → "2.35B". Trailing zeros are
+/// trimmed, so round values read "1k" / "26M".
+pub(crate) fn fmt_count(n: i64) -> String {
+    const TIERS: [(f64, &str, usize); 4] =
+        [(1e12, "T", 2), (1e9, "B", 2), (1e6, "M", 2), (1e3, "k", 1)];
+    let v = n as f64;
+    if v.abs() < 1e3 {
+        return n.to_string();
+    }
+    let mut i = TIERS
+        .iter()
+        .position(|(d, _, _)| v.abs() >= *d)
+        .unwrap_or(TIERS.len() - 1);
+    // Rounding can roll the mantissa up to 1000 (999_999 → "1000.0k") —
+    // promote one tier instead of printing four digits with the small unit.
+    loop {
+        let (div, suffix, dec) = TIERS[i];
+        let scaled = (v / div * 10f64.powi(dec as i32)).round() / 10f64.powi(dec as i32);
+        if scaled.abs() < 1000. || i == 0 {
+            let s = format!("{:.*}", dec, scaled);
+            return format!(
+                "{}{}",
+                s.trim_end_matches('0').trim_end_matches('.'),
+                suffix
+            );
+        }
+        i -= 1;
+    }
+}
+
 /// A row of skeleton chips — placeholder for tag/model lists. Bare content;
 /// the caller wraps it in a card if needed.
 #[allow(dead_code)]

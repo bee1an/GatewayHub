@@ -346,8 +346,13 @@ pub struct AppRoot {
     pub(crate) log_notice: Option<String>,
     pub(crate) log_scroll: UniformListScrollHandle,
     pub(crate) usage_scroll: UniformListScrollHandle,
-    /// Usage breakdown grouping — 0 = by provider/model, 1 = by day.
+    /// Usage breakdown grouping — 0 = by provider, 1 = by model, 2 = by day.
     pub(crate) usage_view: usize,
+    /// Usage drill-down — (dimension, key) with `dimension` sharing
+    /// `usage_view`'s numbering. Set by clicking a breakdown row; the table
+    /// then shows the complementary cut (entity → daily log, day → its
+    /// provider/model rows).
+    pub(crate) usage_drill: Option<(usize, String)>,
     pub(crate) account_scroll: HashMap<String, UniformListScrollHandle>,
     /// Settings page: editable server fields + save notice.
     pub(crate) host_input: Entity<InputState>,
@@ -505,6 +510,7 @@ impl AppRoot {
             log_scroll: UniformListScrollHandle::new(),
             usage_scroll: UniformListScrollHandle::new(),
             usage_view: 0,
+            usage_drill: None,
             account_scroll: HashMap::new(),
             host_input: cx.new(|cx| {
                 InputState::new(_window, cx)

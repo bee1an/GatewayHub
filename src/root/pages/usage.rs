@@ -4,7 +4,8 @@ use std::rc::Rc;
 
 use gateway_core::GatewayStatusSnapshot;
 use gpui_kit::component::{
-    ActiveTheme, StyledExt, h_flex, label::Label, skeleton::Skeleton, v_flex,
+    ActiveTheme, Sizable, StyledExt, button::ButtonVariants, h_flex, label::Label,
+    skeleton::Skeleton, v_flex,
 };
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -140,13 +141,31 @@ impl AppRoot {
                 )),
         );
 
+        // Breakdown axes — 0 provider, 1 model, 2 day. `usage_drill`
+        // carries (axis, key) when a row is opened.
+        fn key_of(e: &gateway_core::usage_store::UsageDailyEntry, dim: usize) -> String {
+            match dim {
+                0 => e.provider.clone().unwrap_or_else(|| "?".into()),
+                1 => e.model.clone(),
+                _ => e.date.clone(),
+            }
+        }
+        let drill = self.usage_drill.clone();
+
         // ---- daily tokens chart ----
         // Same per-day totals the "by day" view reports, drawn as a 30-day
         // bar strip so the trend is visible at a glance. Missing days get
-        // zero-height bars so the window reads as one continuous span.
+        // zero-height bars so the window reads as one continuous span. A
+        // provider/model drill scopes the strip to that entity; a day drill
+        // keeps the global shape (a single bar would say nothing).
         let mut day_totals: std::collections::HashMap<String, i64> =
             std::collections::HashMap::new();
         for e in &detail.daily {
+            if let Some((dim, key)) = &drill {
+                if *dim < 2 && key_of(e, *dim) != *key {
+                    continue;
+                }
+            }
             *day_totals.entry(e.date.clone()).or_default() += e.input_tokens + e.output_tokens;
         }
         let today = chrono::Local::now().date_naive();
@@ -205,8 +224,9 @@ impl AppRoot {
 
         // ---- aggregated breakdown ----
         // The store keeps date × account × model rows — far too fine to
-        // scan. Collapse into the two views a reader actually wants:
-        // spend per provider/model, or spend per day.
+        // scan. Collapse along one axis, and let a row drill into the
+        // complementary cut: provider/model rows open that entity's daily
+        // log, a day row opens that day's provider/model split.
         #[derive(Default)]
         struct UsageAgg {
             input: i64,
@@ -227,26 +247,39 @@ impl AppRoot {
             }
         }
 
-        let by_model = self.usage_view == 0;
+        // Effective grouping for the table: an open drill flips to the
+        // complementary axis — provider/model → that entity's daily log,
+        // a day → that day's provider/model pairs.
+        let (group_dim, combined) = match &drill {
+            Some((0 | 1, _)) => (2, false),
+            Some(_) => (1, true),
+            None => (self.usage_view, false),
+        };
         let mut groups: std::collections::HashMap<String, UsageAgg> =
             std::collections::HashMap::new();
         for e in &detail.daily {
-            let key = if by_model {
+            if let Some((dim, key)) = &drill {
+                if key_of(e, *dim) != *key {
+                    continue;
+                }
+            }
+            let key = if combined {
                 format!(
                     "{}/{}",
                     e.provider.clone().unwrap_or_else(|| "?".into()),
                     e.model
                 )
             } else {
-                e.date.clone()
+                key_of(e, group_dim)
             };
             groups.entry(key).or_default().add(e);
         }
         let mut rows: Vec<(String, UsageAgg)> = groups.into_iter().collect();
-        if by_model {
-            rows.sort_by(|a, b| (b.1.input + b.1.output).cmp(&(a.1.input + a.1.output)));
-        } else {
+        // Day-grouped rows read newest-first; entity rows rank by tokens.
+        if group_dim == 2 {
             rows.sort_by(|a, b| b.0.cmp(&a.0));
+        } else {
+            rows.sort_by(|a, b| (b.1.input + b.1.output).cmp(&(a.1.input + a.1.output)));
         }
         let rows = Rc::new(rows);
         let total = rows.len();
@@ -262,6 +295,11 @@ impl AppRoot {
                 None => div().flex_1().min_w_0().child(label),
             }
         };
+        let head_key = if combined {
+            "col_provider_model"
+        } else {
+            ["col_provider", "col_model", "col_date"][group_dim]
+        };
         let header = h_flex()
             .items_center()
             .gap_3()
@@ -269,17 +307,7 @@ impl AppRoot {
             .py_2()
             .border_b_1()
             .border_color(theme.border)
-            .child(head_cell(
-                t(
-                    lang,
-                    if by_model {
-                        "col_provider_model"
-                    } else {
-                        "col_date"
-                    },
-                ),
-                None,
-            ))
+            .child(head_cell(t(lang, head_key), None))
             .child(head_cell(t(lang, "col_in"), Some(72.)))
             .child(head_cell(t(lang, "col_out"), Some(72.)))
             .child(head_cell(t(lang, "col_req"), Some(56.)))
@@ -287,6 +315,9 @@ impl AppRoot {
 
         let theme_for_rows = theme.clone();
         let row_height = px(30.);
+        let drillable = drill.is_none();
+        let view = cx.entity().clone();
+        let drill_dim = self.usage_view;
         let render_row = move |ix: usize, _window: &mut Window, _app: &mut App| -> AnyElement {
             let (label, e) = &rows[ix];
             let cell = |text: String, w: f32, color: Hsla| {
@@ -297,7 +328,7 @@ impl AppRoot {
                         .text_color(color),
                 )
             };
-            h_flex()
+            let row = h_flex()
                 .w_full()
                 .h(row_height)
                 .items_center()
@@ -334,8 +365,23 @@ impl AppRoot {
                     },
                     72.,
                     theme_for_rows.foreground,
-                ))
-                .into_any_element()
+                ));
+            if drillable {
+                let key = label.clone();
+                let view = view.clone();
+                row.id(SharedString::from(format!("usage-row-{key}")))
+                    .cursor_pointer()
+                    .hover(|d| d.bg(theme_for_rows.list_hover))
+                    .on_click(move |_, _, cx| {
+                        view.update(cx, |this, cx| {
+                            this.usage_drill = Some((drill_dim, key.clone()));
+                            cx.notify();
+                        });
+                    })
+                    .into_any_element()
+            } else {
+                row.into_any_element()
+            }
         };
 
         let table: AnyElement = if total == 0 {
@@ -385,27 +431,51 @@ impl AppRoot {
                     .h_full()
                     .min_h_0()
                     .gap_2()
-                    .child(
-                        div().flex_none().child(section_header(
-                            t(lang, "usage_breakdown"),
-                            Some(
-                                toggle_filter(
-                                    "usage-view",
-                                    vec![
-                                        (t(lang, "usage_by_model").into(), by_model),
-                                        (t(lang, "usage_by_day").into(), !by_model),
-                                    ],
-                                    cx.processor(|this, ix, _w, cx| {
-                                        this.usage_view = ix;
-                                        cx.notify();
-                                    }),
-                                    cx,
+                    .child(div().flex_none().child(section_header(
+                        t(lang, "usage_breakdown"),
+                        Some(if let Some((_, key)) = &drill {
+                            // Drilled state: back button + the opened
+                            // key replace the axis picker.
+                            h_flex()
+                                .items_center()
+                                .gap_2()
+                                .child(
+                                    gpui_kit::component::button::Button::new("usage-back")
+                                        .ghost()
+                                        .small()
+                                        .icon(gpui_kit::assets::IconName::ArrowLeft)
+                                        .tooltip(t(lang, "back"))
+                                        .on_click(cx.listener(|this, _, _w, cx| {
+                                            this.usage_drill = None;
+                                            cx.notify();
+                                        })),
                                 )
-                                .into_any_element(),
-                            ),
-                            cx,
-                        )),
-                    )
+                                .child(
+                                    Label::new(key.clone())
+                                        .text_xs()
+                                        .font_medium()
+                                        .text_color(theme.secondary_foreground),
+                                )
+                                .into_any_element()
+                        } else {
+                            toggle_filter(
+                                "usage-view",
+                                vec![
+                                    (t(lang, "usage_by_provider").into(), self.usage_view == 0),
+                                    (t(lang, "usage_by_model").into(), self.usage_view == 1),
+                                    (t(lang, "usage_by_day").into(), self.usage_view == 2),
+                                ],
+                                cx.processor(|this, ix, _w, cx| {
+                                    this.usage_view = ix;
+                                    this.usage_drill = None;
+                                    cx.notify();
+                                }),
+                                cx,
+                            )
+                            .into_any_element()
+                        }),
+                        cx,
+                    )))
                     .child(table),
             )
             .into_any_element()

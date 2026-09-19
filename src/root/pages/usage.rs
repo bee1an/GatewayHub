@@ -85,6 +85,16 @@ impl AppRoot {
         };
         let sum = &detail.summary;
         let cost = |c: Option<f64>| c.map(|v| format!("${v:.4}")).unwrap_or_else(|| "—".into());
+        // Cache-hit rate = read share of input-side tokens; None on zero
+        // traffic, rendered as an em-dash.
+        let hit_rate = |input: i64, read: i64, write: i64| -> Option<f64> {
+            let denom = input + read + write;
+            (denom > 0).then(|| read as f64 / denom as f64)
+        };
+        let hit_pct = |r: Option<f64>| {
+            r.map(|r| format!("{:.0}%", r * 100.))
+                .unwrap_or_else(|| "—".into())
+        };
 
         // ---- summary: two labeled clusters inside one card ----
         // pop_in keys the animation by the value, so a changed number
@@ -120,6 +130,14 @@ impl AppRoot {
                 )
                 .child(h_flex().gap_6().children(cells))
         };
+        // The summary only carries today's cache lanes — fold the window
+        // for the 30-day rate.
+        let (mut in30, mut cr30, mut cw30) = (0_i64, 0_i64, 0_i64);
+        for e in &detail.daily {
+            in30 += e.input_tokens;
+            cr30 += e.cache_read_tokens;
+            cw30 += e.cache_write5m_tokens + e.cache_write1h_tokens;
+        }
         let stats = card(cx).px_4().py_3().child(
             h_flex()
                 .gap_8()
@@ -129,6 +147,14 @@ impl AppRoot {
                         stat(t(lang, "col_tokens"), fmt_count(sum.today_tokens)),
                         stat(t(lang, "col_req"), fmt_count(sum.today_requests)),
                         stat(t(lang, "col_cost"), cost(sum.today_cost_usd)),
+                        stat(
+                            t(lang, "usage_hit"),
+                            hit_pct(hit_rate(
+                                sum.today_input_tokens,
+                                sum.today_cache_read_tokens,
+                                sum.today_cache_write_tokens,
+                            )),
+                        ),
                     ],
                 ))
                 .child(hairline(cx).h_full())
@@ -137,6 +163,7 @@ impl AppRoot {
                     vec![
                         stat(t(lang, "col_tokens"), fmt_count(sum.last30days_tokens)),
                         stat(t(lang, "col_cost"), cost(sum.last30days_cost_usd)),
+                        stat(t(lang, "usage_hit"), hit_pct(hit_rate(in30, cr30, cw30))),
                     ],
                 )),
         );
@@ -231,6 +258,8 @@ impl AppRoot {
         struct UsageAgg {
             input: i64,
             output: i64,
+            cache_read: i64,
+            cache_write: i64,
             requests: i64,
             cost: f64,
             has_cost: bool,
@@ -239,6 +268,8 @@ impl AppRoot {
             fn add(&mut self, e: &gateway_core::usage_store::UsageDailyEntry) {
                 self.input += e.input_tokens;
                 self.output += e.output_tokens;
+                self.cache_read += e.cache_read_tokens;
+                self.cache_write += e.cache_write5m_tokens + e.cache_write1h_tokens;
                 self.requests += e.requests;
                 if let Some(c) = e.cost_usd {
                     self.cost += c;
@@ -310,6 +341,7 @@ impl AppRoot {
             .child(head_cell(t(lang, head_key), None))
             .child(head_cell(t(lang, "col_in"), Some(72.)))
             .child(head_cell(t(lang, "col_out"), Some(72.)))
+            .child(head_cell(t(lang, "col_cache"), Some(52.)))
             .child(head_cell(t(lang, "col_req"), Some(56.)))
             .child(head_cell(t(lang, "col_cost"), Some(72.)));
 
@@ -350,6 +382,11 @@ impl AppRoot {
                 .child(cell(
                     fmt_count(e.output),
                     72.,
+                    theme_for_rows.secondary_foreground,
+                ))
+                .child(cell(
+                    hit_pct(hit_rate(e.input, e.cache_read, e.cache_write)),
+                    52.,
                     theme_for_rows.secondary_foreground,
                 ))
                 .child(cell(

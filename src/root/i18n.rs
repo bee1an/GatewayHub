@@ -326,7 +326,7 @@ fn en(key: &str) -> Option<&'static str> {
         // ---- placeholders ----
         "ph_key_name" => "key name (e.g. laptop)",
         "ph_alias" => "alias (e.g. sonnet)",
-        "ph_target" => "provider/model (e.g. kiro/claude-sonnet-4)",
+        "ph_target" => "provider/model, comma-separated for failover (e.g. kiro/claude-sonnet-4, codex/gpt-5)",
         "ph_import" => "paste account JSON to import",
         "ph_model" => "model (e.g. claude-sonnet-4)",
         "ph_message" => "message…",
@@ -588,7 +588,7 @@ fn zh(key: &str) -> Option<&'static str> {
         // ---- placeholders ----
         "ph_key_name" => "密钥名（如 laptop）",
         "ph_alias" => "别名（如 sonnet）",
-        "ph_target" => "服务商/模型（如 kiro/claude-sonnet-4）",
+        "ph_target" => "服务商/模型，逗号分隔多个目标按序故障转移（如 kiro/claude-sonnet-4, codex/gpt-5）",
         "ph_import" => "粘贴账号 JSON 以导入",
         "ph_model" => "模型（如 claude-sonnet-4）",
         "ph_message" => "输入消息…",

@@ -326,11 +326,10 @@ impl ProviderAdapter for WorkBuddyProvider {
             Ok(()) => {
                 {
                     let mut pool = self.core.pool.lock().await;
-                    if let Some(acc) = pool.find_mut(account_id) {
-                        acc.state.status = AccountStatus::Available;
-                        acc.state.status_updated_at = now_ms();
-                        acc.state.cooldown_until = None;
-                    }
+                    // Verified working — clear the stale failure state
+                    // (last_error line, cooldown) and persist; bare
+                    // `find_mut` writes never reach the state file.
+                    pool.reset_account(account_id);
                 }
                 self.core.refresh_models(account_id).await;
                 let models = self

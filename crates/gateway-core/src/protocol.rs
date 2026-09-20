@@ -444,7 +444,7 @@ impl SseParser {
 
     /// Like `feed` but keeps the `event:` field — returns
     /// `(event_name, data)` pairs for upstreams that name their frames
-    /// (codex `response.*` events).
+    /// (`response.*` events).
     pub fn feed_blocks(&mut self, chunk: &str) -> Vec<(Option<String>, String)> {
         self.buffer.push_str(chunk);
         let mut events = Vec::new();

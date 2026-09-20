@@ -315,28 +315,31 @@ impl ProviderAdapter for TraeWorkProvider {
         match auth.get_user_info().await {
             Ok(info) => {
                 let persist = self.core.persist_account.clone();
-                let mut pool = self.core.pool.lock().await;
-                if let Some(acc) = pool.find_mut(account_id) {
-                    for (key, field) in [
-                        ("email", "email"),
-                        ("userId", "userId"),
-                        ("countryCode", "countryCode"),
-                    ] {
-                        if let Some(v) = info
-                            .get(key)
-                            .and_then(Value::as_str)
-                            .filter(|s| !s.is_empty())
-                        {
-                            acc.config.fields.insert(field.into(), json!(v));
+                {
+                    let mut pool = self.core.pool.lock().await;
+                    if let Some(acc) = pool.find_mut(account_id) {
+                        for (key, field) in [
+                            ("email", "email"),
+                            ("userId", "userId"),
+                            ("countryCode", "countryCode"),
+                        ] {
+                            if let Some(v) = info
+                                .get(key)
+                                .and_then(Value::as_str)
+                                .filter(|s| !s.is_empty())
+                            {
+                                acc.config.fields.insert(field.into(), json!(v));
+                            }
+                        }
+                        if let Some(persist) = &persist {
+                            persist(&acc.config);
                         }
                     }
-                    if let Some(persist) = &persist {
-                        persist(&acc.config);
-                    }
-                    acc.state.status = AccountStatus::Available;
-                    acc.state.status_updated_at = now_ms();
+                    // A passing probe means the account works — wipe the
+                    // stale failure state (last_error line, cooldown) and
+                    // persist; the bare mutation above skipped `changed()`.
+                    pool.reset_account(account_id);
                 }
-                drop(pool);
                 self.core.refresh_models(account_id).await;
                 let models = self
                     .core

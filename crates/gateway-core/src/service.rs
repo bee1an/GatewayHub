@@ -291,25 +291,6 @@ impl GatewayService {
                         }
                     }
                 }
-                "grokweb" | "grokWeb" => match crate::providers::grokweb::GrokWebProvider::new(
-                    &pcfg,
-                    accounts,
-                    &pstate,
-                    log,
-                    on_changed,
-                    Some(persist_account),
-                    proxy_url,
-                ) {
-                    Ok(p) => Arc::new(p),
-                    Err(e) => {
-                        warn!(error = %e, "grokweb provider init failed");
-                        Arc::new(PlaceholderAdapter::new(
-                            "grokWeb",
-                            format!("init failed: {e}"),
-                            pcfg.enabled,
-                        ))
-                    }
-                },
                 "gptweb" | "gptWeb" => match crate::providers::gptweb::GptWebProvider::new(
                     &pcfg,
                     accounts,
@@ -324,25 +305,6 @@ impl GatewayService {
                         warn!(error = %e, "gptweb provider init failed");
                         Arc::new(PlaceholderAdapter::new(
                             "gptWeb",
-                            format!("init failed: {e}"),
-                            pcfg.enabled,
-                        ))
-                    }
-                },
-                "codex" => match crate::providers::codex::CodexProvider::new(
-                    &pcfg,
-                    accounts,
-                    &pstate,
-                    log,
-                    on_changed,
-                    Some(persist_account),
-                    proxy_url,
-                ) {
-                    Ok(p) => Arc::new(p),
-                    Err(e) => {
-                        warn!(error = %e, "codex provider init failed");
-                        Arc::new(PlaceholderAdapter::new(
-                            "codex",
                             format!("init failed: {e}"),
                             pcfg.enabled,
                         ))

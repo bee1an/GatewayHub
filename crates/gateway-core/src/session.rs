@@ -42,7 +42,6 @@ const HEADER_SESSION_KEYS: &[&str] = &[
     "x-session-id",
     "x-conversation-id",
     "x-thread-id",
-    "x-codex-session-id",
     "anthropic-session-id",
 ];
 

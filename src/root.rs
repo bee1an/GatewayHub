@@ -29,7 +29,7 @@ pub(crate) use chrome::{
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
-    ActiveTheme, Icon, Sizable, Size, StyledExt, Theme, ThemeMode,
+    ActiveTheme, Icon, Sizable, Size, StyledExt, ThemeMode,
     button::{Button, ButtonVariants},
     h_flex,
     input::{InputEvent, InputState, TextareaState},
@@ -2547,139 +2547,109 @@ impl Render for AppRoot {
             cx.notify();
         }));
 
-        // Footer: gateway state + theme + language + collapse.  These are the
-        // persistent shell actions from the Electron sidebar.
-        let dark = theme.mode.is_dark();
+        // Footer: gateway state + collapse — the shell's status bar. The
+        // server pill anchors one end, the collapse button the other; the
+        // collapsed rail stacks them vertically instead of dropping the
+        // server state. All controls share one 24px hit area.
         let server_pending = self.server_pending;
-        let footer = h_flex()
-            .items_center()
-            .gap_0p5()
-            .px_1()
-            .py_1p5()
-            .border_t_1()
-            .border_color(theme.sidebar_border)
-            .when(collapsed, |d| d.justify_center())
-            .when(!collapsed, |d| {
-                d.child(
+        let server_tip: SharedString =
+            t(lang, if running { "running" } else { "stopped" }).into();
+        let server_indicator = {
+            let theme = theme.clone();
+            move || {
+                if server_pending {
+                    Spinner::new()
+                        .with_size(Size::XSmall)
+                        .color(theme.muted_foreground)
+                        .into_any_element()
+                } else {
                     div()
-                        .id("rail-server")
-                        .h_7()
-                        .px_2()
-                        .flex()
-                        .items_center()
-                        .gap_1p5()
-                        .rounded(theme.radius)
-                        .hover(|d| d.bg(theme.sidebar_accent))
-                        .on_click(cx.listener(|this, _, _w, cx| this.toggle_server(cx)))
-                        .child(if server_pending {
-                            Spinner::new()
-                                .with_size(Size::XSmall)
-                                .color(theme.muted_foreground)
-                                .into_any_element()
-                        } else {
-                            div()
-                                .size_1p5()
-                                .rounded_full()
-                                .bg(if running { theme.success } else { theme.danger })
-                                .into_any_element()
-                        })
-                        .child(
-                            Label::new(t(lang, if running { "running" } else { "stopped" }))
-                                .text_xs()
-                                .text_color(theme.muted_foreground),
-                        ),
+                        .size_1p5()
+                        .rounded_full()
+                        .bg(if running { theme.success } else { theme.danger })
+                        .into_any_element()
+                }
+            }
+        };
+        // A stopped gateway means nothing works — the pill stays loud.
+        let server_bg = if running {
+            theme.success.opacity(0.10)
+        } else {
+            theme.danger.opacity(0.10)
+        };
+        let server_control = if collapsed {
+            div()
+                .id("rail-server")
+                .size_6()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(theme.radius)
+                .cursor_pointer()
+                .bg(server_bg)
+                .hover(|d| d.bg(theme.sidebar_accent))
+                .tooltip(move |window, cx| Tooltip::new(server_tip.clone()).build(window, cx))
+                .on_click(cx.listener(|this, _, _w, cx| this.toggle_server(cx)))
+                .child(server_indicator())
+        } else {
+            div()
+                .id("rail-server")
+                .h_6()
+                .px_2()
+                .flex()
+                .items_center()
+                .gap_1p5()
+                .rounded(theme.radius)
+                .cursor_pointer()
+                .bg(server_bg)
+                .hover(|d| d.bg(theme.sidebar_accent))
+                .on_click(cx.listener(|this, _, _w, cx| this.toggle_server(cx)))
+                .child(server_indicator())
+                .child(
+                    Label::new(t(lang, if running { "running" } else { "stopped" }))
+                        .text_xs()
+                        .text_color(theme.muted_foreground),
                 )
-                .child(div().flex_1())
+        };
+        let collapse_button = Button::new("rail-collapse")
+            .ghost()
+            .small()
+            .icon(if collapsed {
+                IconName::PanelLeftOpen
+            } else {
+                IconName::PanelLeftClose
             })
-            .child(
-                Button::new("rail-lang")
-                    .ghost()
-                    .xsmall()
-                    .icon(IconName::Globe)
-                    .tooltip(t(lang, "language"))
-                    .on_click(cx.listener(|this, _, _w, cx| {
-                        this.set_language(this.lang.next(), cx);
-                    })),
-            )
-            .child(
-                // Icon swap — scale + rotate into place on each mode flip.
-                div()
-                    .id("rail-theme")
-                    .size_7()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(theme.radius)
-                    .cursor_pointer()
-                    .hover(|d| d.bg(theme.sidebar_accent))
-                    .tooltip({
-                        let tip: SharedString = t(
-                            lang,
-                            if dark {
-                                "switch_to_light"
-                            } else {
-                                "switch_to_dark"
-                            },
-                        )
-                        .into();
-                        move |window, cx| Tooltip::new(tip.clone()).build(window, cx)
-                    })
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        let next = if cx.theme().mode.is_dark() {
-                            ThemeMode::Light
-                        } else {
-                            ThemeMode::Dark
-                        };
-                        this.mode_choice = Some(next);
-                        Theme::change(next, None, cx);
-                        // Keep the native frosted material on the same
-                        // appearance as the in-app theme.
-                        #[cfg(target_os = "macos")]
-                        if let Err(error) = crate::macos_blur::set_window_appearance(
-                            window,
-                            matches!(next, ThemeMode::Dark),
-                        ) {
-                            tracing::warn!(%error, "failed to pin window appearance");
-                        }
-                        cx.notify();
-                    }))
-                    .child(
-                        Icon::new(if dark { IconName::Sun } else { IconName::Moon })
-                            .size(px(NAV_ICON))
-                            .text_color(theme.muted_foreground)
-                            .with_animation(
-                                SharedString::from(format!("rail-theme-{dark}")),
-                                Animation::new(Duration::from_millis(240))
-                                    .with_easing(ease_out_quint()),
-                                |icon, d| {
-                                    icon.transform(
-                                        Transformation::scale(size(0.4 + 0.6 * d, 0.4 + 0.6 * d))
-                                            .with_rotation(percentage((1. - d) * 0.3)),
-                                    )
-                                    .opacity(d)
-                                },
-                            ),
-                    ),
-            )
-            .child(
-                Button::new("rail-collapse")
-                    .ghost()
-                    .xsmall()
-                    .icon(if collapsed {
-                        IconName::PanelLeftOpen
-                    } else {
-                        IconName::PanelLeftClose
-                    })
-                    .tooltip(if collapsed {
-                        t(lang, "expand_sidebar")
-                    } else {
-                        t(lang, "collapse_sidebar")
-                    })
-                    .on_click(cx.listener(|this, _, _w, cx| {
-                        this.collapsed = !this.collapsed;
-                        cx.notify();
-                    })),
-            );
+            .tooltip(if collapsed {
+                t(lang, "expand_sidebar")
+            } else {
+                t(lang, "collapse_sidebar")
+            })
+            .on_click(cx.listener(|this, _, _w, cx| {
+                this.collapsed = !this.collapsed;
+                cx.notify();
+            }));
+        let footer = if collapsed {
+            v_flex()
+                .items_center()
+                .gap_1()
+                .px_1()
+                .py_1p5()
+                .border_t_1()
+                .border_color(theme.sidebar_border)
+                .child(server_control)
+                .child(collapse_button)
+        } else {
+            h_flex()
+                .items_center()
+                .gap_0p5()
+                .px_1()
+                .py_1p5()
+                .border_t_1()
+                .border_color(theme.sidebar_border)
+                .child(server_control)
+                .child(div().flex_1())
+                .child(collapse_button)
+        };
 
         // Width tween on collapse/expand — the transitions-dev "card
         // resize". The animator owns `w` for the duration; the resting state

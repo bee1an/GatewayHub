@@ -299,7 +299,7 @@ fn apply_cors(state: &ServerState, req_headers: &HeaderMap, out: &mut HeaderMap)
         out.insert(
             header::ACCESS_CONTROL_ALLOW_HEADERS,
             HeaderValue::from_static(
-                "authorization,x-api-key,anthropic-version,content-type,x-claude-session-id,x-session-id,x-conversation-id,x-thread-id,x-codex-session-id",
+                "authorization,x-api-key,anthropic-version,content-type,x-claude-session-id,x-session-id,x-conversation-id,x-thread-id",
             ),
         );
         out.insert(

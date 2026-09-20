@@ -29,14 +29,6 @@ impl Lang {
             Lang::System => *system_locale(),
         }
     }
-
-    pub fn next(self) -> Lang {
-        match self.resolve() {
-            Lang::En => Lang::Zh,
-            Lang::Zh => Lang::En,
-            Lang::System => Lang::En,
-        }
-    }
 }
 
 fn system_locale() -> &'static Lang {
@@ -92,8 +84,6 @@ fn en(key: &str) -> Option<&'static str> {
         // ---- shell / status strip ----
         "running" => "Running",
         "stopped" => "Stopped",
-        "switch_to_light" => "Switch to light",
-        "switch_to_dark" => "Switch to dark",
         "expand_sidebar" => "Expand sidebar",
         "collapse_sidebar" => "Collapse sidebar",
 
@@ -339,8 +329,6 @@ fn zh(key: &str) -> Option<&'static str> {
         // ---- shell / status strip ----
         "running" => "运行中",
         "stopped" => "已停止",
-        "switch_to_light" => "切换到浅色",
-        "switch_to_dark" => "切换到深色",
         "expand_sidebar" => "展开侧栏",
         "collapse_sidebar" => "收起侧栏",
 

@@ -62,8 +62,6 @@ pub trait PoolBehavior: Send + Sync {
     }
 
     /// Status→cooldown mapping hook (TS `resolveCooldown` overrides).
-    /// codex diverts: quota honors an upstream resetAtIso deadline and
-    /// cooling uses `max(1000, cooldownMs || 30_000)` as the backoff base.
     fn resolve_cooldown(
         &self,
         account: &AccountWithState,

@@ -108,13 +108,7 @@ fn builtin() -> HashMap<String, ModelPrice> {
             ..price_cache(15.0, 75.0, 1.5, 18.75, 0.0)
         },
     );
-    for key in [
-        "gpt-5",
-        "gpt-5-codex",
-        "gpt-5.1",
-        "gpt-5.1-codex",
-        "gpt-5.1-codex-max",
-    ] {
+    for key in ["gpt-5", "gpt-5.1"] {
         m.insert(
             key.to_string(),
             ModelPrice {
@@ -127,14 +121,6 @@ fn builtin() -> HashMap<String, ModelPrice> {
     m.insert("gpt-5-pro".into(), price(15.0, 120.0));
     m.insert(
         "gpt-5-mini".into(),
-        ModelPrice {
-            cache_write5m_per_m_tokens: None,
-            cache_write1h_per_m_tokens: None,
-            ..price_cache(0.25, 2.0, 0.025, 0.0, 0.0)
-        },
-    );
-    m.insert(
-        "gpt-5.1-codex-mini".into(),
         ModelPrice {
             cache_write5m_per_m_tokens: None,
             cache_write1h_per_m_tokens: None,

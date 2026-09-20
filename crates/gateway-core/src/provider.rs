@@ -11,14 +11,12 @@ use crate::types::{
 /// Canonical provider order — same set the Electron registry knows.
 pub const PROVIDERS: &[&str] = &[
     "kiro",
-    "codex",
     "trae",
     "traework",
     "workbuddy",
     "openrouter",
     "nvidia",
     "gptWeb",
-    "grokWeb",
     "geminiWeb",
     "qoder",
     "gemini",
@@ -30,12 +28,10 @@ pub const PLACEHOLDER_PROVIDERS: &[&str] = &["gemini"];
 /// Providers that can route upstream traffic through `server.proxyUrl`.
 pub const PROXY_CAPABLE: &[&str] = &[
     "kiro",
-    "codex",
     "trae",
     "traework",
     "workbuddy",
     "gptWeb",
-    "grokWeb",
     "qoder",
     "geminiWeb",
 ];

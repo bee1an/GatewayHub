@@ -20,21 +20,14 @@ pub(crate) fn provider_icon(provider: &str, dark: bool) -> Option<&'static str> 
         "workbuddy" => "providers/workbuddy-icon.png",
         "openrouter" => "providers/openrouter-icon.png",
         "nvidia" => "providers/nvidia-icon.png",
-        "grokWeb" => {
-            if dark {
-                "providers/grok-icon-dark.svg"
-            } else {
-                "providers/grok-icon-light.svg"
-            }
-        }
         "qoder" => "providers/qoder-icon.png",
         "gemini" | "geminiWeb" => "providers/gemini-icon.svg",
         "kiro" => "providers/kiro-icon.svg",
-        "gptWeb" | "codex" => {
+        "gptWeb" => {
             if dark {
-                "providers/codex-icon-dark.svg"
+                "providers/openai-icon-dark.svg"
             } else {
-                "providers/codex-icon-light.svg"
+                "providers/openai-icon-light.svg"
             }
         }
         _ => return None,

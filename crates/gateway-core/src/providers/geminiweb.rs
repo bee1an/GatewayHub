@@ -672,7 +672,7 @@ impl GeminiWebProvider {
     }
 }
 
-/// `classifyGeminiWebError` port (mirrors grokweb's table).
+/// `classifyGeminiWebError` port (same table shape as the other web providers).
 pub fn classify_geminiweb_error(raw: &str) -> ClassifiedError {
     let msg = raw.to_lowercase();
     let has = |s: &str| msg.contains(s);

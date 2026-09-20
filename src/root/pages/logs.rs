@@ -10,6 +10,8 @@ use gpui_kit::component::{
     h_flex,
     input::Input,
     label::Label,
+    searchable_list::SearchableVec,
+    select::Select,
     v_flex,
 };
 use gpui_kit::prelude::*;
@@ -29,14 +31,39 @@ const LANE_DURATION: f32 = 72.;
 
 impl AppRoot {
     pub(crate) fn render_logs(
-        &self,
+        &mut self,
         snapshot: &GatewayStatusSnapshot,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme().clone();
         let lang = self.lang;
         let query = self.log_search.read(cx).value().to_lowercase();
         let level_ix = self.log_level;
+        let provider_pick = self.log_provider_sel.read(cx).selected_value().cloned();
+
+        // Provider filter options — configured providers first, then any
+        // names only seen in the log buffer (e.g. removed since). Re-synced
+        // into the SelectState only when the snapshot actually changes the
+        // set; the selection itself survives `set_items`.
+        let mut providers: Vec<String> = snapshot
+            .providers
+            .iter()
+            .map(|p| p.name.clone())
+            .collect();
+        for e in &snapshot.logs {
+            if let Some(p) = &e.provider {
+                if !providers.contains(p) {
+                    providers.push(p.clone());
+                }
+            }
+        }
+        if providers != self.log_provider_items {
+            self.log_provider_items = providers.clone();
+            self.log_provider_sel.update(cx, |s, cx| {
+                s.set_items(SearchableVec::new(providers), window, cx);
+            });
+        }
 
         // Keep only indices into the cached Arc snapshot. Cloning thousands of
         // log strings on each five-second status refresh caused a visible
@@ -52,6 +79,9 @@ impl AppRoot {
                     3 => e.level == LogLevel::Error,
                     _ => true,
                 };
+                let provider_ok = provider_pick
+                    .as_deref()
+                    .is_none_or(|p| e.provider.as_deref() == Some(p));
                 let query_ok = query.is_empty()
                     || e.message.to_lowercase().contains(&query)
                     || e.provider
@@ -59,7 +89,7 @@ impl AppRoot {
                         .unwrap_or("")
                         .to_lowercase()
                         .contains(&query);
-                (level_ok && query_ok).then_some(index)
+                (level_ok && provider_ok && query_ok).then_some(index)
             })
             .collect();
         entry_indices.reverse(); // newest first
@@ -94,6 +124,15 @@ impl AppRoot {
                     .flex_1()
                     .min_w_0()
                     .child(Input::new(&self.log_search).small()),
+            )
+            .child(
+                div().w(px(150.)).flex_none().child(
+                    Select::new(&self.log_provider_sel)
+                        .small()
+                        .cleanable(true)
+                        .placeholder(t(lang, "all_providers"))
+                        .menu_width(px(200.)),
+                ),
             )
             .child(
                 Button::new("logs-export")

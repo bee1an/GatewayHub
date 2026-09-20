@@ -34,7 +34,7 @@ use gpui_kit::component::{
     input::{InputEvent, InputState, TextareaState},
     label::Label,
     searchable_list::{SearchableListItem, SearchableVec},
-    select::SelectState,
+    select::{SelectEvent, SelectState},
     spinner::Spinner,
     tooltip::Tooltip,
     v_flex,
@@ -342,8 +342,13 @@ pub struct AppRoot {
     /// Set when Enter fires inside the composer — `set_value` needs a Window,
     /// so the actual clear happens at the top of the next render.
     pub(crate) pg_clear_input: bool,
-    /// Logs page: level segment index (0 = all), search text, export notice.
+    /// Logs page: level segment index (0 = all), provider filter, search
+    /// text, export notice.
     pub(crate) log_level: usize,
+    /// Provider filter dropdown — no selection means all providers.
+    pub(crate) log_provider_sel: Entity<SelectState<SearchableVec<String>>>,
+    /// Last-synced provider names pushed into the filter dropdown.
+    pub(crate) log_provider_items: Vec<String>,
     pub(crate) log_search: Entity<InputState>,
     pub(crate) log_notice: Option<String>,
     pub(crate) log_scroll: UniformListScrollHandle,
@@ -439,6 +444,17 @@ impl AppRoot {
             }
         })
         .detach();
+        // Provider filter for the logs page — Confirm fires on pick and on
+        // cleanable-clear, and render reads selected_value(), so a plain
+        // notify re-filters the list.
+        let log_provider_sel = cx.new(|cx| {
+            SelectState::new(SearchableVec::new(Vec::<String>::new()), None, _window, cx)
+        });
+        cx.subscribe(
+            &log_provider_sel,
+            |_this, _state, _ev: &SelectEvent<SearchableVec<String>>, cx| cx.notify(),
+        )
+        .detach();
         Self {
             service,
             snapshot,
@@ -508,6 +524,8 @@ impl AppRoot {
             pg_scroll: ScrollHandle::new(),
             pg_clear_input: false,
             log_level: 0,
+            log_provider_sel,
+            log_provider_items: Vec::new(),
             log_search: cx.new(|cx| InputState::new(_window, cx).placeholder(t(lang, "ph_filter"))),
             log_notice: None,
             log_scroll: UniformListScrollHandle::new(),
@@ -2391,7 +2409,7 @@ impl Render for AppRoot {
                     Page::Mappings => self.render_mappings(snapshot.as_ref(), cx),
                     Page::Playground => self.render_playground(snapshot.as_ref(), window, cx),
                     Page::Usage => self.render_usage(snapshot.as_ref(), cx),
-                    Page::Logs => self.render_logs(snapshot.as_ref(), cx),
+                    Page::Logs => self.render_logs(snapshot.as_ref(), window, cx),
                     Page::Settings => self.render_settings(snapshot.as_ref(), cx),
                 },
                 PAGE_MAX_W,

@@ -184,6 +184,7 @@ fn en(key: &str) -> Option<&'static str> {
 
         // ---- logs ----
         "all" => "All",
+        "all_providers" => "All providers",
         "info" => "Info",
         "warn" => "Warn",
         "error" => "Error",
@@ -423,6 +424,7 @@ fn zh(key: &str) -> Option<&'static str> {
 
         // ---- logs ----
         "all" => "全部",
+        "all_providers" => "全部服务商",
         "info" => "信息",
         "warn" => "警告",
         "error" => "错误",

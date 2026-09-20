@@ -537,6 +537,16 @@ impl WorkBuddyCore {
             if !force
                 && existing.as_ref().and_then(|c| c.last_day.as_deref()) == Some(today.as_str())
             {
+                // A stamped day contradicts a lingering error — clear it
+                // here too, since this branch skips the run that would
+                // (older state files stamped `last_day` unconditionally).
+                if existing
+                    .as_ref()
+                    .is_some_and(|c| c.last_error.is_some())
+                {
+                    let mut pool = self.pool.lock().await;
+                    pool.set_checkin(id, |s| s.last_error = None);
+                }
                 // Already checked in — but refresh the stored balance once
                 // if the sweep has never fetched it (older state files have
                 // no `creditsTotal`).
@@ -695,10 +705,14 @@ impl WorkBuddyCore {
                         let balance = run.balance;
                         pool.set_checkin(id, |s| {
                             s.last_at = Some(now_ms());
+                            // The upstream round-trip succeeded — any earlier
+                            // check-in error is stale even when the account
+                            // itself can't claim (`!status.active`); gating
+                            // this on `confirmed` pinned the badge forever.
+                            s.last_error = None;
                             if confirmed {
                                 s.last_day = Some(today.clone());
                                 s.last_credits = total.map(|t| t as f64);
-                                s.last_error = None;
                             }
                             if let Some(b) = balance {
                                 s.extra.insert("creditsTotal".into(), serde_json::json!(b));

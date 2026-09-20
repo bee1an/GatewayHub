@@ -103,6 +103,11 @@ fn en(key: &str) -> Option<&'static str> {
         "language_en" => "English",
         "language_zh" => "中文",
 
+        // ---- theme switch ----
+        "theme" => "Theme",
+        "theme_light" => "Light",
+        "theme_dark" => "Dark",
+
         // ---- dashboard ----
         "n_ready" => "{ready}/{enabled} ready",
         "n_errors" => "{n} errors",
@@ -344,6 +349,11 @@ fn zh(key: &str) -> Option<&'static str> {
         "language_system" => "跟随系统",
         "language_en" => "English",
         "language_zh" => "中文",
+
+        // ---- theme switch ----
+        "theme" => "主题",
+        "theme_light" => "浅色",
+        "theme_dark" => "深色",
 
         // ---- dashboard ----
         "n_ready" => "{ready}/{enabled} 就绪",

@@ -4,7 +4,7 @@
 use gateway_core::GatewayStatusSnapshot;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
-    ActiveTheme, Sizable, StyledExt,
+    ActiveTheme, Sizable, StyledExt, Theme, ThemeMode,
     button::{Button, ButtonVariants},
     h_flex,
     input::Input,
@@ -429,6 +429,49 @@ impl AppRoot {
                     t(lang, "language"),
                     "",
                     Some(lang_filter.into_any_element()),
+                    None,
+                    cx,
+                )
+            })
+            .child({
+                // Theme selector — same segmented idiom as the language row;
+                // moved here from the sidebar footer.
+                let theme_entity = cx.entity();
+                let dark_now = theme.mode.is_dark();
+                let theme_filter = toggle_filter(
+                    "settings-theme",
+                    vec![
+                        (t(lang, "theme_light").into(), !dark_now),
+                        (t(lang, "theme_dark").into(), dark_now),
+                    ],
+                    move |ix, window, app| {
+                        let root = theme_entity.clone();
+                        app.update_entity(&root, |this, cx| {
+                            let next = if ix == 1 {
+                                ThemeMode::Dark
+                            } else {
+                                ThemeMode::Light
+                            };
+                            this.mode_choice = Some(next);
+                            Theme::change(next, Some(window), cx);
+                            // Keep the native frosted material on the same
+                            // appearance as the in-app theme.
+                            #[cfg(target_os = "macos")]
+                            if let Err(error) = crate::macos_blur::set_window_appearance(
+                                window,
+                                matches!(next, ThemeMode::Dark),
+                            ) {
+                                tracing::warn!(%error, "failed to pin window appearance");
+                            }
+                            cx.notify();
+                        });
+                    },
+                    cx,
+                );
+                settings_section(
+                    t(lang, "theme"),
+                    "",
+                    Some(theme_filter.into_any_element()),
                     None,
                     cx,
                 )

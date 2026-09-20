@@ -28,8 +28,12 @@ impl AppRoot {
         let mut map_rows: Vec<AnyElement> = Vec::new();
         for (ix, m) in cfg.model_mappings.iter().enumerate() {
             let m_alias = m.alias.clone();
-            let m_provider = m.provider.clone();
-            let m_model = m.model.clone();
+            let m_targets = m
+                .targets()
+                .iter()
+                .map(|t| format!("{}/{}", t.provider, t.model))
+                .collect::<Vec<_>>()
+                .join(" → ");
             map_rows.push(
                 row()
                     .child(
@@ -54,7 +58,7 @@ impl AppRoot {
                                     .text_color(theme.muted_foreground),
                             )
                             .child(
-                                Label::new(format!("{}/{}", m.provider, m.model))
+                                Label::new(m_targets.clone())
                                     .font_family(MONO)
                                     .text_xs()
                                     .text_color(theme.secondary_foreground)
@@ -81,7 +85,7 @@ impl AppRoot {
                                     "delete_mapping_desc",
                                     &[
                                         ("alias", &m_alias),
-                                        ("target", &format!("{}/{}", m_provider, m_model)),
+                                        ("target", &m_targets),
                                     ],
                                 );
                                 this.confirm(

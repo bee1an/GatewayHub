@@ -106,19 +106,60 @@ pub struct ApiKeyEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ModelMapping {
-    #[serde(default)]
-    pub alias: String,
+pub struct ModelTarget {
     #[serde(default)]
     pub provider: String,
     #[serde(default)]
     pub model: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelMapping {
+    #[serde(default)]
+    pub alias: String,
+    /// Legacy single-target fields. Kept serialized in sync with
+    /// `targets[0]` (see `set_targets`) so a config written by this build
+    /// still parses on builds that predate multi-target mappings.
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub targets: Vec<ModelTarget>,
     #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
     pub note: Option<String>,
     #[serde(flatten)]
     pub extra: JsonMap,
+}
+
+impl ModelMapping {
+    /// Ordered failover targets: `targets` when present, else the legacy
+    /// `provider`/`model` pair.
+    pub fn targets(&self) -> Vec<ModelTarget> {
+        if !self.targets.is_empty() {
+            return self.targets.clone();
+        }
+        if self.provider.is_empty() || self.model.is_empty() {
+            return Vec::new();
+        }
+        vec![ModelTarget {
+            provider: self.provider.clone(),
+            model: self.model.clone(),
+        }]
+    }
+
+    /// Write `targets` and mirror the first entry into the legacy
+    /// `provider`/`model` fields.
+    pub fn set_targets(&mut self, targets: Vec<ModelTarget>) {
+        if let Some(first) = targets.first() {
+            self.provider = first.provider.clone();
+            self.model = first.model.clone();
+        }
+        self.targets = targets;
+    }
 }
 
 /// Generic per-provider config entry. Provider-specific `settings` contents
@@ -452,6 +493,12 @@ pub enum GatewayResponse {
 }
 
 impl GatewayResponse {
+    pub fn status(&self) -> u16 {
+        match self {
+            Self::Json { status, .. } | Self::Sse { status, .. } => *status,
+        }
+    }
+
     pub fn json(status: u16, body: serde_json::Value) -> Self {
         Self::Json { status, body }
     }

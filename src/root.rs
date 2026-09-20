@@ -17,7 +17,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use gateway_core::{
-    ApiKeyEntry, GatewayService, GatewayStatusSnapshot, ModelMapping, generate_api_key,
+    ApiKeyEntry, GatewayService, GatewayStatusSnapshot, ModelMapping, ModelTarget,
+    generate_api_key,
 };
 
 pub(crate) use chrome::{
@@ -628,22 +629,36 @@ impl AppRoot {
 
     fn add_mapping(&mut self, cx: &mut Context<Self>) {
         let alias = self.map_alias_input.read(cx).value().trim().to_string();
-        let target = self.map_target_input.read(cx).value().trim().to_string();
-        let Some((provider, model)) = target.split_once('/') else {
-            return;
-        };
-        if alias.is_empty() || provider.is_empty() || model.is_empty() {
+        let raw_targets = self.map_target_input.read(cx).value().trim().to_string();
+        // Comma-separated `provider/model` list → ordered failover targets.
+        let targets: Vec<ModelTarget> = raw_targets
+            .split(',')
+            .filter_map(|part| {
+                let (provider, model) = part.trim().split_once('/')?;
+                if provider.is_empty() || model.is_empty() {
+                    return None;
+                }
+                Some(ModelTarget {
+                    provider: provider.to_string(),
+                    model: model.to_string(),
+                })
+            })
+            .collect();
+        if alias.is_empty() || targets.is_empty() {
             return;
         }
         let mut cfg = self.service.config();
-        cfg.model_mappings.push(ModelMapping {
+        let mut mapping = ModelMapping {
             alias,
-            provider: provider.to_string(),
-            model: model.to_string(),
+            provider: String::new(),
+            model: String::new(),
+            targets: Vec::new(),
             enabled: true,
             note: None,
             extra: Default::default(),
-        });
+        };
+        mapping.set_targets(targets);
+        cfg.model_mappings.push(mapping);
         if let Err(e) = self.service.save_config(cfg) {
             tracing::error!(error = %e, "save config failed");
             return;

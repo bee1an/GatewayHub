@@ -10,6 +10,7 @@
 
 pub mod apikey;
 pub mod cli_login;
+pub mod discover;
 pub mod http;
 pub mod paths;
 pub mod pool;

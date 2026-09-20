@@ -595,6 +595,76 @@ impl GatewayService {
         }
     }
 
+    // ==================== discover (local credential scan) ====================
+
+    /// `scan*Accounts` — local credential scan + existing/updatable markers.
+    /// Synchronous fs/sqlite; call through `spawn_ui`.
+    pub fn scan_provider_accounts(
+        &self,
+        provider: &str,
+    ) -> Vec<crate::discover::ScanCandidate> {
+        crate::discover::scan_provider_accounts(&self.store, provider)
+    }
+
+    /// `importScanned*Accounts` — re-scan (credentials may have rotated since
+    /// the dialog's scan), write the selected ids, update-in-place for kiro
+    /// `updatable` candidates.
+    pub fn import_scanned_accounts(
+        &self,
+        provider: &str,
+        ids: &[String],
+    ) -> (usize, usize) {
+        let candidates = crate::discover::scan_provider_accounts(&self.store, provider);
+        let mut added = 0usize;
+        let mut updated = 0usize;
+        for c in candidates
+            .into_iter()
+            .filter(|c| ids.iter().any(|id| id == &c.account.id))
+        {
+            if let Some(existing_id) = &c.existing_id {
+                if c.updatable {
+                    // `kiroAccountImportUpdates` — merge the fresh fields into
+                    // the existing file (keeps its own id/path/enabled).
+                    if let Some(mut existing) = self
+                        .store
+                        .scan_accounts(provider)
+                        .into_iter()
+                        .find(|a| &a.id == existing_id)
+                    {
+                        for key in [
+                            "refreshToken",
+                            "accessToken",
+                            "expiresAt",
+                            "profileArn",
+                            "clientId",
+                            "clientSecret",
+                            "region",
+                            "apiRegion",
+                        ] {
+                            if let Some(v) = c.account.fields.get(key) {
+                                existing.fields.insert(key.to_string(), v.clone());
+                            }
+                        }
+                        if c.account.email.is_some() {
+                            existing.email.clone_from(&c.account.email);
+                        }
+                        if c.account.label.is_some() {
+                            existing.label.clone_from(&c.account.label);
+                        }
+                        if self.store.write_account(provider, &existing).is_ok() {
+                            updated += 1;
+                        }
+                    }
+                }
+                continue;
+            }
+            if self.store.write_account(provider, &c.account).is_ok() {
+                added += 1;
+            }
+        }
+        (added, updated)
+    }
+
     /// Re-importing a CLI account must overwrite the same file — adopt the
     /// existing account's path when the id is already on disk.
     pub fn upsert_account(&self, provider: &str, account: &AccountFile) -> Result<PathBuf> {

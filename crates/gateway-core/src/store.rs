@@ -3,7 +3,7 @@
 //! missing/corrupt files (corrupt files are kept for manual recovery).
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use tracing::warn;
@@ -85,7 +85,7 @@ impl ConfigStore {
             match read_json::<AccountFile>(&path) {
                 Ok(mut acc) => {
                     backfill_id(provider, &mut acc);
-                    if !validate_account(provider, &acc) {
+                    if !validate_account(&self.paths, provider, &acc) {
                         continue;
                     }
                     acc.path = Some(path.display().to_string());
@@ -160,13 +160,18 @@ fn backfill_id(provider: &str, acc: &mut AccountFile) {
 }
 
 /// Per-provider `validate` — the API-key providers (openrouter/nvidia)
-/// silently drop files with no `apiKey`, like the TS stores.
-fn validate_account(provider: &str, acc: &AccountFile) -> bool {
+/// silently drop files with no `apiKey`, and qoder drops any `qoderCliHome`
+/// pointing outside the managed auth dir (the request path reads
+/// `<qoderCliHome>/.qoder/.auth/*` directly — TS `isPathInside` guard).
+fn validate_account(paths: &GatewayPaths, provider: &str, acc: &AccountFile) -> bool {
     if acc.id.is_empty() {
         return false;
     }
     match provider {
         "openrouter" | "nvidia" => acc.field_str("apiKey").is_some_and(|k| !k.is_empty()),
+        "qoder" => acc
+            .field_str("qoderCliHome")
+            .is_none_or(|h| crate::cli_login::path_inside(Path::new(h), &paths.auth_dir("qoder"))),
         _ => true,
     }
 }

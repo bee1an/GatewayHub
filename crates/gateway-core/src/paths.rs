@@ -50,6 +50,13 @@ impl GatewayPaths {
         self.root.join(provider)
     }
 
+    /// `<provider>/auth` — managed credential-bundle homes imported from a
+    /// local CLI (qoder's `.qoder/.auth` tree). Account files may only point
+    /// at `qoderCliHome` paths inside this directory.
+    pub fn auth_dir(&self, provider: &str) -> PathBuf {
+        self.provider_dir(provider).join("auth")
+    }
+
     pub fn logs_dir(&self) -> PathBuf {
         self.root.join("logs")
     }

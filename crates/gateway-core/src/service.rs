@@ -2,9 +2,12 @@
 //! the HTTP server handle. Single-process equivalent of the Electron
 //! `gatewayHubService` — the UI calls it directly instead of over IPC.
 
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
 use tracing::{info, warn};
 
 use crate::provider;
@@ -36,6 +39,9 @@ pub struct GatewayService {
     /// the HTTP server gets its own thread+runtime; this one serves the
     /// GPUI frontend which runs on smol, not tokio.
     ui_rt: tokio::runtime::Handle,
+    /// In-flight CLI login sessions keyed by provider — one at a time each
+    /// (the TS `activeSession` singleton, per provider here).
+    cli_sessions: Arc<Mutex<HashMap<String, crate::cli_login::CliLoginHandle>>>,
 }
 
 impl GatewayService {
@@ -70,6 +76,7 @@ impl GatewayService {
             usage_store,
             server: Mutex::new(None),
             ui_rt,
+            cli_sessions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -482,6 +489,125 @@ impl GatewayService {
             .into_iter()
             .map(|(k, v)| (k, crate::types::AccountRuntimeState::from_value(&v)))
             .collect()
+    }
+
+    // ==================== CLI login (kiro/qoder) ====================
+
+    /// `detectKiroCli`/`detectQoderCli` — binary lookup for the add-account
+    /// dialog; call through `spawn_ui`.
+    pub async fn detect_provider_cli(
+        &self,
+        provider: &str,
+        custom_path: Option<String>,
+    ) -> Result<crate::cli_login::CliDetectResult> {
+        crate::cli_login::detect_cli(provider, custom_path.as_deref()).await
+    }
+
+    /// `loginWith{Kiro,Qoder}Cli` — runs the whole login flow on the UI
+    /// runtime; stdout/stderr/exit stream back over the returned receiver.
+    /// The harvested account arrives inside the `Exit` event — writing it is
+    /// the caller's job (`upsert_account` + registry reload).
+    pub fn start_cli_login(
+        &self,
+        provider: &str,
+        cli_path: Option<String>,
+        label: Option<String>,
+    ) -> Result<tokio::sync::mpsc::UnboundedReceiver<crate::cli_login::CliLoginEvent>> {
+        crate::cli_login::cli_bin(provider).context("provider has no CLI login")?;
+        if self
+            .cli_sessions
+            .lock()
+            .ok()
+            .is_some_and(|s| s.contains_key(provider))
+        {
+            bail!("A CLI login is already in progress");
+        }
+        let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (cancel_tx, cancel_rx) = tokio::sync::mpsc::unbounded_channel();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        if let Ok(mut sessions) = self.cli_sessions.lock() {
+            sessions.insert(
+                provider.to_string(),
+                crate::cli_login::CliLoginHandle {
+                    cancelled: cancelled.clone(),
+                    cancel_tx,
+                },
+            );
+        }
+        let sessions = self.cli_sessions.clone();
+        let auth_dir = self.store.paths().auth_dir(provider);
+        let http = reqwest::Client::new();
+        let name = provider.to_string();
+        let bin = crate::cli_login::cli_bin(provider).unwrap_or_default();
+        self.spawn_ui(async move {
+            let cli_path = cli_path.unwrap_or_else(|| bin.to_string());
+            match name.as_str() {
+                "kiro" => {
+                    crate::cli_login::kiro_login(&cli_path, http, cancelled, cancel_rx, event_tx)
+                        .await
+                }
+                "qoder" => {
+                    crate::cli_login::qoder_login(
+                        &cli_path, auth_dir, label, cancelled, cancel_rx, event_tx,
+                    )
+                    .await
+                }
+                _ => {}
+            }
+            if let Ok(mut sessions) = sessions.lock() {
+                sessions.remove(&name);
+            }
+        });
+        Ok(event_rx)
+    }
+
+    /// `cancel*CliLogin` — SIGKILL the child; the pump's cleanup still runs.
+    pub fn cancel_cli_login(&self, provider: &str) -> bool {
+        let Some(handle) = self
+            .cli_sessions
+            .lock()
+            .ok()
+            .and_then(|mut s| s.remove(provider))
+        else {
+            return false;
+        };
+        handle.cancelled.store(true, Ordering::Relaxed);
+        let _ = handle.cancel_tx.send(());
+        true
+    }
+
+    /// `importCurrentQoderCliAuth` — harvest an already-logged-in local CLI
+    /// into the managed auth dir, without running `login`.
+    pub async fn import_current_cli_auth(
+        &self,
+        provider: &str,
+        cli_path: Option<String>,
+    ) -> Result<AccountFile> {
+        match provider {
+            "qoder" => {
+                crate::cli_login::qoder_import_current(
+                    self.store.paths().auth_dir("qoder"),
+                    cli_path,
+                )
+                .await
+            }
+            _ => bail!("provider has no CLI import"),
+        }
+    }
+
+    /// Re-importing a CLI account must overwrite the same file — adopt the
+    /// existing account's path when the id is already on disk.
+    pub fn upsert_account(&self, provider: &str, account: &AccountFile) -> Result<PathBuf> {
+        let mut acc = account.clone();
+        if let Some(existing) = self
+            .store
+            .scan_accounts(provider)
+            .into_iter()
+            .find(|a| a.id == acc.id)
+        {
+            acc.path = existing.path;
+        }
+        self.store.write_account(provider, &acc)
     }
 
     /// `clearLogs` — drop every provider's log ring and persist the state.

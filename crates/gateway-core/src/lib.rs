@@ -9,6 +9,7 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
 pub mod apikey;
+pub mod cli_login;
 pub mod http;
 pub mod paths;
 pub mod pool;

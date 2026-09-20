@@ -253,6 +253,9 @@ impl<B: PoolBehavior> AccountPool<B> {
             acc.state.last_error = None;
             acc.state.last_failure_at = 0;
             acc.state.last_response_kind = None;
+            if let Some(checkin) = acc.state.checkin.as_mut() {
+                checkin.last_error = None;
+            }
             transition(acc, AccountStatus::Available, None, None);
             self.changed();
         }

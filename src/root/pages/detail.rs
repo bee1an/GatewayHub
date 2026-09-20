@@ -40,7 +40,9 @@ struct AcctMenuState {
 pub(crate) fn cn_today() -> String {
     chrono::DateTime::from_timestamp_millis(gateway_core::pool::now_ms())
         .map(|d| {
-            d.with_timezone(&chrono::FixedOffset::east_opt(8 * 3600).unwrap())
+            d.with_timezone(
+                &chrono::FixedOffset::east_opt(8 * 3600).expect("validated invariant"),
+            )
                 .format("%Y-%m-%d")
                 .to_string()
         })

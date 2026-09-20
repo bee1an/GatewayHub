@@ -36,7 +36,7 @@ pub struct ScanCandidate {
 pub fn discover_capable(provider: &str) -> bool {
     matches!(
         provider,
-        "kiro" | "codex" | "trae" | "traework" | "workbuddy" | "windsurf"
+        "kiro" | "trae" | "traework" | "workbuddy" | "windsurf"
     )
 }
 
@@ -45,7 +45,6 @@ pub fn discover_capable(provider: &str) -> bool {
 pub fn scan_provider_accounts(store: &ConfigStore, provider: &str) -> Vec<ScanCandidate> {
     let scanned = match provider {
         "kiro" => scan_kiro(),
-        "codex" => scan_codex(),
         "trae" => scan_trae(),
         "traework" => scan_traework(),
         "workbuddy" => scan_workbuddy(),
@@ -102,23 +101,6 @@ fn identity_keys(provider: &str, acc: &AccountFile) -> Vec<String> {
             let at = f("accessToken");
             if keys.is_empty() && !at.is_empty() {
                 keys.push(format!("access:{}", sha256_short(&at)));
-            }
-        }
-        "codex" => {
-            let acct = f("gptWebAccountId");
-            if !acct.is_empty() {
-                keys.push(format!("codex-acct:{acct}"));
-            }
-            if !email.is_empty() {
-                keys.push(format!("codex-email:{email}"));
-            }
-            let rt = f("refreshToken");
-            if !rt.is_empty() {
-                keys.push(format!("codex-refresh:{}", sha256_short(&rt)));
-            }
-            let at = f("accessToken");
-            if keys.is_empty() && !at.is_empty() {
-                keys.push(format!("codex-access:{}", sha256_short(&at)));
             }
         }
         "windsurf" => {
@@ -765,97 +747,6 @@ fn scan_kiro() -> Vec<(AccountFile, String)> {
     dedupe_kiro(out, read_local_kiro_profile_arn(&home))
 }
 
-// ==================== codex ====================
-
-/// `buildCodexAccountFromAuth` over `~/.codex/auth.json`.
-fn scan_codex() -> Vec<(AccountFile, String)> {
-    let Some(home) = home::home_dir() else {
-        return Vec::new();
-    };
-    let Some(data) = read_json_file(&home.join(".codex/auth.json")) else {
-        return Vec::new();
-    };
-    let tokens = data.get("tokens").cloned().unwrap_or(Value::Null);
-    let refresh = pick_str(&tokens, &["refresh_token"]);
-    let access = pick_str(&tokens, &["access_token"]);
-    if refresh.is_empty() && access.is_empty() {
-        return Vec::new();
-    }
-    let id_token = pick_str(&tokens, &["id_token"]);
-    let account_id = pick_str(&tokens, &["account_id"]);
-
-    let gpt_acct = crate::providers::codex_auth::resolve_gpt_web_account_id(
-        &access,
-        &id_token,
-        &account_id,
-    );
-    let sub = [id_token.as_str(), access.as_str()]
-        .iter()
-        .find_map(|t| {
-            crate::providers::codex_auth::decode_jwt_payload(t)?
-                .get("sub")?
-                .as_str()
-                .map(String::from)
-        })
-        .unwrap_or_default();
-    let (email, name) =
-        crate::providers::codex_auth::resolve_profile(&id_token, &access);
-    let id = match (sub.is_empty(), gpt_acct.as_ref()) {
-        (false, Some(a)) => format!("codex-{sub}-{a}"),
-        (true, Some(a)) => format!("codex-acct-{a}"),
-        (false, None) => format!("codex-sub-{sub}"),
-        (true, None) => {
-            let seed = if !refresh.is_empty() {
-                &refresh
-            } else if !id_token.is_empty() {
-                &id_token
-            } else {
-                &access
-            };
-            format!("codex-token-{}", sha256_short(seed))
-        }
-    };
-    let email_opt = (!email.is_empty()).then_some(email.clone());
-    let label = email_opt
-        .clone()
-        .or_else(|| (!name.is_empty()).then_some(name.clone()))
-        .unwrap_or_else(|| format!("codex-{}", &id[id.len().saturating_sub(6)..]));
-
-    let mut acc = AccountFile {
-        id,
-        label: Some(label),
-        email: email_opt,
-        enabled: true,
-        ..Default::default()
-    };
-    put(&mut acc.fields, "refreshToken", refresh);
-    put(&mut acc.fields, "accessToken", access.clone());
-    put(&mut acc.fields, "idToken", id_token.clone());
-    put_opt(&mut acc.fields, "gptWebAccountId", gpt_acct);
-    put_opt(
-        &mut acc.fields,
-        "subscriptionActiveUntil",
-        crate::providers::codex_auth::resolve_subscription_active_until(&id_token),
-    );
-    put_ms(
-        &mut acc.fields,
-        "expiresAt",
-        crate::providers::codex_auth::resolve_access_token_expiry(&access),
-    );
-    put(&mut acc.fields, "name", name);
-    let last_refresh = pick_str(&data, &["last_refresh"]);
-    put(
-        &mut acc.fields,
-        "lastRefresh",
-        if last_refresh.is_empty() {
-            chrono::Utc::now().to_rfc3339()
-        } else {
-            last_refresh
-        },
-    );
-    vec![(acc, "codex_cli".into())]
-}
-
 // ==================== trae / traework ====================
 
 const TRAE_AUTH_KEY: &str = "iCubeAuthInfo://icube.cloudide";
@@ -1494,7 +1385,7 @@ mod tests {
         let Some(store) = ConfigStore::detect() else {
             return;
         };
-        for p in ["kiro", "codex", "trae", "traework", "workbuddy", "windsurf"] {
+        for p in ["kiro", "trae", "traework", "workbuddy", "windsurf"] {
             let cands = scan_provider_accounts(&store, p);
             eprintln!("== {p}: {} candidates", cands.len());
             for c in cands {

@@ -352,6 +352,32 @@ pub struct AppRoot {
     pub(crate) log_search: Entity<InputState>,
     pub(crate) log_notice: Option<String>,
     pub(crate) log_scroll: UniformListScrollHandle,
+    // ---- CLI add-account flow (kiro/qoder) ----
+    /// Provider the add-account overlay is bound to (drives detect/login).
+    pub(crate) cli_provider: Option<String>,
+    /// Overlay tab — 0 = CLI detect/login, 1 = paste JSON.
+    pub(crate) cli_tab: usize,
+    pub(crate) cli_detecting: bool,
+    pub(crate) cli_detect: Option<gateway_core::cli_login::CliDetectResult>,
+    /// A login subprocess is running; `cli_login_output` streams live.
+    pub(crate) cli_login_active: bool,
+    pub(crate) cli_login_output: String,
+    /// Terminal failure text once the flow ends without an import.
+    pub(crate) cli_login_err: Option<String>,
+    /// Qoder "import current CLI auth" one-shot state.
+    pub(crate) cli_import_busy: bool,
+    pub(crate) cli_import_msg: Option<String>,
+    pub(crate) cli_copy_ok: bool,
+    pub(crate) cli_scroll: ScrollHandle,
+    // ---- Discover add-account flow (local credential scan) ----
+    /// A scan is running on the UI runtime.
+    pub(crate) discover_loading: bool,
+    pub(crate) discover_candidates: Vec<gateway_core::discover::ScanCandidate>,
+    /// Candidate ids the user checked for import.
+    pub(crate) discover_selected: HashSet<String>,
+    /// An import (rescan + write) is in flight.
+    pub(crate) discover_import_busy: bool,
+    pub(crate) discover_scroll: ScrollHandle,
     pub(crate) usage_scroll: UniformListScrollHandle,
     /// Usage breakdown grouping — 0 = by provider, 1 = by model, 2 = by day.
     pub(crate) usage_view: usize,
@@ -529,6 +555,22 @@ impl AppRoot {
             log_search: cx.new(|cx| InputState::new(_window, cx).placeholder(t(lang, "ph_filter"))),
             log_notice: None,
             log_scroll: UniformListScrollHandle::new(),
+            cli_provider: None,
+            cli_tab: 0,
+            cli_detecting: false,
+            cli_detect: None,
+            cli_login_active: false,
+            cli_login_output: String::new(),
+            cli_login_err: None,
+            cli_import_busy: false,
+            cli_import_msg: None,
+            cli_copy_ok: false,
+            cli_scroll: ScrollHandle::new(),
+            discover_loading: false,
+            discover_candidates: Vec::new(),
+            discover_selected: HashSet::new(),
+            discover_import_busy: false,
+            discover_scroll: ScrollHandle::new(),
             usage_scroll: UniformListScrollHandle::new(),
             usage_view: 0,
             usage_drill: None,
@@ -1007,6 +1049,266 @@ impl AppRoot {
         cx.notify();
     }
 
+    // ==================== CLI add-account flow (kiro/qoder) ====================
+
+    /// Whether the provider offers the detect + CLI-login pane.
+    pub(crate) fn cli_capable(provider: &str) -> bool {
+        gateway_core::cli_login::cli_bin(provider).is_some()
+    }
+
+    /// Detect the provider's CLI binary once per overlay open — stat +
+    /// `--version` stay off the UI thread.
+    fn start_cli_detect(&mut self, provider: &str, cx: &mut Context<Self>) {
+        self.cli_detecting = true;
+        self.cli_detect = None;
+        let service = self.service.clone();
+        let svc = service.clone();
+        let name = provider.to_string();
+        let handle = service.spawn_ui(async move { svc.detect_provider_cli(&name, None).await });
+        cx.spawn(async move |this, cx| {
+            let result = handle.await;
+            let _ = this.update(cx, |this, cx| {
+                this.cli_detecting = false;
+                this.cli_detect = result.ok().and_then(|r| r.ok());
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// "Log in via CLI" — the subprocess output streams into
+    /// `cli_login_output`; a harvested account goes through the same
+    /// write + reload path as the JSON import.
+    pub(crate) fn begin_cli_login(&mut self, cx: &mut Context<Self>) {
+        let Some(provider) = self.cli_provider.clone() else {
+            return;
+        };
+        let cli_path = self
+            .cli_detect
+            .as_ref()
+            .map(|d| d.path.clone())
+            .filter(|p| !p.is_empty());
+        let mut rx = match self.service.start_cli_login(&provider, cli_path, None) {
+            Ok(rx) => rx,
+            Err(e) => {
+                self.cli_login_err = Some(e.to_string());
+                cx.notify();
+                return;
+            }
+        };
+        self.cli_login_active = true;
+        self.cli_login_output.clear();
+        self.cli_login_err = None;
+        self.cli_copy_ok = false;
+        cx.spawn(async move |this, cx| {
+            while let Some(ev) = rx.recv().await {
+                let terminal = matches!(
+                    ev,
+                    gateway_core::cli_login::CliLoginEvent::Exit { .. }
+                        | gateway_core::cli_login::CliLoginEvent::Error(_)
+                );
+                let updated = this.update(cx, |this, cx| {
+                    use gateway_core::cli_login::CliLoginEvent as Ev;
+                    match ev {
+                        Ev::Stdout(t) | Ev::Stderr(t) => {
+                            this.cli_login_output.push_str(&t);
+                            this.cli_scroll.scroll_to_bottom();
+                        }
+                        Ev::Error(e) => {
+                            this.cli_login_active = false;
+                            this.cli_login_err = Some(e);
+                        }
+                        Ev::Exit {
+                            code,
+                            account,
+                            error,
+                        } => {
+                            this.cli_login_active = false;
+                            match (account, error) {
+                                (Some(acc), _) => this.finish_cli_import(&acc, cx),
+                                (None, Some(e)) => this.cli_login_err = Some(e),
+                                (None, None) => {
+                                    this.cli_login_err = Some(tf(
+                                        this.lang,
+                                        "cli_failed",
+                                        &[("code", &code.to_string())],
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    cx.notify();
+                });
+                if updated.is_err() || terminal {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// Write the harvested account, refresh the page, rebuild the registry —
+    /// mirrors the TS `withDaemonReload` after a CLI import.
+    fn finish_cli_import(&mut self, account: &gateway_core::AccountFile, cx: &mut Context<Self>) {
+        let Some(provider) = self.cli_provider.clone() else {
+            return;
+        };
+        match self.service.upsert_account(&provider, account) {
+            Ok(_) => {
+                self.import_result = Some(t(self.lang, "cli_success").into());
+                self.notice_nonce += 1;
+                self.refresh_accounts_cache(&provider);
+                self.provider_pending.insert(provider);
+                self.reload_serial += 1;
+                self.queue_registry_reload(cx);
+                self.cli_login_err = None;
+                self.cli_login_output.clear();
+                self.dismiss_overlay(cx);
+            }
+            Err(e) => {
+                self.cli_login_err = Some(e.to_string());
+            }
+        }
+    }
+
+    pub(crate) fn cancel_cli_login(&mut self, cx: &mut Context<Self>) {
+        if let Some(provider) = &self.cli_provider {
+            self.service.cancel_cli_login(provider);
+        }
+        self.cli_login_active = false;
+        self.cli_login_output.clear();
+        cx.notify();
+    }
+
+    /// Qoder only — harvest the already-logged-in local CLI without running
+    /// `login` (TS `addQoderCliLogin`).
+    pub(crate) fn import_current_cli_auth(&mut self, cx: &mut Context<Self>) {
+        let Some(provider) = self.cli_provider.clone() else {
+            return;
+        };
+        if self.cli_import_busy {
+            return;
+        }
+        self.cli_import_busy = true;
+        self.cli_import_msg = None;
+        let cli_path = self
+            .cli_detect
+            .as_ref()
+            .map(|d| d.path.clone())
+            .filter(|p| !p.is_empty());
+        let service = self.service.clone();
+        let svc = service.clone();
+        let name = provider;
+        let handle =
+            service.spawn_ui(async move { svc.import_current_cli_auth(&name, cli_path).await });
+        cx.spawn(async move |this, cx| {
+            let result = handle.await;
+            let _ = this.update(cx, |this, cx| {
+                this.cli_import_busy = false;
+                match result {
+                    Ok(Ok(acc)) => this.finish_cli_import(&acc, cx),
+                    Ok(Err(e)) => this.cli_import_msg = Some(e.to_string()),
+                    Err(_) => {}
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    // ==================== Discover add-account flow ====================
+
+    /// Whether the provider offers the local-credential scan tab.
+    pub(crate) fn discover_capable(provider: &str) -> bool {
+        gateway_core::discover::discover_capable(provider)
+    }
+
+    /// Scan once per overlay open — fs/sqlite reads stay off the UI thread.
+    /// Default-selects everything importable (`!existing || updatable`), same
+    /// as the Electron dialog.
+    fn start_discover_scan(&mut self, provider: &str, cx: &mut Context<Self>) {
+        self.discover_loading = true;
+        self.discover_candidates.clear();
+        self.discover_selected.clear();
+        let service = self.service.clone();
+        let svc = service.clone();
+        let name = provider.to_string();
+        let handle = service.spawn_ui(async move { svc.scan_provider_accounts(&name) });
+        cx.spawn(async move |this, cx| {
+            let candidates = handle.await.unwrap_or_default();
+            let _ = this.update(cx, |this, cx| {
+                this.discover_loading = false;
+                this.discover_selected = candidates
+                    .iter()
+                    .filter(|c| !c.existing || c.updatable)
+                    .map(|c| c.account.id.clone())
+                    .collect();
+                this.discover_candidates = candidates;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub(crate) fn toggle_discover_candidate(
+        &mut self,
+        id: &str,
+        checked: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if checked {
+            self.discover_selected.insert(id.to_string());
+        } else {
+            self.discover_selected.remove(id);
+        }
+        cx.notify();
+    }
+
+    /// "Add (n)" — rescan + write on the UI runtime (credentials may have
+    /// rotated since the dialog's scan, matching `importScanned*Accounts`),
+    /// then refresh the page and rebuild the registry like a JSON import.
+    pub(crate) fn import_discover_selected(&mut self, cx: &mut Context<Self>) {
+        let Some(provider) = self.cli_provider.clone() else {
+            return;
+        };
+        if self.discover_import_busy || self.discover_selected.is_empty() {
+            return;
+        }
+        self.discover_import_busy = true;
+        let ids: Vec<String> = self.discover_selected.iter().cloned().collect();
+        let service = self.service.clone();
+        let svc = service.clone();
+        let name = provider.clone();
+        let handle =
+            service.spawn_ui(async move { svc.import_scanned_accounts(&name, &ids) });
+        cx.spawn(async move |this, cx| {
+            let (added, updated) = handle.await.unwrap_or((0, 0));
+            let _ = this.update(cx, |this, cx| {
+                this.discover_import_busy = false;
+                if added + updated > 0 {
+                    this.import_result = Some(tf(
+                        this.lang,
+                        "discover_imported",
+                        &[
+                            ("added", &added.to_string()),
+                            ("updated", &updated.to_string()),
+                        ],
+                    ));
+                    this.notice_nonce += 1;
+                    this.refresh_accounts_cache(&provider);
+                    this.provider_pending.insert(provider.clone());
+                    this.reload_serial += 1;
+                    this.queue_registry_reload(cx);
+                    this.dismiss_overlay(cx);
+                } else {
+                    this.cli_login_err = Some(t(this.lang, "discover_none").into());
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// Load a provider's account files on the UI runtime so opening a
     /// detail page never blocks on disk.
     fn load_accounts(&mut self, provider: &str, cx: &mut Context<Self>) {
@@ -1330,6 +1632,13 @@ impl AppRoot {
     /// Starts the layered exit tween; the overlay is dropped when it
     /// finishes (handled inside `overlay_layer`).
     pub(crate) fn dismiss_overlay(&mut self, cx: &mut Context<Self>) {
+        // Closing the dialog mid-login kills the subprocess (TS behavior).
+        if self.cli_login_active {
+            if let Some(provider) = self.cli_provider.clone() {
+                self.service.cancel_cli_login(&provider);
+            }
+            self.cli_login_active = false;
+        }
         if self.overlay.is_some() && self.overlay_closing.is_none() {
             // Reduce motion: no exit tween — drop the layer right away.
             if cx.reduce_motion() {

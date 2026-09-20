@@ -9,6 +9,7 @@ use gpui_kit::assets::IconName;
 use gpui_kit::component::{
     ActiveTheme, Disableable, Icon, Sizable, StyledExt,
     button::{Button, ButtonVariants},
+    checkbox::Checkbox,
     h_flex,
     input::Input,
     label::Label,
@@ -23,7 +24,7 @@ use gpui_kit::*;
 
 use crate::root::{
     AppRoot, MONO, OverlayRequest, card, card_uniform_list, enter, hairline, provider_logo, row,
-    section_header, skeleton_rows, status_label, t, tf,
+    section_header, skeleton_rows, status_label, t, tf, toggle_filter,
 };
 
 /// Providers that expose daily check-in (`checkin_accounts`).
@@ -605,7 +606,7 @@ impl AppRoot {
                 .label(t(lang, "add_account"))
                 .icon(IconName::Plus)
                 .on_click(cx.listener(move |this, _e: &ClickEvent, _w, cx| {
-                    this.open_import_overlay(&provider_name4, cx);
+                    this.open_add_account_overlay(&provider_name4, cx);
                 })),
         );
         if let Some(msg) = &self.import_result {
@@ -694,6 +695,51 @@ impl AppRoot {
             },
             cx,
         );
+    }
+
+    /// "Add account" — providers get whichever extra tabs they support next to
+    /// paste-JSON: CLI detect/login (kiro/qoder) and the local-credential
+    /// Discover scan (kiro/codex/trae/traework/workbuddy/windsurf).
+    fn open_add_account_overlay(&mut self, provider: &str, cx: &mut Context<Self>) {
+        let cli = Self::cli_capable(provider);
+        let discover = Self::discover_capable(provider);
+        if !cli && !discover {
+            return self.open_import_overlay(provider, cx);
+        }
+        let lang = self.lang;
+        self.cli_provider = Some(provider.to_string());
+        self.cli_tab = 0;
+        self.cli_login_output.clear();
+        self.cli_login_err = None;
+        self.cli_import_msg = None;
+        self.cli_import_busy = false;
+        self.cli_copy_ok = false;
+        self.discover_loading = false;
+        self.discover_candidates.clear();
+        self.discover_selected.clear();
+        self.discover_import_busy = false;
+        self.import_result = None;
+        let p = provider.to_string();
+        self.open_overlay(
+            OverlayRequest {
+                title: t(lang, "add_account").into(),
+                width: px(500.),
+                content: Some(std::rc::Rc::new(move |root, _w, cx| {
+                    add_account_body(&p, root, cx)
+                })),
+                footer: Some(std::rc::Rc::new(|root, _w, cx| {
+                    add_account_footer(root, cx)
+                })),
+                ..OverlayRequest::default()
+            },
+            cx,
+        );
+        if cli {
+            self.start_cli_detect(provider, cx);
+        }
+        if discover {
+            self.start_discover_scan(provider, cx);
+        }
     }
 
     /// Per-account dialog: runtime status, stats, check-in state and the
@@ -1031,4 +1077,514 @@ impl AppRoot {
             cx,
         );
     }
+}
+
+/// Which pane an add-account tab index maps to — the tab list is ordered
+/// [CLI?] [Discover?] [JSON] with the optional ones gated per provider.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AcctPane {
+    Cli,
+    Discover,
+    Json,
+}
+
+/// The tab list for a provider, in display order.
+fn acct_panes(provider: &str, lang: crate::root::i18n::Lang) -> Vec<(SharedString, AcctPane)> {
+    let mut panes = Vec::new();
+    if AppRoot::cli_capable(provider) {
+        panes.push(("CLI".into(), AcctPane::Cli));
+    }
+    if AppRoot::discover_capable(provider) {
+        panes.push((t(lang, "discover_tab").into(), AcctPane::Discover));
+    }
+    panes.push(("JSON".into(), AcctPane::Json));
+    panes
+}
+
+fn acct_pane(provider: &str, lang: crate::root::i18n::Lang, ix: usize) -> AcctPane {
+    acct_panes(provider, lang)
+        .get(ix)
+        .map(|(_, p)| *p)
+        .unwrap_or(AcctPane::Json)
+}
+
+/// Add-account body — tab strip plus the active pane: CLI detect/login,
+/// Discover candidate list, or the plain JSON import box.
+fn add_account_body(provider: &str, root: &AppRoot, cx: &mut Context<AppRoot>) -> AnyElement {
+    let theme = cx.theme().clone();
+    let lang = root.lang;
+    let root_entity = cx.entity();
+
+    let pane = acct_pane(provider, lang, root.cli_tab);
+    let mut body = v_flex().gap_3().child(toggle_filter(
+        "add-acct-tab",
+        acct_panes(provider, lang)
+            .into_iter()
+            .enumerate()
+            .map(|(ix, (label, _))| (label, root.cli_tab == ix))
+            .collect(),
+        move |ix, _w, app| {
+            let e = root_entity.clone();
+            app.update_entity(&e, |this, cx| {
+                this.cli_tab = ix;
+                cx.notify();
+            });
+        },
+        cx,
+    ));
+
+    match pane {
+        AcctPane::Json => {
+            return body
+                .child(Input::new(&root.import_input))
+                .when_some(root.import_result.clone(), |d, m| {
+                    d.child(
+                        Label::new(m)
+                            .font_family(MONO)
+                            .text_xs()
+                            .text_color(theme.muted_foreground),
+                    )
+                })
+                .into_any_element();
+        }
+        AcctPane::Discover => {
+            return body
+                .child(discover_overlay_body(root, cx))
+                .into_any_element();
+        }
+        AcctPane::Cli => {}
+    }
+
+    let bin = gateway_core::cli_login::cli_bin(provider).unwrap_or("cli");
+
+    if root.cli_login_active {
+        body = body.child(cli_login_progress(provider, root, cx));
+    } else if root.cli_detecting {
+        body = body.child(
+            Label::new(tf(lang, "cli_detecting", &[("bin", bin)]))
+                .text_xs()
+                .text_color(theme.muted_foreground),
+        );
+    } else {
+        match &root.cli_detect {
+            Some(d) if d.found => {
+                body = body
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                Label::new(tf(lang, "cli_found", &[("path", &d.path)]))
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground)
+                                    .truncate(),
+                            )
+                            .when_some(d.version.clone(), |el, v| {
+                                el.child(
+                                    Label::new(v)
+                                        .font_family(MONO)
+                                        .text_xs()
+                                        .text_color(theme.secondary_foreground),
+                                )
+                            }),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                Button::new("cli-login")
+                                    .primary()
+                                    .small()
+                                    .label(t(lang, "cli_login"))
+                                    .on_click(cx.listener(|this, _, _w, cx| {
+                                        this.begin_cli_login(cx);
+                                    })),
+                            )
+                            .when(provider == "qoder", |d| {
+                                d.child(
+                                    Button::new("cli-import-current")
+                                        .outline()
+                                        .small()
+                                        .label(t(lang, "cli_import_current"))
+                                        .loading(root.cli_import_busy)
+                                        .on_click(cx.listener(|this, _, _w, cx| {
+                                            this.import_current_cli_auth(cx);
+                                        })),
+                                )
+                            }),
+                    );
+            }
+            _ => {
+                body = body.child(
+                    v_flex()
+                        .gap_1()
+                        .child(
+                            Label::new(tf(lang, "cli_not_found", &[("bin", bin)]))
+                                .text_xs()
+                                .text_color(theme.warning_foreground),
+                        )
+                        .child(
+                            Label::new(tf(lang, "cli_install_hint", &[("bin", bin)]))
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .whitespace_normal(),
+                        ),
+                );
+            }
+        }
+    }
+    if let Some(e) = &root.cli_login_err {
+        body = body.child(
+            Label::new(e.clone())
+                .text_xs()
+                .text_color(theme.danger)
+                .whitespace_normal(),
+        );
+    }
+    if let Some(m) = &root.cli_import_msg {
+        body = body.child(
+            Label::new(m.clone())
+                .font_family(MONO)
+                .text_xs()
+                .text_color(theme.muted_foreground)
+                .whitespace_normal(),
+        );
+    }
+    body.into_any_element()
+}
+
+/// Login-in-progress pane — once the device flow prints its URL (+ code for
+/// kiro) swap the raw output for a copyable link card; otherwise stream the
+/// terminal output into a scroll box.
+fn cli_login_progress(provider: &str, root: &AppRoot, cx: &mut Context<AppRoot>) -> AnyElement {
+    let theme = cx.theme().clone();
+    let lang = root.lang;
+    let output = &root.cli_login_output;
+    let url = extract_login_url(output);
+    let code = if provider == "kiro" {
+        extract_device_code(output)
+    } else {
+        None
+    };
+
+    let content: AnyElement = if url.is_some() || code.is_some() {
+        let url = url.unwrap_or_else(|| "https://device.sso.us-east-1.amazonaws.com/".into());
+        v_flex()
+            .gap_2()
+            .child(
+                Label::new(t(
+                    lang,
+                    if provider == "kiro" {
+                        "cli_open_hint"
+                    } else {
+                        "cli_open_hint_plain"
+                    },
+                ))
+                .text_xs()
+                .text_color(theme.muted_foreground)
+                .whitespace_normal(),
+            )
+            .child(
+                h_flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .rounded(theme.radius)
+                            .bg(theme.accent)
+                            .px_2()
+                            .py_1p5()
+                            .child(
+                                Label::new(url.clone())
+                                    .font_family(MONO)
+                                    .text_xs()
+                                    .text_color(theme.foreground)
+                                    .truncate(),
+                            ),
+                    )
+                    .child(
+                        Button::new("cli-copy-link")
+                            .outline()
+                            .small()
+                            .label(t(lang, if root.cli_copy_ok { "copied" } else { "copy" }))
+                            .on_click(cx.listener(move |this, _, _w, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(url.clone()));
+                                this.cli_copy_ok = true;
+                                cx.notify();
+                                cx.spawn(async move |this, cx| {
+                                    smol::Timer::after(std::time::Duration::from_secs(2)).await;
+                                    let _ = this.update(cx, |this, cx| {
+                                        this.cli_copy_ok = false;
+                                        cx.notify();
+                                    });
+                                })
+                                .detach();
+                            })),
+                    ),
+            )
+            .when_some(code, |d, c| {
+                d.child(
+                    div().flex().justify_center().py_2().child(
+                        Label::new(c)
+                            .font_family(MONO)
+                            .text_lg()
+                            .font_medium()
+                            .text_color(theme.foreground),
+                    ),
+                )
+            })
+            .child(
+                Label::new(t(lang, "cli_wait"))
+                    .text_xs()
+                    .text_color(theme.muted_foreground),
+            )
+            .into_any_element()
+    } else {
+        div()
+            .id("cli-login-output")
+            .max_h(px(160.))
+            .overflow_y_scroll()
+            .track_scroll(&root.cli_scroll)
+            .rounded(theme.radius)
+            .bg(theme.accent)
+            .p_3()
+            .child(
+                Label::new(if output.is_empty() {
+                    SharedString::from("…")
+                } else {
+                    SharedString::from(output.clone())
+                })
+                .font_family(MONO)
+                .text_xs()
+                .text_color(theme.secondary_foreground)
+                .whitespace_normal(),
+            )
+            .into_any_element()
+    };
+
+    v_flex()
+        .gap_2()
+        .child(content)
+        .child(
+            h_flex().child(
+                Button::new("cli-cancel")
+                    .outline()
+                    .small()
+                    .label(t(lang, "cancel"))
+                    .on_click(cx.listener(|this, _, _w, cx| this.cancel_cli_login(cx))),
+            ),
+        )
+        .into_any_element()
+}
+
+/// Discover pane — candidate list with checkboxes; `existing && !updatable`
+/// rows are dimmed and locked, matching the Electron dialog.
+fn discover_overlay_body(root: &AppRoot, cx: &mut Context<AppRoot>) -> AnyElement {
+    let theme = cx.theme().clone();
+    let lang = root.lang;
+    let root_entity = cx.entity();
+
+    if root.discover_loading {
+        return Label::new(t(lang, "discover_scanning"))
+            .text_xs()
+            .text_color(theme.muted_foreground)
+            .into_any_element();
+    }
+    if root.discover_candidates.is_empty() {
+        return Label::new(t(lang, "discover_empty"))
+            .text_xs()
+            .text_color(theme.muted_foreground)
+            .into_any_element();
+    }
+
+    let mut list = v_flex().gap_0p5();
+    for c in &root.discover_candidates {
+        let id = c.account.id.clone();
+        let locked = c.existing && !c.updatable;
+        let checked = root.discover_selected.contains(&id);
+        let sub = c
+            .account
+            .email
+            .clone()
+            .filter(|e| !e.is_empty())
+            .or_else(|| {
+                c.account
+                    .field_str("refreshToken")
+                    .map(|r| format!("{}…", &r[..r.len().min(20)]))
+            })
+            .unwrap_or_else(|| c.source.clone());
+        let tag = if c.existing {
+            if c.updatable {
+                format!(
+                    "{} · {}",
+                    t(lang, "discover_exists"),
+                    t(lang, "discover_updatable")
+                )
+            } else {
+                t(lang, "discover_exists").to_string()
+            }
+        } else {
+            c.source.clone()
+        };
+        let e = root_entity.clone();
+        let cid = id.clone();
+        list = list.child(
+            h_flex()
+                .items_center()
+                .gap_2()
+                .px_2()
+                .py_1p5()
+                .rounded(theme.radius)
+                .when(locked, |d| d.opacity(0.4))
+                .child(
+                    Checkbox::new(SharedString::from(format!("disc-{id}")))
+                        .checked(checked)
+                        .disabled(locked)
+                        .on_click(move |&val, _w, app| {
+                            let e = e.clone();
+                            let cid = cid.clone();
+                            app.update_entity(&e, |this, cx| {
+                                this.toggle_discover_candidate(&cid, val, cx);
+                            });
+                        }),
+                )
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .child(
+                            Label::new(c.account.display_label().to_string())
+                                .text_xs()
+                                .text_color(theme.foreground)
+                                .truncate(),
+                        )
+                        .child(
+                            Label::new(sub)
+                                .font_family(MONO)
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .truncate(),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .rounded(theme.radius)
+                        .bg(theme.accent)
+                        .px_1p5()
+                        .py_0p5()
+                        .child(
+                            Label::new(tag)
+                                .font_family(MONO)
+                                .text_xs()
+                                .text_color(theme.muted_foreground),
+                        ),
+                ),
+        );
+    }
+
+    v_flex()
+        .gap_2()
+        .child(
+            Label::new(t(lang, "discover_tip"))
+                .text_xs()
+                .text_color(theme.muted_foreground),
+        )
+        .child(
+            div()
+                .id("discover-list")
+                .max_h(px(220.))
+                .overflow_y_scroll()
+                .track_scroll(&root.discover_scroll)
+                .child(list),
+        )
+        .when_some(root.cli_login_err.clone(), |d, e| {
+            d.child(
+                Label::new(e)
+                    .text_xs()
+                    .text_color(theme.danger)
+                    .whitespace_normal(),
+            )
+        })
+        .into_any_element()
+}
+
+/// Footer — Cancel always; Import on the JSON tab, Add (n) on Discover.
+fn add_account_footer(root: &AppRoot, cx: &mut Context<AppRoot>) -> AnyElement {
+    let lang = root.lang;
+    let provider = root.cli_provider.clone().unwrap_or_default();
+    let pane = acct_pane(&provider, lang, root.cli_tab);
+    h_flex()
+        .justify_end()
+        .gap_2()
+        .child(
+            Button::new("cli-overlay-cancel")
+                .outline()
+                .small()
+                .label(t(lang, "cancel"))
+                .on_click(cx.listener(|this, _, _w, cx| this.dismiss_overlay(cx))),
+        )
+        .when(pane == AcctPane::Discover, |d| {
+            d.child(
+                Button::new("discover-import")
+                    .primary()
+                    .small()
+                    .label(tf(
+                        lang,
+                        "discover_add",
+                        &[("n", &root.discover_selected.len().to_string())],
+                    ))
+                    .disabled(
+                        root.discover_selected.is_empty()
+                            || root.discover_loading
+                            || root.discover_import_busy,
+                    )
+                    .loading(root.discover_import_busy)
+                    .on_click(cx.listener(|this, _, _w, cx| {
+                        this.import_discover_selected(cx);
+                    })),
+            )
+        })
+        .when(pane == AcctPane::Json, |d| {
+            d.child(
+                Button::new("cli-overlay-import")
+                    .primary()
+                    .small()
+                    .label(t(lang, "import"))
+                    .on_click(cx.listener(move |this, _, w, cx| {
+                        this.import_account(&provider, w, cx);
+                    })),
+            )
+        })
+        .into_any_element()
+}
+
+/// First `http(s)://…` link in the CLI output — the device-flow verify URL.
+fn extract_login_url(output: &str) -> Option<String> {
+    let mut rest = output;
+    while let Some(i) = rest.find("http") {
+        let tail = &rest[i..];
+        if tail.starts_with("http://") || tail.starts_with("https://") {
+            let end = tail
+                .find(|c: char| c.is_whitespace() || c == '"' || c == '\'')
+                .unwrap_or(tail.len());
+            return Some(tail[..end].to_string());
+        }
+        rest = &tail[4..];
+    }
+    None
+}
+
+/// `Code: ABCD-1234` line the kiro device flow prints.
+fn extract_device_code(output: &str) -> Option<String> {
+    let lower = output.to_lowercase();
+    let i = lower.find("code:")?;
+    let tail = output[i + 5..].trim_start();
+    let code: String = tail
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    (!code.is_empty()).then_some(code)
 }

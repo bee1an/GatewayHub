@@ -17,8 +17,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use gateway_core::{
-    ApiKeyEntry, GatewayService, GatewayStatusSnapshot, ModelMapping, ModelTarget,
-    generate_api_key,
+    ApiKeyEntry, GatewayService, GatewayStatusSnapshot, ModelMapping, ModelTarget, generate_api_key,
 };
 
 pub(crate) use chrome::{
@@ -1308,8 +1307,7 @@ impl AppRoot {
         let service = self.service.clone();
         let svc = service.clone();
         let name = provider.clone();
-        let handle =
-            service.spawn_ui(async move { svc.import_scanned_accounts(&name, &ids) });
+        let handle = service.spawn_ui(async move { svc.import_scanned_accounts(&name, &ids) });
         cx.spawn(async move |this, cx| {
             let (added, updated) = handle.await.unwrap_or((0, 0));
             let _ = this.update(cx, |this, cx| {
@@ -2580,8 +2578,7 @@ impl Render for AppRoot {
         // collapsed rail stacks them vertically instead of dropping the
         // server state. All controls share one 24px hit area.
         let server_pending = self.server_pending;
-        let server_tip: SharedString =
-            t(lang, if running { "running" } else { "stopped" }).into();
+        let server_tip: SharedString = t(lang, if running { "running" } else { "stopped" }).into();
         let server_indicator = {
             let theme = theme.clone();
             move || {

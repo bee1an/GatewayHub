@@ -567,21 +567,14 @@ impl GatewayService {
 
     /// `scan*Accounts` — local credential scan + existing/updatable markers.
     /// Synchronous fs/sqlite; call through `spawn_ui`.
-    pub fn scan_provider_accounts(
-        &self,
-        provider: &str,
-    ) -> Vec<crate::discover::ScanCandidate> {
+    pub fn scan_provider_accounts(&self, provider: &str) -> Vec<crate::discover::ScanCandidate> {
         crate::discover::scan_provider_accounts(&self.store, provider)
     }
 
     /// `importScanned*Accounts` — re-scan (credentials may have rotated since
     /// the dialog's scan), write the selected ids, update-in-place for kiro
     /// `updatable` candidates.
-    pub fn import_scanned_accounts(
-        &self,
-        provider: &str,
-        ids: &[String],
-    ) -> (usize, usize) {
+    pub fn import_scanned_accounts(&self, provider: &str, ids: &[String]) -> (usize, usize) {
         let candidates = crate::discover::scan_provider_accounts(&self.store, provider);
         let mut added = 0usize;
         let mut updated = 0usize;

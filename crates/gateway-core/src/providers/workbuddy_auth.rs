@@ -436,4 +436,3 @@ pub fn extract_chat_model_ids(data: &Value) -> Vec<String> {
     }
     out
 }
-

@@ -26,9 +26,9 @@ use crate::providers::workbuddy_checkin::{
     claim_checkin, cn_day_key, get_checkin_status, get_credits_usage,
 };
 use crate::types::{
-    AccountFile, AccountRuntimeState, AccountStatus, AccountTestResult,
-    ClassifiedError, GatewayLogEntry, GatewayRequestContext, GatewayResponse, JsonMap, LogLevel,
-    LogSink, ProviderModel, ProviderStatus, ResponseKind, UsageMeta, UsageStats,
+    AccountFile, AccountRuntimeState, AccountStatus, AccountTestResult, ClassifiedError,
+    GatewayLogEntry, GatewayRequestContext, GatewayResponse, JsonMap, LogLevel, LogSink,
+    ProviderModel, ProviderStatus, ResponseKind, UsageMeta, UsageStats,
 };
 
 mod upstream;

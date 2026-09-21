@@ -263,10 +263,7 @@ impl TraeWorkCore {
                 // A stamped day contradicts a lingering error — clear it
                 // here too, since this branch skips the run that would
                 // (older state files stamped `last_day` unconditionally).
-                if existing
-                    .as_ref()
-                    .is_some_and(|c| c.last_error.is_some())
-                {
+                if existing.as_ref().is_some_and(|c| c.last_error.is_some()) {
                     let mut pool = self.pool.lock().await;
                     pool.set_checkin(id, |s| s.last_error = None);
                 }
@@ -294,12 +291,12 @@ impl TraeWorkCore {
                     {
                         let mut pool = self.pool.lock().await;
                         pool.set_checkin(id, |s| {
-                            s.extra.insert("creditsTotal".into(), serde_json::json!(u.total));
-                            s.extra.insert("creditsWork".into(), serde_json::json!(u.work));
-                            s.extra.insert(
-                                "creditsGeneral".into(),
-                                serde_json::json!(u.general),
-                            );
+                            s.extra
+                                .insert("creditsTotal".into(), serde_json::json!(u.total));
+                            s.extra
+                                .insert("creditsWork".into(), serde_json::json!(u.work));
+                            s.extra
+                                .insert("creditsGeneral".into(), serde_json::json!(u.general));
                         });
                     }
                 }
@@ -356,11 +353,14 @@ impl TraeWorkCore {
                 .await
                 .ok()
                 .flatten();
-                Ok::<(
-                    crate::providers::traework_checkin::CheckinStatus,
-                    bool,
-                    Option<crate::providers::traework_checkin::CreditsUsage>,
-                ), anyhow::Error>((status, did_claim, usage))
+                Ok::<
+                    (
+                        crate::providers::traework_checkin::CheckinStatus,
+                        bool,
+                        Option<crate::providers::traework_checkin::CreditsUsage>,
+                    ),
+                    anyhow::Error,
+                >((status, did_claim, usage))
             };
             match run.await {
                 Ok((status, did_claim, usage)) => {
@@ -386,18 +386,12 @@ impl TraeWorkCore {
                                 s.last_credits = Some(total as f64);
                             }
                             if let Some(u) = &usage {
-                                s.extra.insert(
-                                    "creditsTotal".into(),
-                                    serde_json::json!(u.total),
-                                );
-                                s.extra.insert(
-                                    "creditsWork".into(),
-                                    serde_json::json!(u.work),
-                                );
-                                s.extra.insert(
-                                    "creditsGeneral".into(),
-                                    serde_json::json!(u.general),
-                                );
+                                s.extra
+                                    .insert("creditsTotal".into(), serde_json::json!(u.total));
+                                s.extra
+                                    .insert("creditsWork".into(), serde_json::json!(u.work));
+                                s.extra
+                                    .insert("creditsGeneral".into(), serde_json::json!(u.general));
                             }
                         });
                     }

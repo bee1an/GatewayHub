@@ -258,12 +258,10 @@ impl ResponsesSseTransformer {
     /// known (see [`emit_tool_call_added`]).
     pub(crate) fn ensure_tool_call(&mut self, index: u64, out: &mut Vec<String>) {
         self.start_events(out);
-        self.tool_calls
-            .entry(index)
-            .or_insert_with(|| ToolCallOut {
-                item_id: uuid_id("fc_"),
-                ..Default::default()
-            });
+        self.tool_calls.entry(index).or_insert_with(|| ToolCallOut {
+            item_id: uuid_id("fc_"),
+            ..Default::default()
+        });
     }
 
     /// Emits `response.output_item.added` with the populated item — OpenAI

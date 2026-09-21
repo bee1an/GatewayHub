@@ -41,9 +41,7 @@ struct AcctMenuState {
 pub(crate) fn cn_today() -> String {
     chrono::DateTime::from_timestamp_millis(gateway_core::pool::now_ms())
         .map(|d| {
-            d.with_timezone(
-                &chrono::FixedOffset::east_opt(8 * 3600).expect("validated invariant"),
-            )
+            d.with_timezone(&chrono::FixedOffset::east_opt(8 * 3600).expect("validated invariant"))
                 .format("%Y-%m-%d")
                 .to_string()
         })
@@ -94,9 +92,7 @@ impl AppRoot {
         // (the row stays openable) but the whole management surface is a
         // placeholder — no toggles, no accounts, no add-account.
         if !Self::provider_live(provider) {
-            let provider_type = status
-                .map(|p| p.provider_type.as_str())
-                .unwrap_or_default();
+            let provider_type = status.map(|p| p.provider_type.as_str()).unwrap_or_default();
             return v_flex()
                 .w_full()
                 .child(
@@ -998,8 +994,7 @@ impl AppRoot {
                                 ),
                         );
                         if let Some(b) = balance {
-                            let mut line =
-                                format!("{} {}", t(lang, "credits_balance"), b as u64);
+                            let mut line = format!("{} {}", t(lang, "credits_balance"), b as u64);
                             if let Some(w) = work_credits {
                                 line.push_str(&format!(
                                     " · {} {}",
@@ -1431,11 +1426,7 @@ fn cli_login_progress(provider: &str, root: &AppRoot, cx: &mut Context<AppRoot>)
 /// Discover pane — candidate list with checkboxes; `existing && !updatable`
 /// rows are dimmed and locked, matching the Electron dialog. Providers that
 /// aren't live yet get a coming-soon placeholder.
-fn discover_overlay_body(
-    provider: &str,
-    root: &AppRoot,
-    cx: &mut Context<AppRoot>,
-) -> AnyElement {
+fn discover_overlay_body(provider: &str, root: &AppRoot, cx: &mut Context<AppRoot>) -> AnyElement {
     let theme = cx.theme().clone();
     let lang = root.lang;
     let root_entity = cx.entity();
@@ -1586,27 +1577,30 @@ fn add_account_footer(root: &AppRoot, cx: &mut Context<AppRoot>) -> AnyElement {
                 .label(t(lang, "cancel"))
                 .on_click(cx.listener(|this, _, _w, cx| this.dismiss_overlay(cx))),
         )
-        .when(pane == AcctPane::Discover && AppRoot::discover_live(&provider), |d| {
-            d.child(
-                Button::new("discover-import")
-                    .primary()
-                    .small()
-                    .label(tf(
-                        lang,
-                        "discover_add",
-                        &[("n", &root.discover_selected.len().to_string())],
-                    ))
-                    .disabled(
-                        root.discover_selected.is_empty()
-                            || root.discover_loading
-                            || root.discover_import_busy,
-                    )
-                    .loading(root.discover_import_busy)
-                    .on_click(cx.listener(|this, _, _w, cx| {
-                        this.import_discover_selected(cx);
-                    })),
-            )
-        })
+        .when(
+            pane == AcctPane::Discover && AppRoot::discover_live(&provider),
+            |d| {
+                d.child(
+                    Button::new("discover-import")
+                        .primary()
+                        .small()
+                        .label(tf(
+                            lang,
+                            "discover_add",
+                            &[("n", &root.discover_selected.len().to_string())],
+                        ))
+                        .disabled(
+                            root.discover_selected.is_empty()
+                                || root.discover_loading
+                                || root.discover_import_busy,
+                        )
+                        .loading(root.discover_import_busy)
+                        .on_click(cx.listener(|this, _, _w, cx| {
+                            this.import_discover_selected(cx);
+                        })),
+                )
+            },
+        )
         .when(pane == AcctPane::Json, |d| {
             d.child(
                 Button::new("cli-overlay-import")

@@ -183,7 +183,10 @@ impl LoginEnv {
         chmod(&opener, 0o755);
         for name in FAKE_OPENERS {
             let p = fake_bin.join(name);
-            std::fs::write(&p, format!("#!/bin/sh\nexec \"{}\" \"$@\"\n", opener.display()))?;
+            std::fs::write(
+                &p,
+                format!("#!/bin/sh\nexec \"{}\" \"$@\"\n", opener.display()),
+            )?;
             chmod(&p, 0o755);
         }
         Ok(Self { home, fake_bin })
@@ -211,7 +214,10 @@ impl LoginEnv {
         );
         env.insert(
             "BROWSER".into(),
-            self.fake_bin.join("gatewayhub-noopen").display().to_string(),
+            self.fake_bin
+                .join("gatewayhub-noopen")
+                .display()
+                .to_string(),
         );
         env.insert("DISPLAY".into(), String::new());
         env.insert("WAYLAND_DISPLAY".into(), String::new());
@@ -240,7 +246,11 @@ fn chmod(_path: &Path, _mode: u32) {}
 fn sandboxed(cli: &str, args: &[&str]) -> (String, Vec<String>) {
     #[cfg(target_os = "macos")]
     if Path::new("/usr/bin/sandbox-exec").exists() {
-        let mut full = vec!["-p".to_string(), MACOS_SANDBOX_PROFILE.to_string(), cli.to_string()];
+        let mut full = vec![
+            "-p".to_string(),
+            MACOS_SANDBOX_PROFILE.to_string(),
+            cli.to_string(),
+        ];
         full.extend(args.iter().map(|a| a.to_string()));
         return ("/usr/bin/sandbox-exec".to_string(), full);
     }
@@ -354,7 +364,10 @@ pub async fn kiro_login(
     };
     let keychain = MacosKeychain::setup(&login_env.home);
 
-    let (cmd, args) = sandboxed(cli_path, &["login", "--license", "free", "--use-device-flow"]);
+    let (cmd, args) = sandboxed(
+        cli_path,
+        &["login", "--license", "free", "--use-device-flow"],
+    );
     let spawned = Command::new(&cmd)
         .args(&args)
         .stdin(Stdio::null())
@@ -507,11 +520,21 @@ fn extract_kiro_account(profile: &Path) -> Result<AccountFile> {
         };
         put("refreshToken", refresh);
         put("accessToken", access);
-        put("expiresAt", normalize_expires_at(&expires_at).unwrap_or_default());
+        put(
+            "expiresAt",
+            normalize_expires_at(&expires_at).unwrap_or_default(),
+        );
         put("profileArn", arn);
         put("clientId", client_id);
         put("clientSecret", client_secret);
-        put("region", if region.is_empty() { "us-east-1".into() } else { region });
+        put(
+            "region",
+            if region.is_empty() {
+                "us-east-1".into()
+            } else {
+                region
+            },
+        );
         return Ok(acc);
     }
     bail!("No kiro-cli database found in temp profile")
@@ -541,7 +564,11 @@ async fn resolve_kiro_email(acc: &AccountFile, http: &reqwest::Client) -> Option
     .await
     .ok()?
     .ok()?;
-    let email = usage.pointer("/userInfo/email")?.as_str()?.trim().to_lowercase();
+    let email = usage
+        .pointer("/userInfo/email")?
+        .as_str()?
+        .trim()
+        .to_lowercase();
     email.contains('@').then_some(email)
 }
 
@@ -553,9 +580,10 @@ pub(crate) fn normalize_expires_at(value: &str) -> Option<String> {
         return None;
     }
     let ms = if trimmed.chars().all(|c| c.is_ascii_digit()) {
-        trimmed.parse::<u64>().ok().map(|v| {
-            if v < 1_000_000_000_000 { v * 1000 } else { v }
-        })?
+        trimmed
+            .parse::<u64>()
+            .ok()
+            .map(|v| if v < 1_000_000_000_000 { v * 1000 } else { v })?
     } else {
         chrono::DateTime::parse_from_rfc3339(trimmed)
             .ok()?
@@ -584,7 +612,10 @@ pub async fn qoder_login(
         }
     };
     let mut vars = login_env.env();
-    vars.insert("QODER_CLI_HOME".into(), login_env.home.display().to_string());
+    vars.insert(
+        "QODER_CLI_HOME".into(),
+        login_env.home.display().to_string(),
+    );
     scrub_qoder_env(&mut vars);
 
     let (cmd, args) = sandboxed(cli_path, &["login"]);
@@ -666,13 +697,17 @@ async fn extract_qoder_account(
     label: Option<String>,
 ) -> Result<AccountFile> {
     let source_auth = source_home.join(".qoder").join(".auth");
-    let user_blob = std::fs::read_to_string(source_auth.join("user"))
-        .context("read qoder auth user blob")?;
+    let user_blob =
+        std::fs::read_to_string(source_auth.join("user")).context("read qoder auth user blob")?;
     let machine_id = std::fs::read_to_string(source_auth.join("machine_id"))
         .context("read qoder auth machine_id")?;
 
     let status = qoder_status(cli_path, source_home).await?;
-    if !status.get("logged_in").and_then(Value::as_bool).unwrap_or(false) {
+    if !status
+        .get("logged_in")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
         bail!("qodercli is not logged in");
     }
     let email = status
@@ -689,8 +724,14 @@ async fn extract_qoder_account(
         .map(str::to_string);
 
     let fingerprint = sha256_short(&format!("{user_blob}\n{machine_id}"));
-    let identity = email.clone().or(username.clone()).unwrap_or(fingerprint.clone());
-    let id = format!("qoder-cli-{}", sha256_short(&format!("{identity}:{fingerprint}")));
+    let identity = email
+        .clone()
+        .or(username.clone())
+        .unwrap_or(fingerprint.clone());
+    let id = format!(
+        "qoder-cli-{}",
+        sha256_short(&format!("{identity}:{fingerprint}"))
+    );
 
     let target_home = auth_dir.join(&id);
     let target_auth = target_home.join(".qoder").join(".auth");
@@ -704,7 +745,11 @@ async fn extract_qoder_account(
     // The copied bundle must resolve to a logged-in session on its own —
     // otherwise requests would read a dead credential at runtime.
     let copied = qoder_status(cli_path, &target_home).await?;
-    if !copied.get("logged_in").and_then(Value::as_bool).unwrap_or(false) {
+    if !copied
+        .get("logged_in")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
         let _ = std::fs::remove_dir_all(&target_home);
         bail!("Copied Qoder auth bundle is not usable");
     }
@@ -820,20 +865,28 @@ impl MacosKeychain {
             "-p",
             "",
             &state.path.display().to_string(),
-        ]) && run_security(&["unlock-keychain", "-p", "", &state.path.display().to_string()])
-            && run_security(&security_args(
-                "list-keychains",
-                &state.path,
-                &state.previous_list,
-            ))
-            && run_security(&[
-                "default-keychain",
-                "-d",
-                "user",
-                "-s",
-                &state.path.display().to_string(),
-            ]);
-        if ok { Some(state) } else { state.restore(); None }
+        ]) && run_security(&[
+            "unlock-keychain",
+            "-p",
+            "",
+            &state.path.display().to_string(),
+        ]) && run_security(&security_args(
+            "list-keychains",
+            &state.path,
+            &state.previous_list,
+        )) && run_security(&[
+            "default-keychain",
+            "-d",
+            "user",
+            "-s",
+            &state.path.display().to_string(),
+        ]);
+        if ok {
+            Some(state)
+        } else {
+            state.restore();
+            None
+        }
     }
 
     fn restore(&self) {
@@ -914,11 +967,7 @@ fn security_args(op: &str, first: &Path, rest: &[String]) -> Vec<String> {
         .map(|s| s.to_string())
         .collect();
     args.push(first.display().to_string());
-    args.extend(
-        rest.iter()
-            .filter(|p| Path::new(p).exists())
-            .cloned(),
-    );
+    args.extend(rest.iter().filter(|p| Path::new(p).exists()).cloned());
     args
 }
 
@@ -938,7 +987,9 @@ fn fallback_login_keychain() -> Option<String> {
     if standard.exists() {
         return Some(standard.display().to_string());
     }
-    std::fs::read_dir(&dir).ok()?.flatten()
+    std::fs::read_dir(&dir)
+        .ok()?
+        .flatten()
         .filter(|e| {
             e.file_name()
                 .to_str()

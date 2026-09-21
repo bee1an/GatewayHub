@@ -242,8 +242,11 @@ fn normalize_email_str(value: &str) -> Option<String> {
 fn epoch_ms(value: Option<&Value>) -> Option<i64> {
     let v = value?;
     let scaled = |x: f64| {
-        (x.is_finite() && x > 0.0)
-            .then_some(if x < 1e12 { (x * 1000.0) as i64 } else { x as i64 })
+        (x.is_finite() && x > 0.0).then_some(if x < 1e12 {
+            (x * 1000.0) as i64
+        } else {
+            x as i64
+        })
     };
     match v {
         Value::Number(n) => n.as_f64().and_then(scaled),
@@ -381,7 +384,9 @@ fn kiro_from_account_manager(path: &Path) -> Vec<AccountFile> {
         // credentials may be a nested object or a JSON-encoded string.
         let creds = match account.get("credentials") {
             Some(v @ Value::Object(_)) => Some(v.clone()),
-            Some(Value::String(s)) => serde_json::from_str::<Value>(s).ok().filter(|v| v.is_object()),
+            Some(Value::String(s)) => serde_json::from_str::<Value>(s)
+                .ok()
+                .filter(|v| v.is_object()),
             _ => None,
         };
         let Some(creds) = creds else { continue };
@@ -421,11 +426,7 @@ fn kiro_from_account_manager(path: &Path) -> Vec<AccountFile> {
         put_opt(
             &mut acc.fields,
             "expiresAt",
-            iso_from_value(
-                creds
-                    .get("expiresAt")
-                    .or_else(|| creds.get("expires_at")),
-            ),
+            iso_from_value(creds.get("expiresAt").or_else(|| creds.get("expires_at"))),
         );
         put(&mut acc.fields, "profileArn", arn);
         put(
@@ -469,11 +470,9 @@ fn kiro_from_sqlite(db_path: &Path) -> Option<AccountFile> {
     if !db_path.is_file() {
         return None;
     }
-    let conn = rusqlite::Connection::open_with_flags(
-        db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .ok()?;
+    let conn =
+        rusqlite::Connection::open_with_flags(db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .ok()?;
     let kv = |key: &str| -> Option<String> {
         conn.query_row("SELECT value FROM auth_kv WHERE key = ?1", [key], |r| {
             r.get::<_, String>(0)
@@ -543,7 +542,11 @@ fn kiro_from_sqlite(db_path: &Path) -> Option<AccountFile> {
     };
     put(&mut acc.fields, "refreshToken", refresh);
     put(&mut acc.fields, "accessToken", access);
-    put_opt(&mut acc.fields, "expiresAt", normalize_expires_at(&expires_at));
+    put_opt(
+        &mut acc.fields,
+        "expiresAt",
+        normalize_expires_at(&expires_at),
+    );
     put(&mut acc.fields, "profileArn", arn);
     put(&mut acc.fields, "clientId", client_id);
     put(&mut acc.fields, "clientSecret", client_secret);
@@ -555,7 +558,9 @@ fn kiro_from_sqlite(db_path: &Path) -> Option<AccountFile> {
 /// profile.json; it survives refresh-token rotation so it anchors dedupe.
 fn read_local_kiro_profile_arn(home: &Path) -> Option<String> {
     for path in [
-        home.join("Library/Application Support/Kiro/User/globalStorage/kiro.kiroagent/profile.json"),
+        home.join(
+            "Library/Application Support/Kiro/User/globalStorage/kiro.kiroagent/profile.json",
+        ),
         home.join(".config/Kiro/User/globalStorage/kiro.kiroagent/profile.json"),
     ] {
         if let Some(data) = read_json_file(&path)
@@ -639,8 +644,10 @@ fn dedupe_kiro(
         }
     }
 
-    let mut merged: Vec<(AccountFile, String)> =
-        ungrouped.into_iter().map(|i| candidates[i].clone()).collect();
+    let mut merged: Vec<(AccountFile, String)> = ungrouped
+        .into_iter()
+        .map(|i| candidates[i].clone())
+        .collect();
     for (_, idxs) in groups {
         if idxs.len() == 1 {
             merged.push(candidates[idxs[0]].clone());
@@ -653,7 +660,9 @@ fn dedupe_kiro(
 
 /// `mergeKiroCandidateGroup` — freshest expiresAt wins as the base; gaps are
 /// filled from siblings; id is re-derived from the merged identity.
-fn merge_kiro_group<'a>(group: impl Iterator<Item = &'a (AccountFile, String)>) -> (AccountFile, String) {
+fn merge_kiro_group<'a>(
+    group: impl Iterator<Item = &'a (AccountFile, String)>,
+) -> (AccountFile, String) {
     let members: Vec<&(AccountFile, String)> = group.collect();
     let base_idx = members
         .iter()
@@ -773,17 +782,14 @@ fn trae_storage_paths(home: &Path) -> Vec<PathBuf> {
         home.join(".config/trae/User/globalStorage/storage.json"),
     ];
     if let Ok(appdata) = std::env::var("APPDATA") {
-        paths.push(
-            Path::new(&appdata)
-                .join("Trae/User/globalStorage/storage.json"),
-        );
-        paths.push(
-            Path::new(&appdata)
-                .join("Trae Beta/User/globalStorage/storage.json"),
-        );
+        paths.push(Path::new(&appdata).join("Trae/User/globalStorage/storage.json"));
+        paths.push(Path::new(&appdata).join("Trae Beta/User/globalStorage/storage.json"));
     }
     if let Ok(rd) = fs::read_dir(&app_support) {
-        for name in rd.flatten().filter_map(|e| e.file_name().to_str().map(String::from)) {
+        for name in rd
+            .flatten()
+            .filter_map(|e| e.file_name().to_str().map(String::from))
+        {
             if name.to_ascii_lowercase().starts_with("trae")
                 && !name.to_ascii_lowercase().starts_with("trae cn")
             {
@@ -801,16 +807,17 @@ fn traework_storage_paths(home: &Path) -> Vec<PathBuf> {
         app_support.join("TRAE SOLO/User/globalStorage/storage.json"),
     ];
     if let Ok(rd) = fs::read_dir(&app_support) {
-        for name in rd.flatten().filter_map(|e| e.file_name().to_str().map(String::from)) {
+        for name in rd
+            .flatten()
+            .filter_map(|e| e.file_name().to_str().map(String::from))
+        {
             if name.to_ascii_lowercase().starts_with("trae solo") {
                 paths.push(app_support.join(format!("{name}/User/globalStorage/storage.json")));
             }
         }
     }
     if let Ok(appdata) = std::env::var("APPDATA") {
-        paths.push(
-            Path::new(&appdata).join("TRAE SOLO CN/User/globalStorage/storage.json"),
-        );
+        paths.push(Path::new(&appdata).join("TRAE SOLO CN/User/globalStorage/storage.json"));
         paths.push(Path::new(&appdata).join("TRAE SOLO/User/globalStorage/storage.json"));
     }
     existing_files(paths)
@@ -856,10 +863,7 @@ fn scan_trae() -> Vec<(AccountFile, String)> {
         let Some(info) = parse_stored_user_info(storage.get(TRAE_AUTH_KEY)) else {
             continue;
         };
-        let country = pick_str(
-            &info,
-            &["aiRegion", "region", "countryCode"],
-        );
+        let country = pick_str(&info, &["aiRegion", "region", "countryCode"]);
         let country = if country.is_empty() {
             pick_str(
                 info.get("userRegion").unwrap_or(&Value::Null),
@@ -894,10 +898,7 @@ fn scan_trae() -> Vec<(AccountFile, String)> {
             continue;
         }
         let email = normalize_email(info.pointer("/account/email"));
-        let username = pick_str(
-            info.get("account").unwrap_or(&Value::Null),
-            &["username"],
-        );
+        let username = pick_str(info.get("account").unwrap_or(&Value::Null), &["username"]);
         let mut acc = AccountFile {
             id,
             label: Some(if username.is_empty() {
@@ -911,7 +912,11 @@ fn scan_trae() -> Vec<(AccountFile, String)> {
         };
         put(&mut acc.fields, "jwtToken", jwt);
         put(&mut acc.fields, "refreshToken", refresh);
-        put_ms(&mut acc.fields, "tokenExpiresAt", epoch_ms(info.get("expiredAt")));
+        put_ms(
+            &mut acc.fields,
+            "tokenExpiresAt",
+            epoch_ms(info.get("expiredAt")),
+        );
         put_ms(
             &mut acc.fields,
             "refreshExpiresAt",
@@ -955,7 +960,10 @@ fn scan_traework() -> Vec<(AccountFile, String)> {
                     .map(String::from)
             })
         });
-        let country = pick_str(info.get("userRegion").unwrap_or(&Value::Null), &["_aiRegion", "region"]);
+        let country = pick_str(
+            info.get("userRegion").unwrap_or(&Value::Null),
+            &["_aiRegion", "region"],
+        );
         let country = if country.is_empty() {
             pick_str(
                 info.get("account").unwrap_or(&Value::Null),
@@ -996,7 +1004,11 @@ fn scan_traework() -> Vec<(AccountFile, String)> {
         };
         put(&mut acc.fields, "jwtToken", jwt);
         put(&mut acc.fields, "refreshToken", refresh);
-        put_ms(&mut acc.fields, "tokenExpiresAt", epoch_ms(info.get("expiredAt")));
+        put_ms(
+            &mut acc.fields,
+            "tokenExpiresAt",
+            epoch_ms(info.get("expiredAt")),
+        );
         put_ms(
             &mut acc.fields,
             "refreshExpiresAt",
@@ -1113,9 +1125,8 @@ fn scan_workbuddy() -> Vec<(AccountFile, String)> {
     let Some(home) = home::home_dir() else {
         return Vec::new();
     };
-    let mut dirs = vec![home.join(
-        "Library/Application Support/CodeBuddyExtension/Data/Public/auth",
-    )];
+    let mut dirs =
+        vec![home.join("Library/Application Support/CodeBuddyExtension/Data/Public/auth")];
     if let Ok(local) = std::env::var("LOCALAPPDATA") {
         dirs.push(Path::new(&local).join("CodeBuddyExtension/Data/Public/auth"));
     }
@@ -1157,8 +1168,14 @@ fn workbuddy_from_input(input: &Value) -> Option<AccountFile> {
     if !input.is_object() {
         return None;
     }
-    let session = input.get("session").filter(|v| v.is_object()).unwrap_or(input);
-    let auth = session.get("auth").filter(|v| v.is_object()).unwrap_or(session);
+    let session = input
+        .get("session")
+        .filter(|v| v.is_object())
+        .unwrap_or(input);
+    let auth = session
+        .get("auth")
+        .filter(|v| v.is_object())
+        .unwrap_or(session);
     let account = session.get("account").filter(|v| v.is_object());
 
     let access = strip_bearer(&{
@@ -1219,9 +1236,9 @@ fn workbuddy_from_input(input: &Value) -> Option<AccountFile> {
         } else if !nickname.is_empty() {
             nickname.clone()
         } else {
-            email.clone().unwrap_or_else(|| {
-                format!("WorkBuddy {}", &id[id.len().saturating_sub(6)..])
-            })
+            email
+                .clone()
+                .unwrap_or_else(|| format!("WorkBuddy {}", &id[id.len().saturating_sub(6)..]))
         }
     };
     let domain = {
@@ -1295,9 +1312,7 @@ fn workbuddy_from_input(input: &Value) -> Option<AccountFile> {
 fn strip_bearer(value: &str) -> String {
     let t = value.trim();
     match t.get(..6) {
-        Some(p)
-            if p.eq_ignore_ascii_case("bearer") && t[6..].starts_with(char::is_whitespace) =>
-        {
+        Some(p) if p.eq_ignore_ascii_case("bearer") && t[6..].starts_with(char::is_whitespace) => {
             t[6..].trim().to_string()
         }
         _ => t.to_string(),
@@ -1312,15 +1327,13 @@ fn scan_windsurf() -> Vec<(AccountFile, String)> {
     let Some(home) = home::home_dir() else {
         return Vec::new();
     };
-    let db_path =
-        home.join("Library/Application Support/Windsurf/User/globalStorage/state.vscdb");
+    let db_path = home.join("Library/Application Support/Windsurf/User/globalStorage/state.vscdb");
     if !db_path.is_file() {
         return Vec::new();
     }
-    let Ok(conn) = rusqlite::Connection::open_with_flags(
-        &db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    ) else {
+    let Ok(conn) =
+        rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+    else {
         return Vec::new();
     };
     let mut values: HashMap<String, Value> = HashMap::new();
@@ -1338,12 +1351,18 @@ fn scan_windsurf() -> Vec<(AccountFile, String)> {
             values.insert(k, parsed);
         }
     }
-    let auth = values.get("windsurfAuthStatus").cloned().unwrap_or(Value::Null);
+    let auth = values
+        .get("windsurfAuthStatus")
+        .cloned()
+        .unwrap_or(Value::Null);
     let api_key = pick_str(&auth, &["apiKey"]);
     if api_key.is_empty() {
         return Vec::new();
     }
-    let storage = values.get("codeium.windsurf").cloned().unwrap_or(Value::Null);
+    let storage = values
+        .get("codeium.windsurf")
+        .cloned()
+        .unwrap_or(Value::Null);
     let email = {
         let v = pick_str(&storage, &["lastLoginEmail"]);
         if v.is_empty() {

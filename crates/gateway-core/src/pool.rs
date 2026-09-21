@@ -221,11 +221,7 @@ impl<B: PoolBehavior> AccountPool<B> {
     /// Merge a check-in update into the account state and persist — bare
     /// `find_mut` writes never reach the state file because they skip
     /// `changed()`.
-    pub fn set_checkin(
-        &mut self,
-        account_id: &str,
-        update: impl FnOnce(&mut CheckinState),
-    ) {
+    pub fn set_checkin(&mut self, account_id: &str, update: impl FnOnce(&mut CheckinState)) {
         if let Some(acc) = self.find_mut(account_id) {
             let mut state = acc.state.checkin.clone().unwrap_or_default();
             update(&mut state);

@@ -238,7 +238,8 @@ pub async fn get_credits_usage(
                 .or_else(|| pack.get("entitlementBaseInfo"));
             let endpoint = base
                 .and_then(|e| {
-                    e.get("available_endpoint").or_else(|| e.get("availableEndpoint"))
+                    e.get("available_endpoint")
+                        .or_else(|| e.get("availableEndpoint"))
                 })
                 .and_then(Value::as_i64)
                 .unwrap_or(0);

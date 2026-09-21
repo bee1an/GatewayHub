@@ -561,7 +561,6 @@ where
     }
 }
 
-
 /// `openAiJsonFromResult`.
 pub fn openai_json_from_result(
     result: &TraeWorkChatResult,
@@ -707,13 +706,8 @@ mod tests {
                 data: json!({"finish_reason": "tool_calls"}),
             }),
         ]);
-        let stream = openai_sse_from_events(
-            events,
-            "glm-5.3".into(),
-            json!({}),
-            None,
-            "acct".into(),
-        );
+        let stream =
+            openai_sse_from_events(events, "glm-5.3".into(), json!({}), None, "acct".into());
         let chunks: Vec<String> = futures::StreamExt::collect(stream).await;
         let tool_chunks: Vec<Value> = chunks
             .iter()

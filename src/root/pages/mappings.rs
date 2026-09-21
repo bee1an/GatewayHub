@@ -83,10 +83,7 @@ impl AppRoot {
                                 let desc = tf(
                                     this.lang,
                                     "delete_mapping_desc",
-                                    &[
-                                        ("alias", &m_alias),
-                                        ("target", &m_targets),
-                                    ],
+                                    &[("alias", &m_alias), ("target", &m_targets)],
                                 );
                                 this.confirm(
                                     t(this.lang, "delete_mapping_title"),

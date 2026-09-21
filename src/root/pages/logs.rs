@@ -46,11 +46,8 @@ impl AppRoot {
         // names only seen in the log buffer (e.g. removed since). Re-synced
         // into the SelectState only when the snapshot actually changes the
         // set; the selection itself survives `set_items`.
-        let mut providers: Vec<String> = snapshot
-            .providers
-            .iter()
-            .map(|p| p.name.clone())
-            .collect();
+        let mut providers: Vec<String> =
+            snapshot.providers.iter().map(|p| p.name.clone()).collect();
         for e in &snapshot.logs {
             if let Some(p) = &e.provider {
                 if !providers.contains(p) {

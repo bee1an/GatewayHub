@@ -540,10 +540,7 @@ impl WorkBuddyCore {
                 // A stamped day contradicts a lingering error — clear it
                 // here too, since this branch skips the run that would
                 // (older state files stamped `last_day` unconditionally).
-                if existing
-                    .as_ref()
-                    .is_some_and(|c| c.last_error.is_some())
-                {
+                if existing.as_ref().is_some_and(|c| c.last_error.is_some()) {
                     let mut pool = self.pool.lock().await;
                     pool.set_checkin(id, |s| s.last_error = None);
                 }

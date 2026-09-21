@@ -4,9 +4,7 @@ use gateway_core::types::AccountFile;
 
 #[tokio::main]
 async fn main() {
-    let dir = std::path::PathBuf::from(
-        "/Users/bee/.config/gatewayhub/workbuddy/accounts",
-    );
+    let dir = std::path::PathBuf::from("/Users/bee/.config/gatewayhub/workbuddy/accounts");
     let path = std::fs::read_dir(&dir)
         .unwrap()
         .filter_map(|e| e.ok().map(|e| e.path()))

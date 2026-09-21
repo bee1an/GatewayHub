@@ -29,9 +29,9 @@ use crate::providers::traework_checkin::{
     claim_checkin, cn_day_key, get_checkin_status, get_credits_usage,
 };
 use crate::types::{
-    AccountFile, AccountRuntimeState, AccountStatus, AccountTestResult,
-    ClassifiedError, GatewayLogEntry, GatewayRequestContext, GatewayResponse, JsonMap, LogLevel,
-    LogSink, ProviderModel, ProviderStatus, ResponseKind,
+    AccountFile, AccountRuntimeState, AccountStatus, AccountTestResult, ClassifiedError,
+    GatewayLogEntry, GatewayRequestContext, GatewayResponse, JsonMap, LogLevel, LogSink,
+    ProviderModel, ProviderStatus, ResponseKind,
 };
 
 mod core;

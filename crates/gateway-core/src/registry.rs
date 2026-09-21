@@ -96,14 +96,11 @@ impl Registry {
         if let Some(mapping) = self.alias_map.get(raw) {
             let mut resolved = Vec::new();
             for target in mapping.targets() {
-                let entry = self
-                    .providers
-                    .get_key_value(&target.provider)
-                    .or_else(|| {
-                        self.route_to_name
-                            .get(&target.provider)
-                            .and_then(|n| self.providers.get_key_value(n))
-                    });
+                let entry = self.providers.get_key_value(&target.provider).or_else(|| {
+                    self.route_to_name
+                        .get(&target.provider)
+                        .and_then(|n| self.providers.get_key_value(n))
+                });
                 match entry {
                     Some((name, p)) if crate::provider::provider_live(name) => {
                         resolved.push((p.clone(), target.model))

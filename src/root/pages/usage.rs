@@ -11,9 +11,16 @@ use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use crate::root::{
-    AppRoot, MONO, card, card_uniform_list, fmt_count, hairline, pop_in, section_header,
-    skeleton_rows, t, toggle_filter,
+    AppRoot, CHART_H, LANE_DURATION, LANE_STATUS, LANE_TIME, MONO, ROW_H, card, card_uniform_list,
+    fmt_count, hairline, pop_in, section_header, skeleton_rows, t, toggle_filter,
 };
+
+// Numeric column lanes — shared rem slots between the header row and every
+// data row so the table scales with interface zoom.
+const COL_TOKENS: Rems = LANE_TIME; // in/out token counts
+const COL_CACHE: Rems = rems(3.25); // cache-hit %
+const COL_REQ: Rems = LANE_STATUS; // request count
+const COL_COST: Rems = LANE_DURATION; // dollar cost
 
 impl AppRoot {
     pub(crate) fn render_usage(
@@ -65,9 +72,9 @@ impl AppRoot {
                             .secondary()
                             .w(relative(0.5))
                             .h_2p5()
-                            .rounded(px(3.)),
+                            .rounded_sm(),
                     )
-                    .child(Skeleton::new().w(relative(0.7)).h_4().rounded(px(3.)))
+                    .child(Skeleton::new().w(relative(0.7)).h_4().rounded_sm())
                     .into_any_element()
             })));
             return v_flex()
@@ -229,7 +236,7 @@ impl AppRoot {
                         .text_color(theme.secondary_foreground),
                 )
                 .child(
-                    div().h(px(110.)).child(
+                    div().h(CHART_H).child(
                         gpui_kit::component::chart::BarChart::new(series)
                             .id("usage-tokens-chart")
                             .name(series_name)
@@ -312,12 +319,12 @@ impl AppRoot {
 
         // Column geometry is shared by the header row and every data row,
         // so the header stays aligned with the virtualized rows below it.
-        let head_cell = |text: &str, w: Option<f32>| {
+        let head_cell = |text: &str, w: Option<Rems>| {
             let label = Label::new(text)
                 .text_xs()
                 .text_color(theme.muted_foreground);
             match w {
-                Some(w) => div().w(px(w)).flex_none().child(label),
+                Some(w) => div().w(w).flex_none().child(label),
                 None => div().flex_1().min_w_0().child(label),
             }
         };
@@ -334,21 +341,21 @@ impl AppRoot {
             .border_b_1()
             .border_color(theme.border)
             .child(head_cell(t(lang, head_key), None))
-            .child(head_cell(t(lang, "col_in"), Some(72.)))
-            .child(head_cell(t(lang, "col_out"), Some(72.)))
-            .child(head_cell(t(lang, "col_cache"), Some(52.)))
-            .child(head_cell(t(lang, "col_req"), Some(56.)))
-            .child(head_cell(t(lang, "col_cost"), Some(72.)));
+            .child(head_cell(t(lang, "col_in"), Some(COL_TOKENS)))
+            .child(head_cell(t(lang, "col_out"), Some(COL_TOKENS)))
+            .child(head_cell(t(lang, "col_cache"), Some(COL_CACHE)))
+            .child(head_cell(t(lang, "col_req"), Some(COL_REQ)))
+            .child(head_cell(t(lang, "col_cost"), Some(COL_COST)));
 
         let theme_for_rows = theme.clone();
-        let row_height = px(30.);
+        let row_height = ROW_H;
         let drillable = drill.is_none();
         let view = cx.entity().clone();
         let drill_dim = self.usage_view;
         let render_row = move |ix: usize, _window: &mut Window, _app: &mut App| -> AnyElement {
             let (label, e) = &rows[ix];
-            let cell = |text: String, w: f32, color: Hsla| {
-                div().w(px(w)).flex_none().child(
+            let cell = |text: String, w: Rems, color: Hsla| {
+                div().w(w).flex_none().child(
                     Label::new(text)
                         .font_family(MONO)
                         .text_xs()
@@ -371,22 +378,22 @@ impl AppRoot {
                 )
                 .child(cell(
                     fmt_count(e.input),
-                    72.,
+                    COL_TOKENS,
                     theme_for_rows.secondary_foreground,
                 ))
                 .child(cell(
                     fmt_count(e.output),
-                    72.,
+                    COL_TOKENS,
                     theme_for_rows.secondary_foreground,
                 ))
                 .child(cell(
                     hit_pct(hit_rate(e.input, e.cache_read, e.cache_write)),
-                    52.,
+                    COL_CACHE,
                     theme_for_rows.secondary_foreground,
                 ))
                 .child(cell(
                     fmt_count(e.requests),
-                    56.,
+                    COL_REQ,
                     theme_for_rows.secondary_foreground,
                 ))
                 .child(cell(
@@ -395,7 +402,7 @@ impl AppRoot {
                     } else {
                         "—".into()
                     },
-                    72.,
+                    COL_COST,
                     theme_for_rows.foreground,
                 ));
             if drillable {

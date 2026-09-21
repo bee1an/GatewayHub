@@ -8,19 +8,23 @@ use gpui_kit::*;
 
 use super::Page;
 
-pub(crate) const SIDEBAR_W: f32 = 148.;
-pub(crate) const SIDEBAR_W_COLLAPSED: f32 = 72.;
+/// Sidebar geometry lives on the rem scale so the rail follows interface
+/// zoom instead of pinning a physical pixel width.
+pub(crate) const SIDEBAR_W: Rems = rems(9.25); // 148px @16
+pub(crate) const SIDEBAR_W_COLLAPSED: Rems = rems(4.5); // 72px @16
 /// Fixed row height — every nav row shares this so icons and labels sit on
 /// one vertical spine.
-pub(crate) const NAV_ROW_H: f32 = 32.;
+pub(crate) const NAV_ROW_H: Rems = rems(2.); // 32px @16
 /// Leading icon lane — fixed width so labels align whether or not a row
 /// carries an icon.
-pub(crate) const ICON_LANE: f32 = 40.;
+pub(crate) const ICON_LANE: Rems = rems(2.5); // 40px @16
 /// Nav icon size — compact but still legible in the 32px navigation row.
+/// `provider_logo` takes a px size for its optical frame, so this stays a
+/// scalar; callers multiply by `window.rem_size()` when they need pixels.
 pub(crate) const NAV_ICON: f32 = 15.;
 
-/// Row pitch — NAV_ROW_H plus the gap_0p5 spacing between rows.
-pub(crate) const NAV_PITCH: f32 = NAV_ROW_H + 2.;
+/// Row pitch — NAV_ROW_H plus the gap_0p5 spacing between rows (2px @16).
+pub(crate) const NAV_PITCH: Rems = rems(2.125);
 
 /// Primary destinations in rail order — the selection pill's slot index
 /// is a row's position in this table.
@@ -68,7 +72,7 @@ pub(crate) const NAV_ITEMS: [(Page, &str, IconName, &str); 7] = [
 /// content space. First paint passes `animate: false` so the pill snaps
 /// into place instead of travelling from a stale position.
 pub(crate) fn nav_sel_pill(
-    target_y: f32,
+    target_y: Rems,
     animate: bool,
     collapsed: bool,
     cx: &App,
@@ -78,7 +82,7 @@ pub(crate) fn nav_sel_pill(
         .absolute()
         .left_0()
         .right_0()
-        .h(px(NAV_ROW_H))
+        .h(NAV_ROW_H)
         .rounded(theme.radius)
         .bg(theme.list_active)
         // Collapsed rows shrink to a centered 40px tile — match it.
@@ -86,7 +90,7 @@ pub(crate) fn nav_sel_pill(
         .with_spring(
             "nav-sel-pill",
             SpringAnimation::new(SpringConfig::new(300., 26., 1.))
-                .to(px(target_y))
+                .to(target_y)
                 .playback(if animate {
                     SpringPlayback::Running
                 } else {
@@ -110,13 +114,20 @@ pub(crate) fn nav_row(
     let theme = cx.theme().clone();
     div()
         .id(id)
-        .h(px(NAV_ROW_H))
+        .h(NAV_ROW_H)
         .px_2()
         .flex()
         .items_center()
         .gap_0()
         .rounded(theme.radius)
         .cursor_pointer()
+        .focusable()
+        .focus_visible(|style| {
+            style
+                .border_color(theme.ring)
+                .border_1()
+                .rounded(theme.radius)
+        })
         .when(!active, |d| d.hover(|d| d.bg(theme.list_hover)))
         .when(collapsed, |d| {
             let tip = label.clone();
@@ -128,7 +139,7 @@ pub(crate) fn nav_row(
         })
         .child(
             div()
-                .w(px(ICON_LANE))
+                .w(ICON_LANE)
                 .flex_none()
                 .flex()
                 .items_center()
@@ -150,10 +161,5 @@ pub(crate) fn nav_row(
         })
 }
 
-/// Section label inside the sidebar — quiet eyebrow between nav and providers.
-pub(crate) fn sidebar_section_label(text: &str, cx: &App) -> impl IntoElement {
-    Label::new(text)
-        .text_xs()
-        .font_medium()
-        .text_color(cx.theme().muted_foreground)
-}
+/// Section label inside the sidebar — same quiet eyebrow as page sections.
+pub(crate) use super::chrome::section_label as sidebar_section_label;

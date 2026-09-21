@@ -28,9 +28,12 @@ use gateway_core::{
 };
 
 pub(crate) use chrome::{
-    MONO, MarqueeText, card, card_rows, card_uniform_list, clock_time, enter, fmt_count, hairline,
-    one_line, pop_in, provider_logo, row, section_header, shake, short_date, skeleton_rows,
-    status_label, toggle_filter,
+    CHART_H, DIALOG_W_LG, DIALOG_W_MD, DIALOG_W_SM, FIELD_W_LG, FIELD_W_MD, FIELD_W_SM, ICON_XL,
+    LANE_DURATION, LANE_LABEL, LANE_LEVEL, LANE_PROVIDER, LANE_STATUS, LANE_TIME, MENU_W_LG,
+    MENU_W_MD, MENU_W_SM, MONO, MarqueeText, PANE_MIN_H, ROW_H, ROW_H_TALL, SCROLL_H_LG,
+    SCROLL_H_MD, SCROLL_H_SM, card, card_rows, card_uniform_list, clock_time, enter, fmt_count,
+    hairline, one_line, pop_in, provider_logo, row, section_header, shake, short_date,
+    skeleton_rows, status_label, status_tone, toggle_chip, toggle_filter,
 };
 
 use gpui_kit::assets::IconName;
@@ -52,9 +55,11 @@ use gpui_kit::*;
 
 /// Content column width — the Electron layout centers `max-w-4xl` (896px)
 /// inside the glass pane.
-pub(crate) const PAGE_MAX_W: f32 = 896.;
+/// Page column width — rem so the centered column follows interface zoom
+/// (the Electron layout centered `max-w-4xl` inside the glass pane).
+pub(crate) const PAGE_MAX_W: Rems = rems(56.); // 896px @16
 /// Provider detail pages were `max-w-5xl` in the Electron layout.
-pub(crate) const DETAIL_MAX_W: f32 = 1024.;
+pub(crate) const DETAIL_MAX_W: Rems = rems(64.); // 1024px @16
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Page {
     Dashboard,
@@ -613,7 +618,7 @@ impl Render for AppRoot {
         let mut nav = v_flex().gap_0p5().relative();
         if let Some(ix) = sel_nav_ix {
             nav = nav.child(nav_sel_pill(
-                ix as f32 * NAV_PITCH,
+                rems(NAV_PITCH.0 * ix as f32),
                 pill_animate,
                 collapsed,
                 cx,
@@ -622,7 +627,7 @@ impl Render for AppRoot {
         for (page, id, icon, label_key) in NAV_ITEMS {
             let active = self.detail.is_none() && self.page == page;
             let glyph = Icon::new(icon)
-                .size(px(NAV_ICON))
+                .size(rems(NAV_ICON / 16.))
                 .text_color(if active {
                     theme.foreground
                 } else {
@@ -655,7 +660,7 @@ impl Render for AppRoot {
         let mut provider_rows = v_flex().gap_0p5().relative();
         if let Some(ix) = sel_provider_ix {
             provider_rows = provider_rows.child(nav_sel_pill(
-                ix as f32 * NAV_PITCH,
+                rems(NAV_PITCH.0 * ix as f32),
                 pill_animate,
                 collapsed,
                 cx,
@@ -790,7 +795,7 @@ impl Render for AppRoot {
         // resize". The animator owns `w` for the duration; the resting state
         // lands on `sidebar_w`.
         let sidebar = v_flex()
-            .w(px(sidebar_w))
+            .w(sidebar_w)
             .flex_none()
             .h_full()
             .min_h_0()
@@ -800,11 +805,11 @@ impl Render for AppRoot {
                 Animation::new(Duration::from_millis(180)).with_easing(ease_out_quint()),
                 move |el, d| {
                     let (from, to) = if collapsed {
-                        (SIDEBAR_W, SIDEBAR_W_COLLAPSED)
+                        (SIDEBAR_W.0, SIDEBAR_W_COLLAPSED.0)
                     } else {
-                        (SIDEBAR_W_COLLAPSED, SIDEBAR_W)
+                        (SIDEBAR_W_COLLAPSED.0, SIDEBAR_W.0)
                     };
-                    el.w(px(from + (to - from) * d))
+                    el.w(rems(from + (to - from) * d))
                 },
             )
             // Only clear the native controls. The former brand header is gone,
@@ -903,7 +908,7 @@ impl Render for AppRoot {
                                             div()
                                                 .mx_auto()
                                                 .w_full()
-                                                .max_w(px(max_w))
+                                                .max_w(max_w)
                                                 .px_6()
                                                 .pt_6()
                                                 .pb_5()
@@ -928,7 +933,7 @@ impl Render for AppRoot {
                                                     div()
                                                         .mx_auto()
                                                         .w_full()
-                                                        .max_w(px(max_w))
+                                                        .max_w(max_w)
                                                         .px_6()
                                                         .pt_6()
                                                         .pb_5()

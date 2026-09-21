@@ -19,16 +19,14 @@ use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use crate::root::{
-    AppRoot, MONO, MarqueeText, card, clock_time, enter, section_header, t, tf, toggle_filter,
+    AppRoot, FIELD_W_SM, LANE_DURATION, LANE_LEVEL, LANE_PROVIDER, LANE_STATUS, LANE_TIME,
+    MENU_W_SM, MONO, MarqueeText, ROW_H, card, clock_time, enter, section_header, t, tf,
+    toggle_filter,
 };
 
-// Shared column lanes — the header row and every data row use the same
-// geometry so the labels stay aligned over the virtualized list.
-const LANE_TIME: f32 = 64.;
-const LANE_LEVEL: f32 = 72.;
-const LANE_PROVIDER: f32 = 96.;
-const LANE_STATUS: f32 = 56.;
-const LANE_DURATION: f32 = 72.;
+// Column lanes come from the shared rem scale (`crate::root::LANE_*`) so
+// header cells and data cells stay aligned over the virtualized list AND
+// follow interface zoom.
 
 impl AppRoot {
     pub(crate) fn render_logs(
@@ -124,12 +122,12 @@ impl AppRoot {
                     .child(Input::new(&self.log_search).small()),
             )
             .child(
-                div().w(px(150.)).flex_none().child(
+                div().w(FIELD_W_SM).flex_none().child(
                     Select::new(&self.log_provider_sel)
                         .small()
                         .cleanable(true)
                         .placeholder(t(lang, "all_providers"))
-                        .menu_width(px(200.)),
+                        .menu_width(MENU_W_SM),
                 ),
             )
             .child(
@@ -155,9 +153,9 @@ impl AppRoot {
             );
 
         // ---- column header rides inside the card (same lanes as rows) ----
-        let head_cell = |text: &str, w: Option<f32>, right: bool| {
+        let head_cell = |text: &str, w: Option<Rems>, right: bool| {
             let cell = match w {
-                Some(w) => div().w(px(w)).flex_none(),
+                Some(w) => div().w(w).flex_none(),
                 None => div().flex_1().min_w_0(),
             };
             let label = Label::new(text)
@@ -193,7 +191,7 @@ impl AppRoot {
 
         // ---- virtualized rows inside one card ----
         let theme_for_rows = theme.clone();
-        let row_height = px(34.);
+        let row_height = ROW_H;
         let render_row = move |ix: usize, _window: &mut Window, _app: &mut App| -> AnyElement {
             let entry = &snapshot_for_rows.logs[entry_indices[ix]];
             let (level_key, level_color) = match entry.level {
@@ -219,7 +217,7 @@ impl AppRoot {
                         .pl_4()
                         .pr_4()
                         .child(
-                            div().w(px(LANE_TIME)).flex_none().child(
+                            div().w(LANE_TIME).flex_none().child(
                                 Label::new(clock_time(entry.ts))
                                     .font_family(MONO)
                                     .text_xs()
@@ -227,10 +225,10 @@ impl AppRoot {
                             ),
                         )
                         .child(
-                            div().w(px(LANE_LEVEL)).flex_none().child(
+                            div().w(LANE_LEVEL).flex_none().child(
                                 div()
                                     .px_2()
-                                    .h(px(18.))
+                                    .h(rems(1.125))
                                     .flex()
                                     .items_center()
                                     .justify_center()
@@ -245,7 +243,7 @@ impl AppRoot {
                             ),
                         )
                         .child(
-                            div().w(px(LANE_PROVIDER)).flex_none().child(
+                            div().w(LANE_PROVIDER).flex_none().child(
                                 Label::new(entry.provider.clone().unwrap_or_else(|| "—".into()))
                                     .text_xs()
                                     .text_color(if entry.provider.is_some() {
@@ -267,7 +265,7 @@ impl AppRoot {
                         )
                         .child(
                             div()
-                                .w(px(LANE_STATUS))
+                                .w(LANE_STATUS)
                                 .flex_none()
                                 .flex()
                                 .justify_end()
@@ -282,7 +280,7 @@ impl AppRoot {
                         )
                         .child(
                             div()
-                                .w(px(LANE_DURATION))
+                                .w(LANE_DURATION)
                                 .flex_none()
                                 .flex()
                                 .justify_end()

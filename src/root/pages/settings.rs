@@ -15,7 +15,9 @@ use gpui_kit::component::{
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
-use crate::root::{AppRoot, Lang, MONO, card, enter, provider_logo, shake, t, tf, toggle_filter};
+use crate::root::{
+    AppRoot, LANE_LABEL, Lang, MONO, card, enter, provider_logo, shake, t, tf, toggle_filter,
+};
 
 fn settings_section(
     title: &str,
@@ -68,7 +70,7 @@ fn settings_kv(label: &str, value: impl Into<SharedString>, cx: &App) -> AnyElem
         .items_center()
         .gap_3()
         .child(
-            div().w(px(72.)).flex_none().child(
+            div().w(LANE_LABEL).flex_none().child(
                 Label::new(label.to_string())
                     .text_xs()
                     .text_color(theme.muted_foreground),
@@ -298,7 +300,7 @@ impl AppRoot {
                         .justify_between()
                         .gap_2()
                         .px_1p5()
-                        .rounded(px(6.))
+                        .rounded(theme.radius)
                         .when(live, |d| d.hover(|this| this.bg(theme.list_hover)))
                         .child(
                             h_flex()

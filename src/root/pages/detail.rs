@@ -21,8 +21,8 @@ use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use crate::root::{
-    AppRoot, MONO, card, card_uniform_list, enter, provider_logo, row, section_header,
-    skeleton_rows, status_label, t, tf,
+    AppRoot, MONO, ROW_H_TALL, card, card_uniform_list, enter, provider_logo, row, section_header,
+    skeleton_rows, status_label, status_tone, t, tf,
 };
 
 mod discover;
@@ -165,11 +165,7 @@ impl AppRoot {
         let provider_type = status.map(|p| p.provider_type.as_str()).unwrap_or_default();
 
         let status_text = status.map(status_label).unwrap_or("off");
-        let status_color = match status_text {
-            "ready" => theme.success,
-            "error" => theme.danger,
-            _ => theme.muted_foreground,
-        };
+        let status_color = status_tone(status_text, &theme);
         let message = status.and_then(|p| p.message.clone()).unwrap_or_default();
         let proxy_capable = status.is_some_and(|p| p.use_proxy.is_some());
         let use_proxy = status.and_then(|p| p.use_proxy).unwrap_or(false);
@@ -352,7 +348,7 @@ impl AppRoot {
         let checkin_pending_keys = self.checkin_pending.clone();
         let states_for_rows = states.clone();
         let weak = cx.weak_entity();
-        let row_height = px(52.);
+        let row_height = ROW_H_TALL;
         let today = cn_today();
         let render_account = move |ix: usize, _window: &mut Window, _app: &mut App| -> AnyElement {
             let account = &accounts_for_rows[ix];
@@ -415,7 +411,7 @@ impl AppRoot {
                         .gap_1()
                         .px_1p5()
                         .py_0p5()
-                        .rounded(px(3.))
+                        .rounded_sm()
                         .bg(theme_for_rows.success.opacity(0.18))
                         .border_1()
                         .border_color(theme_for_rows.success.opacity(0.35))
@@ -441,7 +437,7 @@ impl AppRoot {
                     div()
                         .px_1p5()
                         .py_0p5()
-                        .rounded(px(3.))
+                        .rounded_sm()
                         .bg(theme_for_rows.danger.opacity(0.18))
                         .border_1()
                         .border_color(theme_for_rows.danger.opacity(0.35))
@@ -651,9 +647,9 @@ impl AppRoot {
         } else {
             // Size to content — one account should look like one row, not
             // a five-row void. Cap at 5 rows so long pools still scroll.
-            let cap = accounts_count.min(5) as f32 * 52.;
+            let cap = rems(ROW_H_TALL.0 * accounts_count.min(5) as f32);
             div()
-                .h(px(cap))
+                .h(cap)
                 .child(card_uniform_list(
                     SharedString::from(format!("accounts-{provider}")),
                     accounts_count,

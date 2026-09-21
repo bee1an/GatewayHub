@@ -2367,7 +2367,7 @@ const NAV_PITCH: f32 = NAV_ROW_H + 2.;
 
 /// Primary destinations in rail order — the selection pill's slot index
 /// is a row's position in this table.
-const NAV_ITEMS: [(Page, &str, IconName, &str); 6] = [
+const NAV_ITEMS: [(Page, &str, IconName, &str); 7] = [
     (
         Page::Dashboard,
         "nav-dashboard",
@@ -2379,14 +2379,15 @@ const NAV_ITEMS: [(Page, &str, IconName, &str); 6] = [
     (Page::ApiKeys, "nav-apikeys", IconName::Asterisk, "nav_api_keys"),
     (Page::Mappings, "nav-mappings", IconName::Replace, "nav_mappings"),
     (Page::Usage, "nav-usage", IconName::ChartPie, "nav_usage"),
+    (Page::Settings, "nav-settings", IconName::Settings, "nav_settings"),
 ];
 
 /// The sliding selection highlight — a single pill mounted inside
-/// whichever rail zone (primary nav, provider list, settings) currently
-/// holds the selection. Every mount shares the `nav-sel-pill` spring id,
-/// so position and velocity carry across target changes and the fill
+/// whichever rail zone (primary nav or provider list) currently holds
+/// the selection. Every mount shares the `nav-sel-pill` spring id, so
+/// position and velocity carry across target changes and the fill
 /// physically glides to the new row's slot (Heimdall's outline pill,
-/// adapted to three fixed zones). `target_y` is the slot's Y in the zone's
+/// adapted to two zones). `target_y` is the slot's Y in the zone's
 /// content space. First paint passes `animate: false` so the pill snaps
 /// into place instead of travelling from a stale position.
 fn nav_sel_pill(target_y: f32, animate: bool, collapsed: bool, cx: &App) -> impl IntoElement {
@@ -2508,8 +2509,7 @@ impl Render for AppRoot {
             .detail
             .as_deref()
             .and_then(|name| visible_providers.iter().position(|p| p.name == name));
-        let sel_settings = self.detail.is_none() && self.page == Page::Settings;
-        if sel_nav_ix.is_some() || sel_provider_ix.is_some() || sel_settings {
+        if sel_nav_ix.is_some() || sel_provider_ix.is_some() {
             self.animate_selection_pill = true;
         }
 
@@ -2578,29 +2578,6 @@ impl Render for AppRoot {
             provider_rows = provider_rows.child(row);
         }
         providers_section = providers_section.child(provider_rows);
-
-        // Settings at the bottom of nav
-        let settings_active = self.detail.is_none() && self.page == Page::Settings;
-        let settings_row = nav_row(
-            "nav-settings",
-            Icon::new(IconName::Settings)
-                .size(px(NAV_ICON))
-                .text_color(if settings_active {
-                    theme.foreground
-                } else {
-                    theme.muted_foreground
-                })
-                .into_any_element(),
-            t(lang, "nav_settings").into(),
-            settings_active,
-            collapsed,
-            cx,
-        )
-        .on_click(cx.listener(|this, _, _w, cx| {
-            this.page = Page::Settings;
-            this.detail = None;
-            cx.notify();
-        }));
 
         // Footer: gateway state + collapse — the shell's status bar. The
         // server pill anchors one end, the collapse button the other; the
@@ -2740,17 +2717,6 @@ impl Render for AppRoot {
                     .overflow_y_scroll()
                     .px_1()
                     .child(providers_section),
-            )
-            .child(hairline(cx).mx_3().my_1())
-            .child(
-                div().px_1().py_1().child(
-                    div()
-                        .relative()
-                        .when(sel_settings, |d| {
-                            d.child(nav_sel_pill(0., pill_animate, collapsed, cx))
-                        })
-                        .child(settings_row),
-                ),
             )
             .child(footer);
 

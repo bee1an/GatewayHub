@@ -101,8 +101,8 @@ impl AppRoot {
                         .w_full()
                         .items_center()
                         .gap_3()
-                        .pt_5()
-                        .pb_4()
+                        .pt_1()
+                        .pb_2()
                         .border_b_1()
                         .border_color(theme.border)
                         .child(
@@ -116,10 +116,10 @@ impl AppRoot {
                                     cx.notify();
                                 })),
                         )
-                        .child(provider_logo(provider_type, 32., true, cx))
+                        .child(provider_logo(provider_type, 24., true, cx))
                         .child(
                             Label::new(provider.to_string())
-                                .text_lg()
+                                .text_base()
                                 .font_semibold()
                                 .text_color(theme.foreground),
                         ),
@@ -178,8 +178,8 @@ impl AppRoot {
             .w_full()
             .items_center()
             .gap_3()
-            .pt_5()
-            .pb_4()
+            .pt_1()
+            .pb_2()
             .border_b_1()
             .border_color(theme.border)
             .child(
@@ -193,24 +193,29 @@ impl AppRoot {
                         cx.notify();
                     })),
             )
-            .child(provider_logo(provider_type, 32., !enabled, cx))
+            .child(provider_logo(provider_type, 24., !enabled, cx))
             .child(
                 v_flex()
                     .flex_1()
                     .min_w_0()
                     .gap_0p5()
                     .child(
-                        Label::new(provider.to_string())
-                            .text_lg()
-                            .font_semibold()
-                            .text_color(theme.foreground)
-                            .whitespace_nowrap()
-                            .overflow_hidden(),
-                    )
-                    .child(
+                        // Name + status share one line — a dedicated status
+                        // row costs a whole text line of header height.
                         h_flex()
-                            .gap_1p5()
-                            .child(div().size_1p5().rounded_full().bg(status_color))
+                            .w_full()
+                            .min_w_0()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                Label::new(provider.to_string())
+                                    .text_base()
+                                    .font_semibold()
+                                    .text_color(theme.foreground)
+                                    .whitespace_nowrap()
+                                    .overflow_hidden(),
+                            )
+                            .child(div().size_1p5().flex_none().rounded_full().bg(status_color))
                             .child(Label::new(status_text).text_xs().text_color(status_color)),
                     )
                     // Upstream/provider message on its own line — it can be
@@ -262,6 +267,7 @@ impl AppRoot {
                                         })),
                                 ),
                         )
+                        .child(div().w(px(1.)).h(px(14.)).bg(theme.border))
                     })
                     .child(
                         Button::new("toggle-enabled")
@@ -503,7 +509,8 @@ impl AppRoot {
                 .id(SharedString::from(format!("acct-row-{key}")))
                 .h(row_height)
                 // Whole-row hover + click opens the account dialog — Heimdall
-                // list-row style. Buttons inside stop propagation.
+                // list-row style. The trailing actions sit in a
+                // bubble-stop wrapper so they don't re-trigger this.
                 .hover(|d| d.bg(theme_for_rows.list_hover))
                 .on_click({
                     let weak = weak.clone();
@@ -532,86 +539,100 @@ impl AppRoot {
                                 .truncate(),
                         ),
                 )
+                .when_some(checkin_badge, |r, badge| r.child(badge))
+                .child({
+                    // Row actions live in one bubble-stop wrapper: Button
+                    // clicks propagate (gpui-component only stops them
+                    // while `loading`), so without this every action would
+                    // also fire the row's open-overlay handler.
+                    h_flex()
+                        .id(SharedString::from(format!("acct-actions-{key}")))
+                        .items_center()
+                        .gap_1()
+                        .on_click(|_, _, cx| cx.stop_propagation())
+                        .when(supports_checkin, |d| {
+                            d.child(
+                                Button::new(SharedString::from(format!("checkin-{key}")))
+                                    .ghost()
+                                    .xsmall()
+                                    .icon(IconName::Calendar)
+                                    .tooltip(t(lang, "checkin"))
+                                    .loading(is_checkin)
+                                    .disabled(checked_today)
+                                    .on_click({
+                                        let weak = weak.clone();
+                                        move |_, _w, cx| {
+                                            let _ = weak.update(cx, |this, cx| {
+                                                this.checkin_account(&p4, &a3, cx);
+                                            });
+                                        }
+                                    }),
+                            )
+                        })
+                        .child({
+                            // Hand-rolled popover instead of `dropdown_menu` — the
+                            // helper sets overlay_closable(false), removing the
+                            // popover's own outside-click dismiss and leaning on the
+                            // menu's mouse_down_out alone. The default popover
+                            // dismisses on any outside mousedown and returns focus
+                            // through PopoverState, so the menu reliably closes.
+                            let menu_state = _window.use_keyed_state(
+                                SharedString::from(format!("acct-menu-state:{key}")),
+                                _app,
+                                |_, _| AcctMenuState::default(),
+                            );
+                            Popover::new(SharedString::from(format!("acct-menu-pop:{key}")))
+                                .appearance(false)
+                                .anchor(Anchor::TopRight)
+                                .trigger(
+                                    Button::new(SharedString::from(format!("acct-menu-{key}")))
+                                        .ghost()
+                                        .xsmall()
+                                        .icon(IconName::Ellipsis)
+                                        .tooltip(t(lang, "actions")),
+                                )
+                                .content({
+                                    let menu_state = menu_state.clone();
+                                    let menu_for = menu_for.clone();
+                                    move |_, window, cx| match menu_state.read(cx).menu.clone() {
+                                        Some(menu) => menu,
+                                        None => {
+                                            let builder = menu_for.clone();
+                                            let menu =
+                                                PopupMenu::build(window, cx, move |m, w, cx| {
+                                                    builder(m, w, cx)
+                                                });
+                                            menu_state.update(cx, |state, _| {
+                                                state.menu = Some(menu.clone());
+                                            });
+                                            menu.focus_handle(cx).focus(window, cx);
+                                            let popover_state = cx.entity();
+                                            window
+                                                .subscribe(&menu, cx, {
+                                                    let menu_state = menu_state.clone();
+                                                    move |_, _: &DismissEvent, window, cx| {
+                                                        popover_state.update(cx, |state, cx| {
+                                                            state.dismiss(window, cx);
+                                                        });
+                                                        menu_state.update(cx, |state, _| {
+                                                            state.menu = None;
+                                                        });
+                                                    }
+                                                })
+                                                .detach();
+                                            menu
+                                        }
+                                    }
+                                })
+                        })
+                })
+                // Disclosure chevron stays rightmost — accessories first,
+                // chevron last (standard list-row order).
                 .child(
                     Icon::new(IconName::ChevronRight)
                         .size_3p5()
                         .text_color(theme_for_rows.muted_foreground),
                 )
-                .when_some(checkin_badge, |r, badge| r.child(badge))
-                .when(supports_checkin, |r| {
-                    r.child(
-                        Button::new(SharedString::from(format!("checkin-{key}")))
-                            .ghost()
-                            .xsmall()
-                            .icon(IconName::Calendar)
-                            .tooltip(t(lang, "checkin"))
-                            .loading(is_checkin)
-                            .disabled(checked_today)
-                            .on_click({
-                                let weak = weak.clone();
-                                move |_, _w, cx| {
-                                    let _ = weak.update(cx, |this, cx| {
-                                        this.checkin_account(&p4, &a3, cx);
-                                    });
-                                }
-                            }),
-                    )
-                })
-                .child({
-                    // Hand-rolled popover instead of `dropdown_menu` — the
-                    // helper sets overlay_closable(false), removing the
-                    // popover's own outside-click dismiss and leaning on the
-                    // menu's mouse_down_out alone. The default popover
-                    // dismisses on any outside mousedown and returns focus
-                    // through PopoverState, so the menu reliably closes.
-                    let menu_state = _window.use_keyed_state(
-                        SharedString::from(format!("acct-menu-state:{key}")),
-                        _app,
-                        |_, _| AcctMenuState::default(),
-                    );
-                    Popover::new(SharedString::from(format!("acct-menu-pop:{key}")))
-                        .appearance(false)
-                        .anchor(Anchor::TopRight)
-                        .trigger(
-                            Button::new(SharedString::from(format!("acct-menu-{key}")))
-                                .ghost()
-                                .xsmall()
-                                .icon(IconName::Ellipsis)
-                                .tooltip(t(lang, "actions")),
-                        )
-                        .content({
-                            let menu_state = menu_state.clone();
-                            let menu_for = menu_for.clone();
-                            move |_, window, cx| match menu_state.read(cx).menu.clone() {
-                                Some(menu) => menu,
-                                None => {
-                                    let builder = menu_for.clone();
-                                    let menu = PopupMenu::build(window, cx, move |m, w, cx| {
-                                        builder(m, w, cx)
-                                    });
-                                    menu_state.update(cx, |state, _| {
-                                        state.menu = Some(menu.clone());
-                                    });
-                                    menu.focus_handle(cx).focus(window, cx);
-                                    let popover_state = cx.entity();
-                                    window
-                                        .subscribe(&menu, cx, {
-                                            let menu_state = menu_state.clone();
-                                            move |_, _: &DismissEvent, window, cx| {
-                                                popover_state.update(cx, |state, cx| {
-                                                    state.dismiss(window, cx);
-                                                });
-                                                menu_state.update(cx, |state, _| {
-                                                    state.menu = None;
-                                                });
-                                            }
-                                        })
-                                        .detach();
-                                    menu
-                                }
-                            }
-                        })
-                })
                 .context_menu(move |menu, window, cx| menu_for(menu, window, cx))
                 .into_any_element()
         };
@@ -644,28 +665,14 @@ impl AppRoot {
         };
 
         let provider_name4 = provider_name.clone();
-        let mut accounts_footer = h_flex().items_center().gap_2().child(
-            Button::new("add-account")
-                .outline()
-                .small()
-                .label(t(lang, "add_account"))
-                .icon(IconName::Plus)
-                .on_click(cx.listener(move |this, _e: &ClickEvent, _w, cx| {
-                    this.open_add_account_overlay(&provider_name4, cx);
-                })),
-        );
-        if let Some(msg) = &self.import_result {
-            accounts_footer = accounts_footer.child(enter(
-                div().child(
-                    Label::new(msg.clone())
-                        .font_family(MONO)
-                        .text_xs()
-                        .text_color(theme.muted_foreground)
-                        .truncate(),
-                ),
-                format!("import-{}", self.notice_nonce),
-            ));
-        }
+        let add_btn = Button::new("add-account")
+            .outline()
+            .small()
+            .icon(IconName::Plus)
+            .label(t(lang, "add_account"))
+            .on_click(cx.listener(move |this, _e: &ClickEvent, _w, cx| {
+                this.open_add_account_overlay(&provider_name4, cx);
+            }));
 
         v_flex()
             .gap_4()
@@ -676,11 +683,22 @@ impl AppRoot {
                     .gap_2()
                     .child(section_header(
                         tf(lang, "accounts_n", &[("n", &accounts.len().to_string())]),
-                        None,
+                        Some(add_btn.into_any_element()),
                         cx,
                     ))
                     .child(accounts_card)
-                    .child(accounts_footer),
+                    .when_some(self.import_result.clone(), |d, msg| {
+                        d.child(enter(
+                            div().child(
+                                Label::new(msg)
+                                    .font_family(MONO)
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground)
+                                    .truncate(),
+                            ),
+                            format!("import-{}", self.notice_nonce),
+                        ))
+                    }),
             )
             .into_any_element()
     }

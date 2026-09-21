@@ -1864,18 +1864,11 @@ impl AppRoot {
                         .items_center()
                         .justify_center()
                         .child(
-                            div()
-                                .id("overlay-panel")
-                                .relative()
+                            overlay_panel_surface()
                                 .top(rem_px * m.panel_off_rem)
                                 .w(panel_w)
                                 // Clicks/scroll inside the card must not
-                                // reach the backdrop — and blank panel
-                                // chrome releases any focused input.
-                                .on_mouse_down(MouseButton::Left, |_, window, cx| {
-                                    window.blur(cx);
-                                    cx.stop_propagation()
-                                })
+                                // reach the backdrop.
                                 .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
                                 // Layer 2 — the surface: bg/border/radius/
                                 // shadow as one sibling with its own alpha,
@@ -2420,6 +2413,22 @@ fn sidebar_section_label(text: &str, cx: &App) -> impl IntoElement {
         .text_color(cx.theme().muted_foreground)
 }
 
+/// Outermost application surface. Do not install a bubbling blur handler
+/// here: GPUI focuses an input during the same mouse-down bubble, so an
+/// ancestor `window.blur` immediately clears the focus it just received.
+fn app_surface() -> Div {
+    div().size_full().relative()
+}
+
+/// Overlay card hit boundary. Stop the event before it can reach the
+/// backdrop, but leave focus management to the control that was clicked.
+fn overlay_panel_surface() -> Stateful<Div> {
+    div()
+        .id("overlay-panel")
+        .relative()
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+}
+
 impl Render for AppRoot {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let overlay = self.overlay_layer(window, cx);
@@ -2715,16 +2724,7 @@ impl Render for AppRoot {
         // The overlay mounts on the outermost wrapper (relative + size_full)
         // so its absolute positioning covers the whole window and nothing is
         // clipped by the content column's overflow-hidden.
-        div()
-            .size_full()
-            .relative()
-            // Clicking inert chrome releases input focus — the Zed-style
-            // "background click unfocuses" contract. Inputs and Select
-            // triggers stop propagation on their own mousedown, so this
-            // only sees clicks that landed on non-focusable surface.
-            .on_mouse_down(MouseButton::Left, |_, window, cx| {
-                window.blur(cx);
-            })
+        app_surface()
             .child(
                 h_flex()
                     .items_stretch()
@@ -2817,8 +2817,70 @@ async fn hold_spinner(started: Instant, cx: &mut gpui::AsyncApp) {
 
 #[cfg(test)]
 mod tests {
-    use super::{read_hidden_providers, write_hidden_providers};
+    use super::{
+        app_surface, overlay_panel_surface, read_hidden_providers, write_hidden_providers,
+    };
+    use gpui_kit::test::TestWindowExt;
+    use gpui_kit::{
+        AppContext, Context, Entity, TestAppContext, Window,
+        component::{
+            Root,
+            input::{Input, InputState},
+        },
+        prelude::*,
+        px, size,
+    };
     use std::collections::HashSet;
+
+    struct InputFocusProbe {
+        page_input: Entity<InputState>,
+        overlay_input: Entity<InputState>,
+    }
+
+    impl Render for InputFocusProbe {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            app_surface()
+                .flex()
+                .flex_col()
+                .gap_4()
+                .p_4()
+                .child(Input::new(&self.page_input).id("page-input").w(px(240.)))
+                .child(
+                    overlay_panel_surface().child(
+                        Input::new(&self.overlay_input)
+                            .id("overlay-input")
+                            .w(px(240.)),
+                    ),
+                )
+        }
+    }
+
+    #[gpui_kit::test]
+    fn clicking_inputs_keeps_focus_through_shell_and_overlay(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.open_window(size(px(640.), px(480.)), |window, cx| {
+            let probe = cx.new(|cx| InputFocusProbe {
+                page_input: cx.new(|cx| InputState::new(window, cx)),
+                overlay_input: cx.new(|cx| InputState::new(window, cx)),
+            });
+            Root::new(probe, window, cx)
+        });
+
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+
+            window.click("page-input", cx);
+            window.input("page", cx);
+            assert_eq!(window.find("page-input").focused(), Some(true));
+            assert_eq!(window.find("page-input").value(), Some("page"));
+
+            window.click("overlay-input", cx);
+            window.input("overlay", cx);
+            assert_eq!(window.find("overlay-input").focused(), Some(true));
+            assert_eq!(window.find("overlay-input").value(), Some("overlay"));
+        })
+        .expect("input focus probe window should remain available");
+    }
 
     #[test]
     fn sidebar_visibility_round_trips_without_disabling_provider() {

@@ -111,6 +111,7 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = [
 raw-window-handle = "0.6.2"
 
 [dev-dependencies]
+gpui-kit = { workspace = true, features = ["test-support"] }
 tempfile = "3.23.0"
 
 [lints]

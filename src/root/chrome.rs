@@ -9,8 +9,13 @@ use std::time::{Duration, Instant};
 use gateway_core::ProviderStatus;
 
 use gpui_kit::component::{
-    ActiveTheme, Icon, IconName, StyledExt, h_flex, label::Label, scroll::Scrollbar,
-    skeleton::Skeleton, v_flex,
+    ActiveTheme, Icon, IconName, Selectable, Sizable, StyledExt,
+    button::{Button, ButtonGroup},
+    h_flex,
+    label::Label,
+    scroll::Scrollbar,
+    skeleton::Skeleton,
+    v_flex,
 };
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -87,9 +92,68 @@ pub(crate) fn status_label(p: &ProviderStatus) -> &'static str {
     }
 }
 
+/// Provider status word → semantic color — the single mapping shared by the
+/// detail header dot/label and anywhere else a provider state is colored.
+/// Keep it next to `status_label` so the two always agree.
+pub(crate) fn status_tone(status: &str, theme: &gpui_kit::component::theme::Theme) -> Hsla {
+    match status {
+        "ready" => theme.success,
+        "error" => theme.danger,
+        _ => theme.muted_foreground,
+    }
+}
+
 /// Monospace face for identifiers, URLs, keys, model ids — values worth
 /// copying. Never used for labels, status, or prose.
 pub(crate) const MONO: &str = "SF Mono";
+
+// ---------------------------------------------------------------------------
+// layout scale — named rem constants, so product geometry follows UI zoom
+// ---------------------------------------------------------------------------
+// Design-guide rule: application layout must not carry bare `px(...)`.
+// These rem slots cover every repeated span below (dialog widths, table
+// lanes, row heights, scroll-region caps). Anything left as `px()` is an
+// audited physical exception — hairline, raster/icon optical match,
+// animation displacement, or a platform inset.
+
+/// Narrow confirm dialog — one decision, no form fields.
+pub(crate) const DIALOG_W_SM: Rems = rems(23.75); // 380px @16
+/// Default overlay width — short forms (import JSON, generate key).
+pub(crate) const DIALOG_W_MD: Rems = rems(28.75); // 460px @16
+/// Wide overlay — multi-part forms (account detail, mapping editor).
+pub(crate) const DIALOG_W_LG: Rems = rems(32.5); // 520px @16
+
+/// Compact table/list row — logs, usage, mapping rows.
+pub(crate) const ROW_H: Rems = rems(2.125); // 34px @16
+/// Taller row — account/provider rows with a two-line cell.
+pub(crate) const ROW_H_TALL: Rems = rems(3.25); // 52px @16
+
+/// Shared table lanes (header + row cells read off the same slot).
+pub(crate) const LANE_TIME: Rems = rems(4.); // 64px @16 — HH:MM:SS
+pub(crate) const LANE_LEVEL: Rems = rems(4.5); // 72px @16 — level badge
+pub(crate) const LANE_PROVIDER: Rems = rems(6.); // 96px @16 — provider name
+pub(crate) const LANE_STATUS: Rems = rems(3.5); // 56px @16 — status code
+pub(crate) const LANE_DURATION: Rems = rems(4.5); // 72px @16 — latency ms
+/// Narrow label column in settings key/value rows.
+pub(crate) const LANE_LABEL: Rems = rems(4.5); // 72px @16
+/// Toolbar select/input field widths.
+pub(crate) const FIELD_W_SM: Rems = rems(10.); // 160px @16
+pub(crate) const FIELD_W_MD: Rems = rems(12.5); // 200px @16
+pub(crate) const FIELD_W_LG: Rems = rems(15.); // 240px @16
+/// Dropdown menu panel widths.
+pub(crate) const MENU_W_SM: Rems = rems(12.5); // 200px @16
+pub(crate) const MENU_W_MD: Rems = rems(13.75); // 220px @16
+pub(crate) const MENU_W_LG: Rems = rems(20.); // 320px @16
+/// Height cap for scrollable regions inside overlays/lists.
+pub(crate) const SCROLL_H_SM: Rems = rems(10.); // 160px @16
+pub(crate) const SCROLL_H_MD: Rems = rems(10.5); // 168px @16
+pub(crate) const SCROLL_H_LG: Rems = rems(13.75); // 220px @16
+/// Chart card height on the usage page.
+pub(crate) const CHART_H: Rems = rems(7.); // 112px @16
+/// Minimum composer/message area height on the playground.
+pub(crate) const PANE_MIN_H: Rems = rems(12.5); // 200px @16
+/// Large empty-state icon.
+pub(crate) const ICON_XL: Rems = rems(2.); // 32px @16
 
 /// Quiet section label — `text_xs font_medium muted_foreground`.
 pub(crate) fn section_label(text: impl Into<SharedString>, cx: &App) -> impl IntoElement {
@@ -220,42 +284,89 @@ pub(crate) fn hairline(cx: &App) -> gpui_kit::Div {
     div().h_px().w_full().bg(cx.theme().border)
 }
 
-/// Segmented control — recessed track, selected segment filled with primary.
+/// Segmented control — the system's `ButtonGroup` in compact mode, so each
+/// segment is a real button: keyboard-reachable, focus-visible, and exposing
+/// its pressed state to accessibility clients. Replaces the former hand-
+/// painted div pills which had no keyboard path at all.
 pub(crate) fn toggle_filter(
     id_prefix: &'static str,
     items: Vec<(SharedString, bool)>,
     on_pick: impl Fn(usize, &mut Window, &mut App) + 'static,
-    cx: &App,
-) -> gpui_kit::Div {
-    let theme = cx.theme().clone();
+    _cx: &App,
+) -> gpui_kit::component::button::ButtonGroup {
     let on_pick = Rc::new(on_pick);
-    let mut track = h_flex()
-        .flex_none()
-        .p_0p5()
-        .gap_0p5()
-        .rounded(theme.radius)
-        .bg(theme.accent);
+    let theme = _cx.theme().clone();
+    let mut group = ButtonGroup::new(id_prefix).compact().small();
     for (ix, (label, selected)) in items.into_iter().enumerate() {
-        let on_pick = on_pick.clone();
-        track = track.child(
-            div()
-                .id(SharedString::from(format!("{id_prefix}-{ix}")))
-                .px_3()
-                .h_6()
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(theme.radius)
-                .cursor_pointer()
-                .when(selected, |d| d.bg(theme.button_primary))
-                .when(!selected, |d| d.hover(|d| d.bg(theme.list_hover)))
-                .on_click(move |_, window, cx| on_pick(ix, window, cx))
-                .child(Label::new(label).text_sm().when(selected, |l| {
-                    l.font_medium().text_color(theme.button_primary_foreground)
-                })),
-        );
+        // Keep every segment on the Default variant — a different variant
+        // would also swap the border color and make the picked segment look
+        // wider than its neighbors. The selected fill comes from an explicit
+        // `bg`/`text_color`, which `refine_style` layers *above* the selected
+        // style, so the segment reads as the filled primary slot without
+        // touching its border.
+        let button = Button::new(SharedString::from(format!("{id_prefix}-{ix}")))
+            .label(label)
+            .selected(selected);
+        group = group.child(if selected {
+            button
+                .bg(theme.button_primary)
+                .text_color(theme.button_primary_foreground)
+        } else {
+            button
+        });
     }
-    track
+    group
+        .on_click(move |clicked, window, cx| {
+            if let Some(&ix) = clicked.first() {
+                on_pick(ix, window, cx);
+            }
+        })
+        // Recessed track: the accent fill makes the group read as one slotted
+        // control instead of a row of detached buttons.
+        .bg(theme.accent)
+        .rounded(theme.radius)
+        .p_0p5()
+}
+
+/// Compact toggle chip — a real focusable control (focus ring on keyboard
+/// nav, pointer cursor, selected/hover states), used for multi-select option
+/// rows like the API-key scope picker. Prefer this over a bare clickable
+/// `div` so the control is keyboard-operable and advertises its state.
+pub(crate) fn toggle_chip(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    selected: bool,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    cx: &App,
+) -> gpui_kit::Stateful<gpui_kit::Div> {
+    let theme = cx.theme().clone();
+    div()
+        .id(id)
+        .px_2p5()
+        .h_6()
+        .flex()
+        .items_center()
+        .gap_1()
+        .rounded(theme.radius)
+        .border_1()
+        .cursor_pointer()
+        .focusable()
+        .focus_visible(|style| style.border_color(theme.ring))
+        .when(selected, |d| {
+            d.bg(theme.button_primary)
+                .border_color(theme.button_primary)
+        })
+        .when(!selected, |d| {
+            d.bg(theme.group_box)
+                .border_color(theme.border)
+                .hover(|d| d.bg(theme.list_hover))
+        })
+        .child(Label::new(label.into()).text_xs().text_color(if selected {
+            theme.button_primary_foreground
+        } else {
+            theme.muted_foreground
+        }))
+        .on_click(on_click)
 }
 
 /// Formats a unix-seconds log timestamp as local `HH:MM:SS`.
@@ -340,14 +451,14 @@ pub(crate) fn skeleton_rows(count: usize, cx: &App) -> AnyElement {
                         Skeleton::new()
                             .w(relative(0.35 + 0.1 * (i % 3) as f32))
                             .h_3()
-                            .rounded(px(3.)),
+                            .rounded_sm(),
                     )
                     .child(
                         Skeleton::new()
                             .secondary()
                             .w(relative(0.22 + 0.08 * (i % 2) as f32))
                             .h_2p5()
-                            .rounded(px(3.)),
+                            .rounded_sm(),
                     ),
             ),
         );
@@ -390,12 +501,12 @@ pub(crate) fn fmt_count(n: i64) -> String {
 }
 
 /// A row of skeleton chips — placeholder for tag/model lists. Bare content;
-/// the caller wraps it in a card if needed.
+/// the caller wraps it in a card if needed. Widths are in rem.
 #[allow(dead_code)]
 pub(crate) fn skeleton_chips(widths: &[f32], cx: &App) -> AnyElement {
     let mut chips = h_flex().gap_1p5().flex_wrap();
     for w in widths {
-        chips = chips.child(Skeleton::new().w(px(*w)).h_5().rounded(cx.theme().radius));
+        chips = chips.child(Skeleton::new().w(rems(*w)).h_5().rounded(cx.theme().radius));
     }
     div().px_4().py_3().child(chips).into_any_element()
 }

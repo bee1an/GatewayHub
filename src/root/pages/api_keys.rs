@@ -16,8 +16,8 @@ use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use crate::root::{
-    AppRoot, MONO, OverlayRequest, card, card_rows, enter, row, section_header, short_date, t, tf,
-    toggle_filter,
+    AppRoot, DIALOG_W_MD, MONO, OverlayRequest, card, card_rows, enter, row, section_header,
+    short_date, t, tf, toggle_chip, toggle_filter,
 };
 
 /// Expiry choices for the generate dialog — days; 0 = never.
@@ -101,6 +101,7 @@ impl AppRoot {
                         Button::new(SharedString::from(format!("delkey-{}", k.id)))
                             .ghost()
                             .xsmall()
+                            .danger()
                             .label(t(lang, "revoke"))
                             .on_click(cx.listener(move |this, _e: &ClickEvent, _w, cx| {
                                 let (key_name, id) = (k_name.clone(), id.clone());
@@ -246,7 +247,7 @@ impl AppRoot {
         self.open_overlay(
             OverlayRequest {
                 title: t(lang, "generate_title").into(),
-                width: px(460.),
+                width: DIALOG_W_MD,
                 content: Some(std::rc::Rc::new(move |root, _w, cx| {
                     let theme = cx.theme().clone();
                     let lang = root.lang;
@@ -287,45 +288,22 @@ impl AppRoot {
                     let mut scope_chips = h_flex().gap_1p5().flex_wrap();
                     if !scope_all {
                         for p in &providers {
-                            let selected = scopes.contains(p.as_str());
                             let p2 = p.clone();
-                            scope_chips = scope_chips.child(
-                                div()
-                                    .id(SharedString::from(format!("scope-{p}")))
-                                    .px_2p5()
-                                    .h_6()
-                                    .flex()
-                                    .items_center()
-                                    .gap_1()
-                                    .rounded(theme.radius)
-                                    .border_1()
-                                    .cursor_pointer()
-                                    .when(selected, |d| {
-                                        d.bg(theme.button_primary)
-                                            .border_color(theme.button_primary)
-                                    })
-                                    .when(!selected, |d| {
-                                        d.bg(theme.group_box)
-                                            .border_color(theme.border)
-                                            .hover(|d| d.bg(theme.list_hover))
-                                    })
-                                    .child(Label::new(p.clone()).text_xs().text_color(
-                                        if selected {
-                                            theme.button_primary_foreground
-                                        } else {
-                                            theme.muted_foreground
-                                        },
-                                    ))
-                                    .on_click(cx.listener({
-                                        let p = p2;
-                                        move |this, _, _w, cx| {
-                                            if !this.key_scopes.remove(&p) {
-                                                this.key_scopes.insert(p.clone());
-                                            }
-                                            cx.notify();
+                            scope_chips = scope_chips.child(toggle_chip(
+                                SharedString::from(format!("scope-{p}")),
+                                p.clone(),
+                                scopes.contains(p.as_str()),
+                                cx.listener({
+                                    let p = p2;
+                                    move |this, _, _w, cx| {
+                                        if !this.key_scopes.remove(&p) {
+                                            this.key_scopes.insert(p.clone());
                                         }
-                                    })),
-                            );
+                                        cx.notify();
+                                    }
+                                }),
+                                cx,
+                            ));
                         }
                     }
 

@@ -9,7 +9,7 @@ use gpui_kit::component::{
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
-use crate::root::{AppRoot, MONO, t};
+use crate::root::{AppRoot, MONO, SCROLL_H_LG, t};
 
 /// Discover pane — candidate list with checkboxes; `existing && !updatable`
 /// rows are dimmed and locked, matching the Electron dialog. Providers that
@@ -80,7 +80,7 @@ pub(super) fn discover_overlay_body(
                 .px_2()
                 .py_1p5()
                 .rounded(theme.radius)
-                .when(locked, |d| d.opacity(0.4))
+                .when(locked, |d| d.opacity(0.55))
                 .child(
                     Checkbox::new(SharedString::from(format!("disc-{id}")))
                         .checked(checked)
@@ -115,7 +115,9 @@ pub(super) fn discover_overlay_body(
                     div()
                         .flex_none()
                         .rounded(theme.radius)
-                        .bg(theme.accent)
+                        // `accent` is the interactive/selected token — a
+                        // static tag belongs on `secondary`/`muted`.
+                        .bg(theme.secondary)
                         .px_1p5()
                         .py_0p5()
                         .child(
@@ -141,7 +143,7 @@ pub(super) fn discover_overlay_body(
                 .child(
                     div()
                         .id("discover-list")
-                        .max_h(px(220.))
+                        .max_h(SCROLL_H_LG)
                         .overflow_y_scroll()
                         .track_scroll(&root.discover_scroll)
                         .child(list),

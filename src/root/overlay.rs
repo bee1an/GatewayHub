@@ -7,7 +7,7 @@ use std::time::Instant;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
     ActiveTheme, Sizable, StyledExt,
-    button::{Button, ButtonVariants},
+    button::{Button, ButtonVariant, ButtonVariants},
     h_flex,
     label::Label,
     v_flex,
@@ -16,6 +16,10 @@ use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use super::{AppRoot, overlay_motion, overlay_panel_surface, t};
+
+/// Vertical breathing room the overlay keeps to the window edges, in rem —
+/// scales with interface zoom like the panel width does.
+const OVERLAY_MARGIN_V_REM: f32 = 8.75;
 
 /// Freeform overlay content/footer — rendered inside `AppRoot::render`, so
 /// the builder receives `&AppRoot` directly (the entity is already borrowed
@@ -37,8 +41,11 @@ pub(crate) struct OverlayRequest {
     pub footer: Option<OverlayBuilder>,
     /// Primary action label; `None` hides the OK button.
     pub ok_label: Option<SharedString>,
+    /// Variant for the OK button — `Danger` for destructive confirms,
+    /// `Primary` for ordinary commits. Only used with the default footer.
+    pub ok_variant: ButtonVariant,
     pub cancel_label: Option<SharedString>,
-    pub width: Pixels,
+    pub width: Rems,
     /// Runs on OK then the overlay animates out.
     pub on_ok: Option<Rc<dyn Fn(&mut AppRoot, &mut Context<AppRoot>)>>,
     /// Whether a backdrop click dismisses (confirms set false).
@@ -55,8 +62,9 @@ impl Default for OverlayRequest {
             content: None,
             footer: None,
             ok_label: None,
+            ok_variant: ButtonVariant::Danger,
             cancel_label: None,
-            width: px(400.),
+            width: crate::root::DIALOG_W_SM,
             on_ok: None,
             backdrop_dismiss: true,
             opened_at: Instant::now(),
@@ -84,8 +92,9 @@ impl AppRoot {
                 title: t(lang, title).into(),
                 body: Some(description.into()),
                 ok_label: Some(t(lang, ok_key).into()),
+                ok_variant: ButtonVariant::Danger,
                 cancel_label: Some(t(lang, "cancel").into()),
-                width: px(380.),
+                width: crate::root::DIALOG_W_SM,
                 on_ok: Some(Rc::new(on_ok)),
                 backdrop_dismiss: false,
                 ..OverlayRequest::default()
@@ -199,12 +208,13 @@ impl AppRoot {
 
         // Offsets in rem — they follow the user's UI scale.
         let rem_px = window.rem_size();
+        let lang = self.lang;
         let panel_w = req.width;
 
         // ---- panel content (built once; the layers below carry motion) ----
         let content_group = v_flex()
             .w(panel_w)
-            .max_h(window.viewport_size().height - px(140.))
+            .max_h(window.viewport_size().height - rem_px * OVERLAY_MARGIN_V_REM)
             .child(
                 h_flex()
                     .w_full()
@@ -224,6 +234,8 @@ impl AppRoot {
                             .ghost()
                             .xsmall()
                             .icon(IconName::Close)
+                            .tooltip(t(lang, "close"))
+                            .accessibility_label(t(lang, "close"))
                             .on_click(cx.listener(|this, _, _w, cx| {
                                 this.dismiss_overlay(cx);
                             })),
@@ -274,7 +286,7 @@ impl AppRoot {
                         .when_some(req.ok_label.clone(), |d, label| {
                             d.child(
                                 Button::new("overlay-ok")
-                                    .danger()
+                                    .with_variant(req.ok_variant)
                                     .small()
                                     .label(label)
                                     .on_click(cx.listener(move |this, _, _w, cx| {
@@ -309,6 +321,11 @@ impl AppRoot {
                         .inset_0()
                         .size_full()
                         .occlude()
+                        // Scrim: a dimming layer, always dark. Deriving it
+                        // from `foreground` inverts in dark mode (foreground
+                        // is light there) and renders as a white film — so
+                        // the hue stays fixed black and `backdrop_a` animates
+                        // to its 0.5 cap on its own.
                         .bg(hsla(0., 0., 0., m.backdrop_a.max(0.)))
                         .on_mouse_down(MouseButton::Left, move |_, _window, cx| {
                             if dismissible {

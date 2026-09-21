@@ -19,7 +19,10 @@ use gpui_kit::component::{
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
-use crate::root::{AppRoot, MONO, OverlayRequest, card, card_rows, row, section_header, t, tf};
+use crate::root::{
+    AppRoot, DIALOG_W_LG, MENU_W_MD, MENU_W_SM, MONO, OverlayRequest, SCROLL_H_LG, card, card_rows,
+    row, section_header, t, tf,
+};
 
 impl AppRoot {
     /// Open the add/edit mapping overlay — `Some(ix)` pre-fills from
@@ -59,7 +62,7 @@ impl AppRoot {
         self.open_overlay(
             OverlayRequest {
                 title: title.into(),
-                width: px(480.),
+                width: DIALOG_W_LG,
                 content: Some(Rc::new(|root, w, cx| mapping_overlay_body(root, w, cx))),
                 footer: Some(Rc::new(|root, _w, cx| {
                     let lang = root.lang;
@@ -172,6 +175,7 @@ impl AppRoot {
                                 Button::new(SharedString::from(format!("mapdel-{ix}")))
                                     .ghost()
                                     .xsmall()
+                                    .danger()
                                     .label(t(lang, "delete"))
                                     .on_click(cx.listener(move |this, _e: &ClickEvent, _w, cx| {
                                         let desc = tf(
@@ -257,7 +261,7 @@ fn mapping_overlay_body(
                     div().flex_1().min_w_0().child(
                         Select::new(&row.provider)
                             .small()
-                            .menu_width(px(200.))
+                            .menu_width(MENU_W_SM)
                             .placeholder(t(lang, "ph_provider")),
                     ),
                 )
@@ -266,7 +270,7 @@ fn mapping_overlay_body(
                     div().flex_1().min_w_0().child(
                         Select::new(&row.model)
                             .small()
-                            .menu_width(px(220.))
+                            .menu_width(MENU_W_MD)
                             .placeholder(t(lang, "ph_model")),
                     ),
                 )
@@ -316,7 +320,7 @@ fn mapping_overlay_body(
                         .child(
                             div()
                                 .id("map-target-rows")
-                                .max_h(px(220.))
+                                .max_h(SCROLL_H_LG)
                                 // p_1 keeps the focus ring of the inner
                                 // inputs inside the clip region instead of
                                 // half-cropping it.

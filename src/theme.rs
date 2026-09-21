@@ -107,6 +107,21 @@ pub(crate) fn apply_brand_tokens(cfg: &mut ThemeConfig, dark: bool) {
         c.info_foreground = Some("#1f1f21".into());
         c.info_hover = Some("#b8b8be".into());
         c.info_active = Some("#a3a3a8".into());
+        // Status colors tuned to the warm palette — muted brick red,
+        // olive green, ochre. `destructive` mirrors `danger` and the
+        // `button_danger_*` family falls back to these automatically.
+        c.danger = Some("#c2543f".into());
+        c.danger_foreground = Some("#f0ddd8".into());
+        c.danger_hover = Some("#d06a54".into());
+        c.danger_active = Some("#a84835".into());
+        c.success = Some("#7d9a4e".into());
+        c.success_foreground = Some("#1f1f21".into());
+        c.success_hover = Some("#90ac60".into());
+        c.success_active = Some("#6b8540".into());
+        c.warning = Some("#c08a3e".into());
+        c.warning_foreground = Some("#d0a25c".into());
+        c.warning_hover = Some("#d09a52".into());
+        c.warning_active = Some("#a87834".into());
         c.window_border = Some("#35342f".into());
     } else {
         c.background = Some("#f3f3f1".into());
@@ -197,6 +212,20 @@ pub(crate) fn apply_brand_tokens(cfg: &mut ThemeConfig, dark: bool) {
         c.info_foreground = Some("#ffffff".into());
         c.info_hover = Some("#515156".into());
         c.info_active = Some("#636368".into());
+        // Same warm status palette as the dark theme, deepened for light
+        // surfaces so the foreground-on-color contrast still holds.
+        c.danger = Some("#b0472f".into());
+        c.danger_foreground = Some("#ffffff".into());
+        c.danger_hover = Some("#c2543f".into());
+        c.danger_active = Some("#963c28".into());
+        c.success = Some("#6d8a3e".into());
+        c.success_foreground = Some("#ffffff".into());
+        c.success_hover = Some("#7d9a4e".into());
+        c.success_active = Some("#5c7534".into());
+        c.warning = Some("#b07a34".into());
+        c.warning_foreground = Some("#8c6224".into());
+        c.warning_hover = Some("#c08a3e".into());
+        c.warning_active = Some("#96682a".into());
         c.window_border = Some("#d2d2ce".into());
     }
 }

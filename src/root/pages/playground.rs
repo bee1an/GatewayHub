@@ -23,7 +23,8 @@ use gpui_kit::*;
 use std::time::Instant;
 
 use crate::root::{
-    AppRoot, MONO, PgApiType, PgEvent, PgKeyItem, PgMsg, PgRole, card, fmt_count, t, toggle_filter,
+    AppRoot, FIELD_W_LG, FIELD_W_MD, ICON_XL, MENU_W_LG, MENU_W_MD, MONO, PANE_MIN_H, PgApiType,
+    PgEvent, PgKeyItem, PgMsg, PgRole, card, fmt_count, t, toggle_filter,
 };
 
 /// Models + key select contents change with the snapshot — pushed into the
@@ -181,7 +182,7 @@ impl AppRoot {
             .child(
                 v_flex()
                     .gap_1()
-                    .w(px(240.))
+                    .w(FIELD_W_LG)
                     .child(
                         Label::new(t(lang, "pg_model"))
                             .text_xs()
@@ -191,14 +192,14 @@ impl AppRoot {
                     .child(
                         Select::new(&self.pg_model_sel)
                             .placeholder(t(lang, "pg_no_model"))
-                            .menu_width(px(320.))
+                            .menu_width(MENU_W_LG)
                             .search_placeholder(t(lang, "pg_search_model")),
                     ),
             )
             .child(
                 v_flex()
                     .gap_1()
-                    .w(px(200.))
+                    .w(FIELD_W_MD)
                     .child(
                         Label::new(t(lang, "pg_key"))
                             .text_xs()
@@ -208,7 +209,7 @@ impl AppRoot {
                     .child(
                         Select::new(&self.pg_key_sel)
                             .placeholder(t(lang, "pg_no_key"))
-                            .menu_width(px(220.)),
+                            .menu_width(MENU_W_MD),
                     ),
             )
             .child(
@@ -259,7 +260,7 @@ impl AppRoot {
                     .gap_3()
                     .child(
                         Icon::new(IconName::Bot)
-                            .size(px(32.))
+                            .size(ICON_XL)
                             .text_color(theme.muted_foreground),
                     )
                     .child(
@@ -349,7 +350,7 @@ impl AppRoot {
             .child(
                 card(cx)
                     .flex_1()
-                    .min_h(px(200.))
+                    .min_h(PANE_MIN_H)
                     .overflow_hidden()
                     .relative()
                     .child(
@@ -415,7 +416,6 @@ fn pg_message(m: &PgMsg, lang: crate::root::Lang, cx: &mut Context<AppRoot>) -> 
                 body = body
                     .child(
                         Label::new(err.clone())
-                            .font_family(MONO)
                             .text_xs()
                             .text_color(theme.danger)
                             .whitespace_normal(),

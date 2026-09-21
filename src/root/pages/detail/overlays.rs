@@ -15,7 +15,10 @@ use gpui_kit::component::{
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
-use crate::root::{AppRoot, MONO, OverlayRequest, hairline, t, tf, toggle_filter};
+use crate::root::{
+    AppRoot, DIALOG_W_LG, DIALOG_W_MD, MONO, OverlayRequest, SCROLL_H_MD, SCROLL_H_SM, hairline, t,
+    tf, toggle_filter,
+};
 
 use super::{
     CHECKIN_PROVIDERS, account_status_meta, cn_today, discover::discover_overlay_body,
@@ -31,7 +34,7 @@ impl AppRoot {
         self.open_overlay(
             OverlayRequest {
                 title: t(lang, "add_account").into(),
-                width: px(460.),
+                width: DIALOG_W_MD,
                 content: Some(std::rc::Rc::new(|root, _w, cx| {
                     let theme = cx.theme().clone();
                     v_flex()
@@ -107,7 +110,7 @@ impl AppRoot {
         self.open_overlay(
             OverlayRequest {
                 title: t(lang, "add_account").into(),
-                width: px(500.),
+                width: DIALOG_W_LG,
                 content: Some(std::rc::Rc::new(move |root, _w, cx| {
                     add_account_body(&p, root, cx)
                 })),
@@ -143,7 +146,7 @@ impl AppRoot {
         self.open_overlay(
             OverlayRequest {
                 title: title.into(),
-                width: px(520.),
+                width: DIALOG_W_LG,
                 content: Some(std::rc::Rc::new(move |root, _w, cx| {
                     let theme = cx.theme().clone();
                     let key = format!("{p}/{a}");
@@ -174,7 +177,7 @@ impl AppRoot {
                                 div()
                                     .px_2()
                                     .py_0p5()
-                                    .rounded(px(3.))
+                                    .rounded_sm()
                                     .bg(color.opacity(0.18))
                                     .border_1()
                                     .border_color(color.opacity(0.35))
@@ -444,7 +447,7 @@ impl AppRoot {
                                     div()
                                         .id(SharedString::from(format!("dlg-models-scroll-{key}")))
                                         .w_full()
-                                        .max_h(px(168.))
+                                        .max_h(SCROLL_H_MD)
                                         .overflow_y_scroll()
                                         .track_scroll(&root.models_scroll)
                                         .child(chips),
@@ -737,7 +740,7 @@ fn cli_login_progress(provider: &str, root: &AppRoot, cx: &mut Context<AppRoot>)
             .child(
                 div()
                     .id("cli-login-output")
-                    .max_h(px(160.))
+                    .max_h(SCROLL_H_SM)
                     .overflow_y_scroll()
                     .track_scroll(&root.cli_scroll)
                     .rounded(theme.radius)

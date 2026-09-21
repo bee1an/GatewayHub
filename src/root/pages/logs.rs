@@ -10,6 +10,7 @@ use gpui_kit::component::{
     h_flex,
     input::Input,
     label::Label,
+    scroll::Scrollbar,
     searchable_list::SearchableVec,
     select::Select,
     v_flex,
@@ -342,13 +343,18 @@ impl AppRoot {
                 .flex_1()
                 .min_h_0()
                 .child(
-                    card(cx).h_full().overflow_hidden().child(
-                        v_flex()
-                            .h_full()
-                            .min_h_0()
-                            .child(header)
-                            .child(div().flex_1().min_h_0().child(list)),
-                    ),
+                    card(cx)
+                        .h_full()
+                        .overflow_hidden()
+                        .relative()
+                        .child(
+                            v_flex()
+                                .h_full()
+                                .min_h_0()
+                                .child(header)
+                                .child(div().flex_1().min_h_0().child(list)),
+                        )
+                        .child(Scrollbar::vertical(&self.log_scroll)),
                 )
                 .into_any_element()
         };

@@ -40,6 +40,7 @@ use gpui_kit::component::{
     h_flex,
     input::{InputEvent, InputState, TextareaState},
     label::Label,
+    scroll::ScrollableElement,
     searchable_list::{SearchableListItem, SearchableVec},
     select::{SelectEvent, SelectState},
     spinner::Spinner,
@@ -128,6 +129,15 @@ pub(crate) enum PgEvent {
     Failed(String),
 }
 
+/// One editable (provider, model) target row in the mapping overlay — both
+/// selects; `_provider_sub` rebuilds the model options when the provider
+/// pick confirms (kept alive by storing it on the row).
+pub(crate) struct MapTargetRow {
+    pub provider: Entity<SelectState<SearchableVec<String>>>,
+    pub model: Entity<SelectState<SearchableVec<String>>>,
+    _provider_sub: Subscription,
+}
+
 pub struct AppRoot {
     /// Focus target for non-interactive application chrome. GPUI transfers
     /// focus to the nearest tracked surface on mouse down, so clicking page
@@ -211,9 +221,14 @@ pub struct AppRoot {
     pub(crate) snippet_copied: bool,
     /// API-key page: name for the next generated key.
     pub(crate) key_name_input: Entity<InputState>,
-    /// Mapping page inputs.
+    /// Mapping overlay: alias field.
     pub(crate) map_alias_input: Entity<InputState>,
-    pub(crate) map_target_input: Entity<InputState>,
+    /// Mapping overlay: one (provider, model) select pair per target row.
+    pub(crate) map_target_rows: Vec<MapTargetRow>,
+    /// Row index the mapping overlay is editing (`None` = adding a new one).
+    pub(crate) map_editing: Option<usize>,
+    /// Mapping overlay validation message (empty alias / no valid target).
+    pub(crate) map_err: Option<SharedString>,
     /// Newly generated key shown once so it can be copied.
     pub(crate) new_key: Option<String>,
     /// Generate-key dialog: provider allowlist + expiry days (0 = never).
@@ -241,6 +256,14 @@ pub struct AppRoot {
     pub(crate) pg_pending: bool,
     pub(crate) pg_cancel: Option<tokio_util::sync::CancellationToken>,
     pub(crate) pg_scroll: ScrollHandle,
+    /// Page-content scroll handle — lets the shell attach a scrollbar thumb.
+    pub(crate) page_scroll: ScrollHandle,
+    /// Sidebar provider-list scroll handle.
+    pub(crate) provider_scroll: ScrollHandle,
+    /// Mapping overlay target-rows scroll handle.
+    pub(crate) map_scroll: ScrollHandle,
+    /// Account overlay models-wall scroll handle.
+    pub(crate) models_scroll: ScrollHandle,
     /// Set when Enter fires inside the composer — `set_value` needs a Window,
     /// so the actual clear happens at the top of the next render.
     pub(crate) pg_clear_input: bool,
@@ -421,8 +444,9 @@ impl AppRoot {
                 .new(|cx| InputState::new(_window, cx).placeholder(t(lang, "ph_key_name"))),
             map_alias_input: cx
                 .new(|cx| InputState::new(_window, cx).placeholder(t(lang, "ph_alias"))),
-            map_target_input: cx
-                .new(|cx| InputState::new(_window, cx).placeholder(t(lang, "ph_target"))),
+            map_target_rows: Vec::new(),
+            map_editing: None,
+            map_err: None,
             new_key: None,
             key_scope_all: true,
             key_scopes: HashSet::new(),
@@ -453,6 +477,10 @@ impl AppRoot {
             pg_pending: false,
             pg_cancel: None,
             pg_scroll: ScrollHandle::new(),
+            page_scroll: ScrollHandle::new(),
+            provider_scroll: ScrollHandle::new(),
+            map_scroll: ScrollHandle::new(),
+            models_scroll: ScrollHandle::new(),
             pg_clear_input: false,
             log_level: 0,
             log_provider_sel,
@@ -785,13 +813,23 @@ impl Render for AppRoot {
             .child(div().px_1().py_1p5().child(nav))
             .child(hairline(cx).mx_3().my_1())
             .child(
-                v_flex()
-                    .id("provider-list")
+                // The scrollbar overlays the scroll container's parent —
+                // mounting it on the scrolling element itself would put the
+                // absolute layer inside the scrolled content.
+                div()
                     .flex_1()
                     .min_h_0()
-                    .overflow_y_scroll()
-                    .px_1()
-                    .child(providers_section),
+                    .relative()
+                    .child(
+                        v_flex()
+                            .id("provider-list")
+                            .size_full()
+                            .overflow_y_scroll()
+                            .track_scroll(&self.provider_scroll)
+                            .px_1()
+                            .child(providers_section),
+                    )
+                    .vertical_scrollbar(&self.provider_scroll),
             )
             .child(footer);
 
@@ -845,30 +883,62 @@ impl Render for AppRoot {
                                 // Pages with virtualized lists manage their own scroll;
                                 // the wrapper must not also scroll (nested scroll fights).
                                 let fills_height = matches!(self.page, Page::Logs | Page::Usage);
+                                let page_scroll = self.page_scroll.clone();
                                 // Fade + slight rise on every page switch — keyed by
                                 // destination so the animation replays per navigation.
                                 let page_key: SharedString = match &self.detail {
                                     Some(name) => format!("enter-detail-{name}").into(),
                                     None => format!("enter-page-{}", self.page as usize).into(),
                                 };
-                                div()
-                                    .id("page-scroll")
-                                    .flex_1()
-                                    .min_h_0()
-                                    .when(fills_height, |d| d.overflow_hidden())
-                                    .when(!fills_height, |d| d.overflow_y_scroll())
-                                    .child(enter(
-                                        div()
-                                            .mx_auto()
-                                            .w_full()
-                                            .max_w(px(max_w))
-                                            .px_6()
-                                            .pt_6()
-                                            .pb_5()
-                                            .when(fills_height, |d| d.h_full())
-                                            .child(body),
-                                        page_key,
-                                    ))
+                                // Scrollbar mounts on the scroll container's
+                                // parent (relative + clip) — not inside the
+                                // scrolled content.
+                                if fills_height {
+                                    div()
+                                        .id("page-scroll")
+                                        .flex_1()
+                                        .min_h_0()
+                                        .overflow_hidden()
+                                        .child(enter(
+                                            div()
+                                                .mx_auto()
+                                                .w_full()
+                                                .max_w(px(max_w))
+                                                .px_6()
+                                                .pt_6()
+                                                .pb_5()
+                                                .h_full()
+                                                .child(body),
+                                            page_key,
+                                        ))
+                                        .into_any_element()
+                                } else {
+                                    div()
+                                        .flex_1()
+                                        .min_h_0()
+                                        .relative()
+                                        .overflow_hidden()
+                                        .child(
+                                            div()
+                                                .id("page-scroll")
+                                                .size_full()
+                                                .overflow_y_scroll()
+                                                .track_scroll(&page_scroll)
+                                                .child(enter(
+                                                    div()
+                                                        .mx_auto()
+                                                        .w_full()
+                                                        .max_w(px(max_w))
+                                                        .px_6()
+                                                        .pt_6()
+                                                        .pb_5()
+                                                        .child(body),
+                                                    page_key,
+                                                )),
+                                        )
+                                        .vertical_scrollbar(&page_scroll)
+                                        .into_any_element()
+                                }
                             }),
                     ),
             )

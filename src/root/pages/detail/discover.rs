@@ -3,7 +3,8 @@
 //! accounts.
 
 use gpui_kit::component::{
-    ActiveTheme, Disableable, checkbox::Checkbox, h_flex, label::Label, v_flex,
+    ActiveTheme, Disableable, checkbox::Checkbox, h_flex, label::Label, scroll::ScrollableElement,
+    v_flex,
 };
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -136,11 +137,16 @@ pub(super) fn discover_overlay_body(
         )
         .child(
             div()
-                .id("discover-list")
-                .max_h(px(220.))
-                .overflow_y_scroll()
-                .track_scroll(&root.discover_scroll)
-                .child(list),
+                .relative()
+                .child(
+                    div()
+                        .id("discover-list")
+                        .max_h(px(220.))
+                        .overflow_y_scroll()
+                        .track_scroll(&root.discover_scroll)
+                        .child(list),
+                )
+                .vertical_scrollbar(&root.discover_scroll),
         )
         .when_some(root.cli_login_err.clone(), |d, e| {
             d.child(

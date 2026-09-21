@@ -9,7 +9,8 @@ use std::time::{Duration, Instant};
 use gateway_core::ProviderStatus;
 
 use gpui_kit::component::{
-    ActiveTheme, Icon, IconName, StyledExt, h_flex, label::Label, skeleton::Skeleton, v_flex,
+    ActiveTheme, Icon, IconName, StyledExt, h_flex, label::Label, scroll::Scrollbar,
+    skeleton::Skeleton, v_flex,
 };
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -185,7 +186,10 @@ pub(crate) fn card_uniform_list(
         .rounded(theme.radius)
         .bg(theme.group_box)
         .overflow_hidden()
+        // Scrollbar overlays the card edge — relative anchors it.
+        .relative()
         .child(list)
+        .child(Scrollbar::vertical(scroll_handle))
         .into_any_element()
 }
 

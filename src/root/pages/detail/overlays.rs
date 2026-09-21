@@ -9,6 +9,7 @@ use gpui_kit::component::{
     h_flex,
     input::Input,
     label::Label,
+    scroll::ScrollableElement,
     v_flex,
 };
 use gpui_kit::prelude::*;
@@ -437,11 +438,18 @@ impl AppRoot {
                         // past the panel's max height.
                         .child(
                             div()
-                                .id(SharedString::from(format!("dlg-models-scroll-{key}")))
                                 .w_full()
-                                .max_h(px(168.))
-                                .overflow_y_scroll()
-                                .child(chips),
+                                .relative()
+                                .child(
+                                    div()
+                                        .id(SharedString::from(format!("dlg-models-scroll-{key}")))
+                                        .w_full()
+                                        .max_h(px(168.))
+                                        .overflow_y_scroll()
+                                        .track_scroll(&root.models_scroll)
+                                        .child(chips),
+                                )
+                                .vertical_scrollbar(&root.models_scroll),
                         );
                     if let Some(msg) = &models_msg {
                         body = body.child(
@@ -725,24 +733,29 @@ fn cli_login_progress(provider: &str, root: &AppRoot, cx: &mut Context<AppRoot>)
             .into_any_element()
     } else {
         div()
-            .id("cli-login-output")
-            .max_h(px(160.))
-            .overflow_y_scroll()
-            .track_scroll(&root.cli_scroll)
-            .rounded(theme.radius)
-            .bg(theme.accent)
-            .p_3()
+            .relative()
             .child(
-                Label::new(if output.is_empty() {
-                    SharedString::from("…")
-                } else {
-                    SharedString::from(output.clone())
-                })
-                .font_family(MONO)
-                .text_xs()
-                .text_color(theme.secondary_foreground)
-                .whitespace_normal(),
+                div()
+                    .id("cli-login-output")
+                    .max_h(px(160.))
+                    .overflow_y_scroll()
+                    .track_scroll(&root.cli_scroll)
+                    .rounded(theme.radius)
+                    .bg(theme.accent)
+                    .p_3()
+                    .child(
+                        Label::new(if output.is_empty() {
+                            SharedString::from("…")
+                        } else {
+                            SharedString::from(output.clone())
+                        })
+                        .font_family(MONO)
+                        .text_xs()
+                        .text_color(theme.secondary_foreground)
+                        .whitespace_normal(),
+                    ),
             )
+            .vertical_scrollbar(&root.cli_scroll)
             .into_any_element()
     };
 

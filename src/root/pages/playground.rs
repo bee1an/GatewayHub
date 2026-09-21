@@ -10,6 +10,7 @@ use gpui_kit::component::{
     h_flex,
     input::Textarea,
     label::Label,
+    scroll::ScrollableElement,
     searchable_list::SearchableVec,
     select::Select,
     spinner::Spinner,
@@ -346,16 +347,22 @@ impl AppRoot {
             .gap_3()
             .child(toolbar)
             .child(
-                card(cx).flex_1().min_h(px(200.)).overflow_hidden().child(
-                    div()
-                        .id("pg-scroll")
-                        .size_full()
-                        .overflow_y_scroll()
-                        .track_scroll(&self.pg_scroll)
-                        // Blank clicks unfocus the composer via the app
-                        // surface's track_focus — no local blur handler.
-                        .child(log),
-                ),
+                card(cx)
+                    .flex_1()
+                    .min_h(px(200.))
+                    .overflow_hidden()
+                    .relative()
+                    .child(
+                        div()
+                            .id("pg-scroll")
+                            .size_full()
+                            .overflow_y_scroll()
+                            .track_scroll(&self.pg_scroll)
+                            // Blank clicks unfocus the composer via the app
+                            // surface's track_focus — no local blur handler.
+                            .child(log),
+                    )
+                    .vertical_scrollbar(&self.pg_scroll),
             )
             .child(composer)
             .into_any_element()

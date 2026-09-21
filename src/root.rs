@@ -239,6 +239,15 @@ pub(crate) enum PgEvent {
 }
 
 pub struct AppRoot {
+    /// Focus target for non-interactive application chrome. GPUI transfers
+    /// focus to the nearest tracked surface on mouse down, so clicking page
+    /// chrome naturally blurs an input without an ancestor `window.blur()`
+    /// racing the input's own focus handler.
+    shell_focus: FocusHandle,
+    /// Separate focus target for modal chrome. The panel stops propagation to
+    /// the dismissible backdrop, so it needs its own place to move focus when
+    /// the user clicks beside a control inside the card.
+    overlay_focus: FocusHandle,
     pub(crate) service: Arc<GatewayService>,
     /// Expensive aggregate status (including logs) is refreshed on the poll
     /// cadence instead of being rebuilt for every paint/scroll frame.
@@ -482,6 +491,8 @@ impl AppRoot {
         )
         .detach();
         Self {
+            shell_focus: cx.focus_handle(),
+            overlay_focus: cx.focus_handle(),
             service,
             snapshot,
             page: Page::Dashboard,
@@ -1876,7 +1887,7 @@ impl AppRoot {
                         .items_center()
                         .justify_center()
                         .child(
-                            overlay_panel_surface()
+                            overlay_panel_surface(&self.overlay_focus)
                                 .top(rem_px * m.panel_off_rem)
                                 .w(panel_w)
                                 // Clicks/scroll inside the card must not
@@ -2425,20 +2436,39 @@ fn sidebar_section_label(text: &str, cx: &App) -> impl IntoElement {
         .text_color(cx.theme().muted_foreground)
 }
 
-/// Outermost application surface. Do not install a bubbling blur handler
-/// here: GPUI focuses an input during the same mouse-down bubble, so an
-/// ancestor `window.blur` immediately clears the focus it just received.
-fn app_surface() -> Div {
-    div().size_full().relative()
+/// Outermost application surface. This follows Zed's GPUI input example:
+/// the surrounding view is focusable, so clicking non-interactive chrome
+/// transfers focus away from the current input. A focused child calls
+/// `prevent_default`, which keeps the parent from stealing focus back.
+fn app_surface(focus_handle: &FocusHandle) -> Div {
+    div().size_full().relative().track_focus(focus_handle)
 }
 
-/// Overlay card hit boundary. Stop the event before it can reach the
-/// backdrop, but leave focus management to the control that was clicked.
-fn overlay_panel_surface() -> Stateful<Div> {
+/// Overlay card hit boundary. It behaves like a small focusable root: blank
+/// panel chrome takes focus, while focused descendants prevent that default.
+/// Propagation still stops here so a panel click cannot dismiss the backdrop.
+fn overlay_panel_surface(focus_handle: &FocusHandle) -> Stateful<Div> {
+    let panel_focus = focus_handle.clone();
     div()
+        .track_focus(focus_handle)
         .id("overlay-panel")
         .relative()
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+            // Depending on listener order, track_focus may already have
+            // performed this default action. The explicit fallback makes the
+            // panel robust while still respecting a focused child.
+            if !window.default_prevented() {
+                panel_focus.focus(window, cx);
+                window.prevent_default();
+            }
+            cx.stop_propagation();
+        })
+}
+
+impl Focusable for AppRoot {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.shell_focus.clone()
+    }
 }
 
 impl Render for AppRoot {
@@ -2740,7 +2770,7 @@ impl Render for AppRoot {
         // The overlay mounts on the outermost wrapper (relative + size_full)
         // so its absolute positioning covers the whole window and nothing is
         // clipped by the content column's overflow-hidden.
-        app_surface()
+        app_surface(&self.shell_focus)
             .child(
                 h_flex()
                     .items_stretch()
@@ -2836,46 +2866,71 @@ mod tests {
     use super::{
         app_surface, overlay_panel_surface, read_hidden_providers, write_hidden_providers,
     };
-    use gpui_kit::test::TestWindowExt;
+    use gpui_kit::test::{TestSupportExt, TestWindowExt};
     use gpui_kit::{
-        AppContext, Context, Entity, TestAppContext, Window,
+        AppContext, Context, Entity, FocusHandle, Focusable, MouseButton, TestAppContext, Window,
         component::{
             Root,
-            input::{Input, InputState},
+            input::{Input, InputState, Textarea, TextareaState},
+            v_flex,
         },
+        div,
         prelude::*,
         px, size,
     };
     use std::collections::HashSet;
 
     struct InputFocusProbe {
+        shell_focus: FocusHandle,
+        overlay_focus: FocusHandle,
         page_input: Entity<InputState>,
         overlay_input: Entity<InputState>,
     }
 
     impl Render for InputFocusProbe {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-            app_surface()
+            app_surface(&self.shell_focus)
                 .flex()
                 .flex_col()
                 .gap_4()
                 .p_4()
                 .child(Input::new(&self.page_input).id("page-input").w(px(240.)))
                 .child(
-                    overlay_panel_surface().child(
-                        Input::new(&self.overlay_input)
-                            .id("overlay-input")
-                            .w(px(240.)),
-                    ),
+                    div()
+                        .id("page-background")
+                        .test_support()
+                        .w(px(240.))
+                        .h(px(48.))
+                        .on_mouse_down(MouseButton::Left, |_, _, _| {}),
+                )
+                .child(
+                    overlay_panel_surface(&self.overlay_focus)
+                        .flex()
+                        .flex_col()
+                        .child(
+                            Input::new(&self.overlay_input)
+                                .id("overlay-input")
+                                .w(px(240.)),
+                        )
+                        .child(
+                            div()
+                                .id("overlay-background")
+                                .test_support()
+                                .w(px(240.))
+                                .h(px(48.))
+                                .on_mouse_down(MouseButton::Left, |_, _, _| {}),
+                        ),
                 )
         }
     }
 
     #[gpui_kit::test]
-    fn clicking_inputs_keeps_focus_through_shell_and_overlay(cx: &mut TestAppContext) {
+    fn focus_moves_between_inputs_and_surrounding_surfaces(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.open_window(size(px(640.), px(480.)), |window, cx| {
             let probe = cx.new(|cx| InputFocusProbe {
+                shell_focus: cx.focus_handle(),
+                overlay_focus: cx.focus_handle(),
                 page_input: cx.new(|cx| InputState::new(window, cx)),
                 overlay_input: cx.new(|cx| InputState::new(window, cx)),
             });
@@ -2890,12 +2945,157 @@ mod tests {
             assert_eq!(window.find("page-input").focused(), Some(true));
             assert_eq!(window.find("page-input").value(), Some("page"));
 
+            window.click("page-background", cx);
+            window.input(" ignored", cx);
+            assert_eq!(window.find("page-input").focused(), Some(false));
+            assert_eq!(window.find("page-input").value(), Some("page"));
+
             window.click("overlay-input", cx);
             window.input("overlay", cx);
             assert_eq!(window.find("overlay-input").focused(), Some(true));
             assert_eq!(window.find("overlay-input").value(), Some("overlay"));
+
+            window.click("overlay-background", cx);
+            window.input(" ignored", cx);
+            assert_eq!(window.find("overlay-input").focused(), Some(false));
+            assert_eq!(window.find("overlay-input").value(), Some("overlay"));
         })
         .expect("input focus probe window should remain available");
+    }
+
+    struct ComposerFocusProbe {
+        shell_focus: FocusHandle,
+        pg_input: Entity<TextareaState>,
+        disabled: bool,
+    }
+
+    impl Render for ComposerFocusProbe {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            // Mirror the playground page's real nesting: scrolling page
+            // container → centered column → message card → composer card.
+            app_surface(&self.shell_focus).child(
+                div()
+                    .id("page-scroll")
+                    .size_full()
+                    .overflow_y_scroll()
+                    .child(
+                        div()
+                            .mx_auto()
+                            .w_full()
+                            .max_w(px(960.))
+                            .px_6()
+                            .pt_6()
+                            .pb_5()
+                            .child(
+                                v_flex()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .gap_3()
+                                    .child(
+                                        div().flex_1().min_h(px(200.)).overflow_hidden().child(
+                                            div()
+                                                .id("pg-scroll")
+                                                .size_full()
+                                                .overflow_y_scroll()
+                                                .child("log"),
+                                        ),
+                                    )
+                                    .child(
+                                        div().p_3().child(
+                                            v_flex().gap_2().child(
+                                                div()
+                                                    .id("composer-field")
+                                                    .test_support()
+                                                    .w_full()
+                                                    .px_3()
+                                                    .py_2()
+                                                    .child(
+                                                        Textarea::new(&self.pg_input)
+                                                            .appearance(false)
+                                                            .bordered(false)
+                                                            .disabled(self.disabled),
+                                                    ),
+                                            ),
+                                        ),
+                                    ),
+                            ),
+                    ),
+            )
+        }
+    }
+
+    #[gpui_kit::test]
+    fn playground_composer_focuses_on_click(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let slot = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let slot2 = slot.clone();
+        let handle = cx.open_window(size(px(640.), px(480.)), |window, cx| {
+            let pg_input = cx.new(|cx| {
+                let mut state = TextareaState::new(window, cx)
+                    .submit_on_enter(true)
+                    .placeholder("type");
+                state.set_auto_grow(1, 5, cx);
+                state
+            });
+            *slot2.borrow_mut() = Some(pg_input.clone());
+            let probe = cx.new(|cx| ComposerFocusProbe {
+                shell_focus: cx.focus_handle(),
+                pg_input,
+                disabled: false,
+            });
+            Root::new(probe, window, cx)
+        });
+
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let pg_input = slot.borrow().clone().unwrap();
+
+            window.click("composer-field", cx);
+            window.input("hello", cx);
+            assert!(
+                pg_input.read(cx).focus_handle(cx).is_focused(window),
+                "composer Textarea should be focused after click"
+            );
+            assert_eq!(pg_input.read(cx).value().as_ref(), "hello");
+        })
+        .expect("composer probe window should remain available");
+    }
+
+    /// A disabled composer still takes the click focus (caret hidden, edits
+    /// rejected) — the field looks dead exactly the way users describe it.
+    #[gpui_kit::test]
+    fn disabled_composer_rejects_input(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let slot = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let slot2 = slot.clone();
+        let handle = cx.open_window(size(px(640.), px(480.)), |window, cx| {
+            let pg_input = cx.new(|cx| {
+                let mut state = TextareaState::new(window, cx).placeholder("type");
+                state.set_auto_grow(1, 5, cx);
+                state
+            });
+            *slot2.borrow_mut() = Some(pg_input.clone());
+            let probe = cx.new(|cx| ComposerFocusProbe {
+                shell_focus: cx.focus_handle(),
+                pg_input,
+                disabled: true,
+            });
+            Root::new(probe, window, cx)
+        });
+
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let pg_input = slot.borrow().clone().unwrap();
+
+            window.click("composer-field", cx);
+            window.input("hello", cx);
+            assert_eq!(
+                pg_input.read(cx).value().as_ref(),
+                "",
+                "disabled composer must not accept typed text"
+            );
+        })
+        .expect("composer probe window should remain available");
     }
 
     #[test]

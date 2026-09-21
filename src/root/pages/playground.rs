@@ -19,7 +19,11 @@ use gpui_kit::component::{
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
-use crate::root::{AppRoot, MONO, PgApiType, PgKeyItem, PgMsg, PgRole, card, t, toggle_filter};
+use std::time::Instant;
+
+use crate::root::{
+    AppRoot, MONO, PgApiType, PgEvent, PgKeyItem, PgMsg, PgRole, card, fmt_count, t, toggle_filter,
+};
 
 /// Models + key select contents change with the snapshot — pushed into the
 /// SelectState entities here, and a sane default is picked when the current
@@ -458,5 +462,427 @@ fn pg_message(m: &PgMsg, lang: crate::root::Lang, cx: &mut Context<AppRoot>) -> 
                 )
                 .into_any_element()
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Send pipeline — appends the pending placeholder, fires the request through
+// the RUNNING gateway (real auth/scope/protocol path), streams events back.
+// ---------------------------------------------------------------------------
+
+impl AppRoot {
+    /// One assistant-reply round: appends the pending placeholder and fires
+    /// the HTTP request through the RUNNING gateway server — exercising the
+    /// real auth/scope/protocol path, not the in-process registry.
+    pub(crate) fn pg_send_request(&mut self, cx: &mut Context<Self>) {
+        let aid = self.pg_next_msg;
+        self.pg_next_msg += 1;
+        self.pg_msgs.push(PgMsg {
+            id: aid,
+            role: PgRole::Assistant,
+            content: String::new(),
+            pending: true,
+            error: None,
+            meta: None,
+        });
+        self.pg_pending = true;
+        self.pg_scroll.scroll_to_bottom();
+
+        let model = self
+            .pg_model_sel
+            .read(cx)
+            .selected_value()
+            .cloned()
+            .unwrap_or_default();
+        let key_id = self.pg_key_sel.read(cx).selected_value().cloned();
+        let api_key = key_id.and_then(|id| {
+            self.service
+                .config()
+                .server
+                .api_keys
+                .into_iter()
+                .find(|k| k.id == id)
+                .map(|k| k.key)
+        });
+        let Some(api_key) = api_key.filter(|_| !model.is_empty()) else {
+            self.pg_apply_event(
+                aid,
+                PgEvent::Failed(t(self.lang, "pg_no_key").to_string()),
+                cx,
+            );
+            return;
+        };
+        let api = self.pg_api_type;
+        let base = self.snapshot.server.url.trim_end_matches('/').to_string();
+        let stream = self.pg_stream;
+        let messages: Vec<serde_json::Value> = self
+            .pg_msgs
+            .iter()
+            .filter(|m| m.error.is_none() && !m.pending)
+            .map(|m| {
+                serde_json::json!({
+                    "role": match m.role { PgRole::User => "user", PgRole::Assistant => "assistant" },
+                    "content": m.content,
+                })
+            })
+            .collect();
+        let (url, body) = match api {
+            PgApiType::OpenAi => {
+                let mut body = serde_json::json!({
+                    "model": model,
+                    "messages": messages,
+                    "stream": stream,
+                });
+                if stream {
+                    body["stream_options"] = serde_json::json!({"include_usage": true});
+                }
+                (format!("{base}/v1/chat/completions"), body)
+            }
+            PgApiType::Anthropic => (
+                format!("{base}/v1/messages"),
+                // Anthropic requires an explicit cap — a roomy default for a
+                // smoke-test composer.
+                serde_json::json!({
+                    "model": model,
+                    "max_tokens": 4096,
+                    "messages": messages,
+                    "stream": stream,
+                }),
+            ),
+            PgApiType::Responses => (
+                format!("{base}/v1/responses"),
+                // Responses API takes `input` — the same {role, content}
+                // pairs work since string content is normalized upstream.
+                serde_json::json!({
+                    "model": model,
+                    "max_output_tokens": 4096,
+                    "input": messages,
+                    "stream": stream,
+                }),
+            ),
+        };
+
+        let cancel = tokio_util::sync::CancellationToken::new();
+        self.pg_cancel = Some(cancel.clone());
+        let (tx, rx) = smol::channel::unbounded::<PgEvent>();
+        let started = Instant::now();
+        self.service.spawn_ui(async move {
+            let client = reqwest::Client::new();
+            let resp = tokio::select! {
+                _ = cancel.cancelled() => return,
+                r = client
+                    .post(&url)
+                    .bearer_auth(api_key)
+                    .json(&body)
+                    .send() => r,
+            };
+            match resp {
+                Err(e) => {
+                    let _ = tx.try_send(PgEvent::Failed(e.to_string()));
+                }
+                Ok(resp) if !resp.status().is_success() => {
+                    let status = resp.status();
+                    let raw = resp.text().await.unwrap_or_default();
+                    let msg = serde_json::from_str::<serde_json::Value>(&raw)
+                        .ok()
+                        .and_then(|v| {
+                            v.pointer("/error/message")
+                                .and_then(|m| m.as_str())
+                                .map(str::to_string)
+                        })
+                        .unwrap_or(raw);
+                    let _ = tx.try_send(PgEvent::Failed(format!("{status} — {msg}")));
+                }
+                Ok(resp) if !stream => {
+                    let v: serde_json::Value = resp.json().await.unwrap_or_default();
+                    let text = match api {
+                        PgApiType::OpenAi => {
+                            pg_extract_text(v.pointer("/choices/0/message/content"))
+                        }
+                        // Anthropic replies carry a `content` block array.
+                        PgApiType::Anthropic => pg_extract_text(v.get("content")),
+                        // Responses replies expose the joined text verbatim.
+                        PgApiType::Responses => pg_extract_text(v.get("output_text")),
+                    };
+                    let meta = pg_meta(started, v.get("usage"));
+                    let _ = tx.try_send(PgEvent::Full { text, meta });
+                }
+                Ok(resp) => {
+                    use futures::StreamExt;
+                    let mut s = resp.bytes_stream();
+                    let mut buf = String::new();
+                    let mut usage: Option<serde_json::Value> = None;
+                    // Anthropic splits token counts across frames — each of
+                    // `message_start` / `message_delta` may carry either
+                    // count, so both are accumulated as running maxima.
+                    let (mut in_tok, mut out_tok) = (0_u64, 0_u64);
+                    'outer: loop {
+                        let chunk = tokio::select! {
+                            _ = cancel.cancelled() => break 'outer,
+                            c = s.next() => c,
+                        };
+                        let Some(Ok(chunk)) = chunk else { break 'outer };
+                        buf.push_str(&String::from_utf8_lossy(&chunk));
+                        while let Some(nl) = buf.find('\n') {
+                            let line = buf[..nl].trim().to_string();
+                            buf.drain(..=nl);
+                            let Some(data) = line.strip_prefix("data:").map(str::trim) else {
+                                continue;
+                            };
+                            if data == "[DONE]" {
+                                break 'outer;
+                            }
+                            let Ok(v) = serde_json::from_str::<serde_json::Value>(data) else {
+                                continue;
+                            };
+                            // Gateway error frame: `data: {"error":{"message":..}}`
+                            // (also covers Anthropic `{"type":"error","error":{..}}`).
+                            if let Some(err) = v.get("error") {
+                                let msg = err
+                                    .get("message")
+                                    .and_then(|m| m.as_str())
+                                    .map(str::to_string)
+                                    .unwrap_or_else(|| err.to_string());
+                                let _ = tx.try_send(PgEvent::Failed(msg));
+                                return;
+                            }
+                            match api {
+                                PgApiType::OpenAi => {
+                                    if let Some(u) = v.get("usage") {
+                                        usage = Some(u.clone());
+                                    }
+                                    if let Some(t) = v
+                                        .pointer("/choices/0/delta/content")
+                                        .and_then(|d| d.as_str())
+                                    {
+                                        let _ = tx.try_send(PgEvent::Delta(t.to_string()));
+                                    }
+                                }
+                                PgApiType::Anthropic => {
+                                    match v.get("type").and_then(|t| t.as_str()) {
+                                        Some("message_start") => {
+                                            in_tok = v
+                                                .pointer("/message/usage/input_tokens")
+                                                .and_then(|n| n.as_u64())
+                                                .unwrap_or(in_tok);
+                                        }
+                                        Some("content_block_delta") => {
+                                            if let Some(t) =
+                                                v.pointer("/delta/text").and_then(|d| d.as_str())
+                                            {
+                                                let _ = tx.try_send(PgEvent::Delta(t.to_string()));
+                                            }
+                                        }
+                                        // The gateway may fill input/output
+                                        // counts only here (message_start
+                                        // often carries zeros) — keep the
+                                        // max of each.
+                                        Some("message_delta") => {
+                                            let u = v.get("usage");
+                                            in_tok = u
+                                                .and_then(|u| u.pointer("/input_tokens"))
+                                                .and_then(|n| n.as_u64())
+                                                .unwrap_or(in_tok)
+                                                .max(in_tok);
+                                            out_tok = u
+                                                .and_then(|u| u.pointer("/output_tokens"))
+                                                .and_then(|n| n.as_u64())
+                                                .unwrap_or(out_tok)
+                                                .max(out_tok);
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                PgApiType::Responses => {
+                                    match v.get("type").and_then(|t| t.as_str()) {
+                                        Some("response.output_text.delta") => {
+                                            if let Some(t) = v.get("delta").and_then(|d| d.as_str())
+                                            {
+                                                let _ = tx.try_send(PgEvent::Delta(t.to_string()));
+                                            }
+                                        }
+                                        // Completed + incomplete both carry
+                                        // the final usage (responses spelling:
+                                        // input/output_tokens).
+                                        Some("response.completed")
+                                        | Some("response.incomplete") => {
+                                            if let Some(u) = v.pointer("/response/usage") {
+                                                usage = Some(u.clone());
+                                            }
+                                        }
+                                        Some("response.failed") => {
+                                            let msg = v
+                                                .pointer("/response/error/message")
+                                                .and_then(|m| m.as_str())
+                                                .map(str::to_string)
+                                                .unwrap_or_else(|| "request failed".into());
+                                            let _ = tx.try_send(PgEvent::Failed(msg));
+                                            return;
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if matches!(api, PgApiType::Anthropic) && (in_tok > 0 || out_tok > 0) {
+                        usage = Some(serde_json::json!({
+                            "prompt_tokens": in_tok,
+                            "completion_tokens": out_tok,
+                        }));
+                    }
+                    let _ = tx.try_send(PgEvent::Done {
+                        meta: pg_meta(started, usage.as_ref()),
+                    });
+                }
+            }
+        });
+        cx.spawn(async move |this, cx| {
+            while let Ok(ev) = rx.recv().await {
+                let done = !matches!(ev, PgEvent::Delta(_));
+                let _ = this.update(cx, |this, cx| this.pg_apply_event(aid, ev, cx));
+                if done {
+                    return;
+                }
+            }
+            // Channel dropped without a Done/Failed — never leave it pending.
+            let _ = this.update(cx, |this, cx| {
+                if this.pg_msgs.iter().any(|m| m.id == aid && m.pending) {
+                    this.pg_apply_event(aid, PgEvent::Failed("connection lost".into()), cx);
+                }
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    pub(crate) fn playground_send(&mut self, cx: &mut Context<Self>) {
+        if self.pg_pending {
+            return;
+        }
+        let text = self.pg_input.read(cx).value().trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        let id = self.pg_next_msg;
+        self.pg_next_msg += 1;
+        self.pg_msgs.push(PgMsg {
+            id,
+            role: PgRole::User,
+            content: text,
+            pending: false,
+            error: None,
+            meta: None,
+        });
+        // `set_value` needs a Window the Enter subscription doesn't have —
+        // flag it, render clears at the top.
+        self.pg_clear_input = true;
+        self.pg_send_request(cx);
+    }
+
+    /// Drop the failed reply and everything after it, then resend — same as
+    /// the Electron playground's `sliceBeforeMessage` retry.
+    pub(crate) fn pg_retry(&mut self, id: u64, cx: &mut Context<Self>) {
+        if self.pg_pending {
+            return;
+        }
+        if let Some(ix) = self.pg_msgs.iter().position(|m| m.id == id) {
+            self.pg_msgs.truncate(ix);
+        }
+        self.pg_send_request(cx);
+    }
+
+    pub(crate) fn pg_stop(&mut self, cx: &mut Context<Self>) {
+        if let Some(tok) = self.pg_cancel.take() {
+            tok.cancel();
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn pg_clear(&mut self, cx: &mut Context<Self>) {
+        self.pg_stop(cx);
+        self.pg_msgs.clear();
+        cx.notify();
+    }
+
+    pub(crate) fn pg_apply_event(&mut self, aid: u64, ev: PgEvent, cx: &mut Context<Self>) {
+        match ev {
+            PgEvent::Delta(t) => {
+                if let Some(m) = self.pg_msgs.iter_mut().find(|m| m.id == aid) {
+                    m.content.push_str(&t);
+                }
+            }
+            PgEvent::Full { text, meta } => {
+                if let Some(m) = self.pg_msgs.iter_mut().find(|m| m.id == aid) {
+                    m.content = if text.is_empty() {
+                        t(self.lang, "pg_response_empty").to_string()
+                    } else {
+                        text
+                    };
+                    m.meta = meta;
+                    m.pending = false;
+                }
+                self.pg_pending = false;
+                self.pg_cancel = None;
+            }
+            PgEvent::Done { meta } => {
+                if let Some(m) = self.pg_msgs.iter_mut().find(|m| m.id == aid) {
+                    m.meta = meta;
+                    m.pending = false;
+                }
+                self.pg_pending = false;
+                self.pg_cancel = None;
+            }
+            PgEvent::Failed(err) => {
+                if let Some(m) = self.pg_msgs.iter_mut().find(|m| m.id == aid) {
+                    m.error = Some(err);
+                    m.pending = false;
+                }
+                self.pg_pending = false;
+                self.pg_cancel = None;
+            }
+        }
+        self.pg_scroll.scroll_to_bottom();
+        cx.notify();
+    }
+}
+
+fn pg_extract_text(content: Option<&serde_json::Value>) -> String {
+    match content {
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(serde_json::Value::Array(parts)) => parts
+            .iter()
+            .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+            .collect::<Vec<_>>()
+            .join(""),
+        _ => String::new(),
+    }
+}
+
+/// "1.2s · 128 in / 64 out" — latency + token usage under finished replies.
+fn pg_meta(started: Instant, usage: Option<&serde_json::Value>) -> Option<String> {
+    let ms = started.elapsed().as_millis();
+    let secs = format!("{:.1}s", ms as f64 / 1000.);
+    match usage {
+        Some(u) => {
+            // OpenAI spellings first; Anthropic names the same counts
+            // input/output.
+            let inp = u
+                .pointer("/prompt_tokens")
+                .or_else(|| u.pointer("/input_tokens"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let out = u
+                .pointer("/completion_tokens")
+                .or_else(|| u.pointer("/output_tokens"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            Some(format!(
+                "{secs} · {} in / {} out",
+                fmt_count(inp as i64),
+                fmt_count(out as i64)
+            ))
+        }
+        None => Some(secs),
     }
 }

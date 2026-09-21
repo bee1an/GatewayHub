@@ -133,6 +133,12 @@ fn en(key: &str) -> Option<&'static str> {
         "delete" => "Delete",
         "no_mappings" => "No mappings — model names pass through to the provider unchanged",
         "add" => "Add",
+        "add_mapping" => "Add mapping",
+        "edit_mapping" => "Edit mapping",
+        "map_alias" => "Alias",
+        "map_targets" => "Targets — tried in order",
+        "add_target" => "Add target",
+        "map_err_required" => "Enter an alias and at least one provider/model target",
         "n_mappings" => "{n} mappings",
 
         // ---- playground ----
@@ -322,11 +328,9 @@ fn en(key: &str) -> Option<&'static str> {
         // ---- placeholders ----
         "ph_key_name" => "key name (e.g. laptop)",
         "ph_alias" => "alias (e.g. sonnet)",
-        "ph_target" => {
-            "provider/model, comma-separated for failover (e.g. kiro/claude-sonnet-4, codex/gpt-5)"
-        }
+        "ph_provider" => "provider",
         "ph_import" => "paste account JSON to import",
-        "ph_model" => "model (e.g. claude-sonnet-4)",
+        "ph_model" => "model",
         "ph_message" => "message…",
         "ph_filter" => "filter messages…",
 
@@ -404,6 +408,12 @@ fn zh(key: &str) -> Option<&'static str> {
         "delete" => "删除",
         "no_mappings" => "尚无映射 — 模型名将原样传递给服务商",
         "add" => "添加",
+        "add_mapping" => "添加映射",
+        "edit_mapping" => "编辑映射",
+        "map_alias" => "别名",
+        "map_targets" => "目标 — 按顺序尝试",
+        "add_target" => "添加目标",
+        "map_err_required" => "请输入别名和至少一个 服务商/模型 目标",
         "n_mappings" => "{n} 个映射",
 
         // ---- playground ----
@@ -590,11 +600,9 @@ fn zh(key: &str) -> Option<&'static str> {
         // ---- placeholders ----
         "ph_key_name" => "密钥名（如 laptop）",
         "ph_alias" => "别名（如 sonnet）",
-        "ph_target" => {
-            "服务商/模型，逗号分隔多个目标按序故障转移（如 kiro/claude-sonnet-4, codex/gpt-5）"
-        }
+        "ph_provider" => "服务商",
         "ph_import" => "粘贴账号 JSON 以导入",
-        "ph_model" => "模型（如 claude-sonnet-4）",
+        "ph_model" => "模型",
         "ph_message" => "输入消息…",
         "ph_filter" => "筛选消息…",
 

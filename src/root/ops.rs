@@ -97,42 +97,162 @@ impl AppRoot {
         cx.notify();
     }
 
-    pub(crate) fn add_mapping(&mut self, cx: &mut Context<Self>) {
+    /// Mapping overlay: append one target row — provider select plus a
+    /// model select fed by that provider's known models (snapshot). Stored
+    /// values that aren't listed stay selectable so edits don't silently
+    /// drop them; `window.subscribe` rebuilds the model options whenever
+    /// the provider pick confirms.
+    pub(crate) fn push_map_target_row(
+        &mut self,
+        provider: String,
+        model: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut items: Vec<String> = gateway_core::provider::LIVE_PROVIDERS
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        if !provider.is_empty() && !items.contains(&provider) {
+            items.push(provider.clone());
+        }
+        let p = cx.new(|cx| SelectState::new(SearchableVec::new(items), None, window, cx));
+        if !provider.is_empty() {
+            p.update(cx, |s, cx| s.set_selected_value(&provider, window, cx));
+        }
+
+        let m = cx.new(|cx| {
+            SelectState::new(
+                SearchableVec::new(self.map_model_items(&provider, &model)),
+                None,
+                window,
+                cx,
+            )
+        });
+        if !model.is_empty() {
+            m.update(cx, |s, cx| s.set_selected_value(&model, window, cx));
+        }
+
+        let root = cx.entity();
+        let sub = window.subscribe(&p, cx, move |entity, event, window, cx| {
+            let SelectEvent::Confirm(Some(provider)) = event else {
+                return;
+            };
+            let provider = provider.clone();
+            root.update(cx, |this, cx| {
+                this.map_provider_changed(&entity, &provider, window, cx);
+            });
+        });
+        self.map_target_rows.push(MapTargetRow {
+            provider: p,
+            model: m,
+            _provider_sub: sub,
+        });
+    }
+
+    /// Models a provider is known to serve (snapshot), with `keep` appended
+    /// when absent — edits preserve a stored model that is no longer
+    /// advertised. `provider_type` is the provider key mappings store
+    /// (`ProviderStatus.name` is the route name).
+    fn map_model_items(&self, provider: &str, keep: &str) -> Vec<String> {
+        let mut models = self
+            .snapshot
+            .providers
+            .iter()
+            .find(|p| p.provider_type == provider)
+            .map(|p| p.models.clone())
+            .unwrap_or_default();
+        if !keep.is_empty() && !models.iter().any(|m| m == keep) {
+            models.push(keep.to_string());
+        }
+        models
+    }
+
+    /// Provider pick confirmed on one target row — rebuild that row's model
+    /// options and drop the now-stale selection.
+    fn map_provider_changed(
+        &mut self,
+        provider_entity: &Entity<SelectState<SearchableVec<String>>>,
+        provider: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let models = self.map_model_items(provider, "");
+        let Some(row) = self
+            .map_target_rows
+            .iter()
+            .find(|r| &r.provider == provider_entity)
+        else {
+            return;
+        };
+        row.model.update(cx, |s, cx| {
+            s.set_items(SearchableVec::new(models), window, cx);
+            s.set_selected_index(None, window, cx);
+        });
+    }
+
+    /// Save the mapping overlay — alias plus every non-empty provider/model
+    /// row; replaces `map_editing` or appends a new mapping.
+    pub(crate) fn save_mapping_overlay(&mut self, cx: &mut Context<Self>) {
+        let lang = self.lang;
         let alias = self.map_alias_input.read(cx).value().trim().to_string();
-        let raw_targets = self.map_target_input.read(cx).value().trim().to_string();
-        // Comma-separated `provider/model` list → ordered failover targets.
-        let targets: Vec<ModelTarget> = raw_targets
-            .split(',')
-            .filter_map(|part| {
-                let (provider, model) = part.trim().split_once('/')?;
+        let targets: Vec<ModelTarget> = self
+            .map_target_rows
+            .iter()
+            .filter_map(|row| {
+                let provider = row
+                    .provider
+                    .read(cx)
+                    .selected_value()
+                    .cloned()
+                    .unwrap_or_default();
+                let model = row
+                    .model
+                    .read(cx)
+                    .selected_value()
+                    .cloned()
+                    .unwrap_or_default();
                 if provider.is_empty() || model.is_empty() {
                     return None;
                 }
-                Some(ModelTarget {
-                    provider: provider.to_string(),
-                    model: model.to_string(),
-                })
+                Some(ModelTarget { provider, model })
             })
             .collect();
         if alias.is_empty() || targets.is_empty() {
+            self.map_err = Some(t(lang, "map_err_required").into());
+            cx.notify();
             return;
         }
+        self.map_err = None;
         let mut cfg = self.service.config();
-        let mut mapping = ModelMapping {
-            alias,
-            provider: String::new(),
-            model: String::new(),
-            targets: Vec::new(),
-            enabled: true,
-            note: None,
-            extra: Default::default(),
-        };
-        mapping.set_targets(targets);
-        cfg.model_mappings.push(mapping);
+        match self.map_editing {
+            // Edit keeps the row's enabled/note — the overlay only owns
+            // alias + targets.
+            Some(ix) if ix < cfg.model_mappings.len() => {
+                let m = &mut cfg.model_mappings[ix];
+                m.alias = alias;
+                m.set_targets(targets);
+            }
+            _ => {
+                let mut mapping = ModelMapping {
+                    alias,
+                    provider: String::new(),
+                    model: String::new(),
+                    targets: Vec::new(),
+                    enabled: true,
+                    note: None,
+                    extra: Default::default(),
+                };
+                mapping.set_targets(targets);
+                cfg.model_mappings.push(mapping);
+            }
+        }
         if let Err(e) = self.service.save_config(cfg) {
             tracing::error!(error = %e, "save config failed");
             return;
         }
+        self.map_editing = None;
+        self.dismiss_overlay(cx);
         cx.notify();
     }
 

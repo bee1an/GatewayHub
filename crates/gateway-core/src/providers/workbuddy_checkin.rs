@@ -174,11 +174,13 @@ pub async fn claim_checkin(
     let code = payload.get("code").and_then(Value::as_i64).unwrap_or(0);
     let msg = payload.get("msg").and_then(Value::as_str).unwrap_or("");
     let already = code == 10001 || msg.contains("已签到");
+    // Per-day reward fields only — `total_credits` in the claim payload is
+    // the cumulative activity wallet, not today's amount; callers needing
+    // a fallback compute the status delta instead.
     let credits = to_count(
         data.get("credit")
             .or_else(|| data.get("today_credit"))
             .or_else(|| data.get("daily_credit"))
-            .or_else(|| data.get("total_credits"))
             .unwrap_or(&Value::Null),
     );
     Ok((already, credits))

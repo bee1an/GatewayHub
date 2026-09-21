@@ -259,6 +259,9 @@ pub struct AppRoot {
     pub(crate) mode_choice: Option<ThemeMode>,
     /// Icon-only rail (the Electron sidebar collapsed to 72px).
     pub(crate) collapsed: bool,
+    /// False until the sidebar selection pill has painted once — its first
+    /// appearance snaps to the slot, later moves glide.
+    pub(crate) animate_selection_pill: bool,
     /// UI-only provider visibility. This is deliberately separate from the
     /// provider's `enabled` flag: hiding a sidebar row must never rebuild the
     /// provider registry or interrupt active requests.
@@ -499,6 +502,7 @@ impl AppRoot {
             detail: None,
             mode_choice: None,
             collapsed: false,
+            animate_selection_pill: false,
             hidden_providers,
             test_results: HashMap::new(),
             test_pending: HashSet::new(),
@@ -2374,8 +2378,61 @@ const ICON_LANE: f32 = 40.;
 /// Nav icon size — compact but still legible in the 32px navigation row.
 const NAV_ICON: f32 = 15.;
 
+/// Row pitch — NAV_ROW_H plus the gap_0p5 spacing between rows.
+const NAV_PITCH: f32 = NAV_ROW_H + 2.;
+
+/// Primary destinations in rail order — the selection pill's slot index
+/// is a row's position in this table.
+const NAV_ITEMS: [(Page, &str, IconName, &str); 7] = [
+    (
+        Page::Dashboard,
+        "nav-dashboard",
+        IconName::LayoutDashboard,
+        "nav_dashboard",
+    ),
+    (Page::Logs, "nav-logs", IconName::FileText, "nav_logs"),
+    (Page::Playground, "nav-playground", IconName::Bot, "nav_playground"),
+    (Page::ApiKeys, "nav-apikeys", IconName::Asterisk, "nav_api_keys"),
+    (Page::Mappings, "nav-mappings", IconName::Replace, "nav_mappings"),
+    (Page::Usage, "nav-usage", IconName::ChartPie, "nav_usage"),
+    (Page::Settings, "nav-settings", IconName::Settings, "nav_settings"),
+];
+
+/// The sliding selection highlight — a single pill mounted inside
+/// whichever rail zone (primary nav or provider list) currently holds
+/// the selection. Every mount shares the `nav-sel-pill` spring id, so
+/// position and velocity carry across target changes and the fill
+/// physically glides to the new row's slot (Heimdall's outline pill,
+/// adapted to two zones). `target_y` is the slot's Y in the zone's
+/// content space. First paint passes `animate: false` so the pill snaps
+/// into place instead of travelling from a stale position.
+fn nav_sel_pill(target_y: f32, animate: bool, collapsed: bool, cx: &App) -> impl IntoElement {
+    let theme = cx.theme();
+    div()
+        .absolute()
+        .left_0()
+        .right_0()
+        .h(px(NAV_ROW_H))
+        .rounded(theme.radius)
+        .bg(theme.list_active)
+        // Collapsed rows shrink to a centered 40px tile — match it.
+        .when(collapsed, |d| d.w_10().mx_auto())
+        .with_spring(
+            "nav-sel-pill",
+            SpringAnimation::new(SpringConfig::new(300., 26., 1.))
+                .to(px(target_y))
+                .playback(if animate {
+                    SpringPlayback::Running
+                } else {
+                    SpringPlayback::Completed
+                }),
+            |el, pos| el.top(pos),
+        )
+}
+
 /// One sidebar row: fixed height, leading icon lane, then the label.
-/// Selection is a filled background — no border, the native macOS idiom.
+/// The selection fill is painted by the pill behind the row — the row
+/// itself only tints its icon and label.
 fn nav_row(
     id: impl Into<ElementId>,
     glyph: AnyElement,
@@ -2394,7 +2451,6 @@ fn nav_row(
         .gap_0()
         .rounded(theme.radius)
         .cursor_pointer()
-        .when(active, |d| d.bg(theme.list_active))
         .when(!active, |d| d.hover(|d| d.bg(theme.list_hover)))
         .when(collapsed, |d| {
             let tip = label.clone();
@@ -2486,37 +2542,40 @@ impl Render for AppRoot {
             SIDEBAR_W
         };
 
+        // Selection slot — the pill mounts inside the zone holding it.
+        let pill_animate = self.animate_selection_pill;
+        let sel_nav_ix = if self.detail.is_none() {
+            NAV_ITEMS.iter().position(|(p, ..)| *p == self.page)
+        } else {
+            None
+        };
+        // All real providers stay in the rail — a disabled one is dimmed
+        // but still reachable (it must stay openable to be re-enabled).
+        // Coming-soon providers never enter the rail at all.
+        let visible_providers: Vec<_> = snapshot
+            .providers
+            .iter()
+            .filter(|p| {
+                Self::provider_live(&p.name)
+                    && p.status != "placeholder"
+                    && !self.hidden_providers.contains(&p.name)
+            })
+            .collect();
+        let sel_provider_ix = self
+            .detail
+            .as_deref()
+            .and_then(|name| visible_providers.iter().position(|p| p.name == name));
+        if sel_nav_ix.is_some() || sel_provider_ix.is_some() {
+            self.animate_selection_pill = true;
+        }
+
         // Primary destinations
         let lang = self.lang;
-        let mut nav = v_flex().gap_0p5();
-        for (page, id, icon, label_key) in [
-            (
-                Page::Dashboard,
-                "nav-dashboard",
-                IconName::LayoutDashboard,
-                "nav_dashboard",
-            ),
-            (Page::Logs, "nav-logs", IconName::FileText, "nav_logs"),
-            (
-                Page::Playground,
-                "nav-playground",
-                IconName::Bot,
-                "nav_playground",
-            ),
-            (
-                Page::ApiKeys,
-                "nav-apikeys",
-                IconName::Asterisk,
-                "nav_api_keys",
-            ),
-            (
-                Page::Mappings,
-                "nav-mappings",
-                IconName::Replace,
-                "nav_mappings",
-            ),
-            (Page::Usage, "nav-usage", IconName::ChartPie, "nav_usage"),
-        ] {
+        let mut nav = v_flex().gap_0p5().relative();
+        if let Some(ix) = sel_nav_ix {
+            nav = nav.child(nav_sel_pill(ix as f32 * NAV_PITCH, pill_animate, collapsed, cx));
+        }
+        for (page, id, icon, label_key) in NAV_ITEMS {
             let active = self.detail.is_none() && self.page == page;
             let glyph = Icon::new(icon)
                 .size(px(NAV_ICON))
@@ -2547,18 +2606,13 @@ impl Render for AppRoot {
                     .child(sidebar_section_label(t(lang, "nav_providers"), cx)),
             );
         }
-        // All real providers stay in the rail — a disabled one is dimmed
-        // but still reachable (it must stay openable to be re-enabled).
-        // Coming-soon providers never enter the rail at all.
-        let visible_providers: Vec<_> = snapshot
-            .providers
-            .iter()
-            .filter(|p| {
-                Self::provider_live(&p.name)
-                    && p.status != "placeholder"
-                    && !self.hidden_providers.contains(&p.name)
-            })
-            .collect();
+        // Provider rows get their own relative wrapper so the pill's
+        // slot Y is content-space — it scrolls with the rows.
+        let mut provider_rows = v_flex().gap_0p5().relative();
+        if let Some(ix) = sel_provider_ix {
+            provider_rows =
+                provider_rows.child(nav_sel_pill(ix as f32 * NAV_PITCH, pill_animate, collapsed, cx));
+        }
         for p in &visible_providers {
             let active = self.detail.as_deref() == Some(p.name.as_str());
             let name = p.name.clone();
@@ -2577,31 +2631,9 @@ impl Render for AppRoot {
                 this.open_detail(&name, cx);
                 cx.notify();
             }));
-            providers_section = providers_section.child(row);
+            provider_rows = provider_rows.child(row);
         }
-
-        // Settings at the bottom of nav
-        let settings_active = self.detail.is_none() && self.page == Page::Settings;
-        let settings_row = nav_row(
-            "nav-settings",
-            Icon::new(IconName::Settings)
-                .size(px(NAV_ICON))
-                .text_color(if settings_active {
-                    theme.foreground
-                } else {
-                    theme.muted_foreground
-                })
-                .into_any_element(),
-            t(lang, "nav_settings").into(),
-            settings_active,
-            collapsed,
-            cx,
-        )
-        .on_click(cx.listener(|this, _, _w, cx| {
-            this.page = Page::Settings;
-            this.detail = None;
-            cx.notify();
-        }));
+        providers_section = providers_section.child(provider_rows);
 
         // Footer: gateway state + collapse — the shell's status bar. The
         // server pill anchors one end, the collapse button the other; the
@@ -2741,8 +2773,6 @@ impl Render for AppRoot {
                     .px_1()
                     .child(providers_section),
             )
-            .child(hairline(cx).mx_3().my_1())
-            .child(div().px_1().py_1().child(settings_row))
             .child(footer);
 
         let (body, max_w) = if let Some(provider) = self.detail.clone() {

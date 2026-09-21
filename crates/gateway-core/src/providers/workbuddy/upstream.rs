@@ -627,30 +627,30 @@ impl WorkBuddyCore {
                     // that fact immediately. The credit re-query below is
                     // best-effort; when it intermittently 500s, the hourly
                     // sweep must not retry (and re-log) a completed check-in.
-                    let total = status.total_credits;
                     let mut pool = self.pool.lock().await;
                     pool.set_checkin(id, |s| {
                         s.last_day = Some(today.clone());
                         s.last_at = Some(now_ms());
-                        s.last_credits = total.map(|t| t as f64);
                         s.last_error = None;
                     });
                 }
                 let mut claim_already = false;
+                let mut claim_reward = None;
                 let mut did_claim = false;
                 if !status.checked_in && status.active {
                     // (already, credits) — "已签到" from the claim endpoint
                     // is itself an upstream confirmation; keep it for the
                     // day-stamp decision below.
-                    claim_already = claim_checkin(
+                    let (already, credits) = claim_checkin(
                         &self.http.client(),
                         &account,
                         &token,
                         &self.settings.backend,
                         &self.settings.billing_hosts,
                     )
-                    .await?
-                    .0;
+                    .await?;
+                    claim_already = already;
+                    claim_reward = credits;
                     did_claim = true;
                 }
                 let final_status = if status.checked_in {
@@ -681,6 +681,7 @@ impl WorkBuddyCore {
                     status,
                     final_status,
                     claim_already,
+                    claim_reward,
                     did_claim,
                     balance,
                 })
@@ -697,6 +698,20 @@ impl WorkBuddyCore {
                     // same-day guard suppressed every retry that day.
                     let confirmed =
                         run.final_status.checked_in || run.claim_already || run.did_claim;
+                    // Today's reward — the claim payload's per-day field,
+                    // else the `total_credits` delta across the claim.
+                    // `total_credits` itself is the cumulative activity
+                    // wallet, so it must never land on the badge.
+                    let today_reward = if run.did_claim {
+                        run.claim_reward.or_else(|| {
+                            match (run.status.total_credits, run.final_status.total_credits) {
+                                (Some(before), Some(after)) => Some(after.saturating_sub(before)),
+                                _ => None,
+                            }
+                        })
+                    } else {
+                        None
+                    };
                     {
                         let mut pool = self.pool.lock().await;
                         let balance = run.balance;
@@ -709,7 +724,12 @@ impl WorkBuddyCore {
                             s.last_error = None;
                             if confirmed {
                                 s.last_day = Some(today.clone());
-                                s.last_credits = total.map(|t| t as f64);
+                                // Only a just-executed claim knows today's
+                                // reward — on already-checked paths keep the
+                                // value the claiming sweep stamped.
+                                if run.did_claim {
+                                    s.last_credits = today_reward.map(|t| t as f64);
+                                }
                             }
                             if let Some(b) = balance {
                                 s.extra.insert("creditsTotal".into(), serde_json::json!(b));
@@ -733,7 +753,7 @@ impl WorkBuddyCore {
                             "accountId": id,
                             "ok": true,
                             "checkedIn": run.final_status.checked_in,
-                            "credits": total,
+                            "credits": today_reward,
                         }));
                     }
                     self.log_entry(
@@ -747,7 +767,8 @@ impl WorkBuddyCore {
                             "account": id,
                             "checkedIn": run.final_status.checked_in,
                             "active": run.status.active,
-                            "credits": total,
+                            "credits": today_reward,
+                            "totalCredits": total,
                             "streakDays": run.final_status.streak_days,
                         })),
                     );
@@ -786,6 +807,10 @@ pub(crate) struct WorkBuddyStatusRun {
     /// The claim endpoint itself answered 已签到 — counts as confirmation
     /// even when the status re-query lags behind.
     claim_already: bool,
+    /// Today's reward parsed from the claim payload's per-day fields
+    /// (`credit`/`today_credit`/`daily_credit`) — `None` when the payload
+    /// only carries the cumulative wallet or no claim ran.
+    claim_reward: Option<u64>,
     /// The claim call completed without error — the upstream accepted the
     /// check-in, so the day is claimable regardless of status-query lag.
     did_claim: bool,

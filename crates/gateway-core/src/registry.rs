@@ -96,13 +96,21 @@ impl Registry {
         if let Some(mapping) = self.alias_map.get(raw) {
             let mut resolved = Vec::new();
             for target in mapping.targets() {
-                let provider = self.providers.get(&target.provider).or_else(|| {
-                    self.route_to_name
-                        .get(&target.provider)
-                        .and_then(|n| self.providers.get(n))
-                });
-                match provider {
-                    Some(p) => resolved.push((p.clone(), target.model)),
+                let entry = self
+                    .providers
+                    .get_key_value(&target.provider)
+                    .or_else(|| {
+                        self.route_to_name
+                            .get(&target.provider)
+                            .and_then(|n| self.providers.get_key_value(n))
+                    });
+                match entry {
+                    Some((name, p)) if crate::provider::provider_live(name) => {
+                        resolved.push((p.clone(), target.model))
+                    }
+                    Some((name, _)) => tracing::warn!(
+                        "model mapping \"{raw}\" skips coming-soon provider \"{name}\""
+                    ),
                     None => tracing::warn!(
                         "model mapping \"{raw}\" skips unknown provider \"{}\"",
                         target.provider
@@ -124,6 +132,9 @@ impl Registry {
                     .route_to_name
                     .get(explicit)
                     .ok_or_else(|| anyhow::anyhow!("Unknown provider: {explicit}"))?;
+                if !crate::provider::provider_live(name) {
+                    anyhow::bail!("Provider \"{name}\" is coming soon");
+                }
                 let provider = self
                     .providers
                     .get(name)
@@ -432,12 +443,12 @@ mod tests {
 
     #[tokio::test]
     async fn fails_over_to_next_target_on_5xx() {
-        let p1 = Arc::new(StubProvider::new("p1", &[500], None));
-        let p2 = Arc::new(StubProvider::new("p2", &[200], None));
+        let p1 = Arc::new(StubProvider::new("traework", &[500], None));
+        let p2 = Arc::new(StubProvider::new("workbuddy", &[200], None));
         let registry = registry(
             vec![mapping(
                 "alias",
-                vec![target("p1", "m1"), target("p2", "m2")],
+                vec![target("traework", "m1"), target("workbuddy", "m2")],
             )],
             vec![p1.clone(), p2.clone()],
         );
@@ -453,12 +464,12 @@ mod tests {
     #[tokio::test]
     async fn fails_over_on_429_and_auth_errors() {
         for status in [429u16, 401, 403] {
-            let p1 = Arc::new(StubProvider::new("p1", &[status], None));
-            let p2 = Arc::new(StubProvider::new("p2", &[200], None));
+            let p1 = Arc::new(StubProvider::new("traework", &[status], None));
+            let p2 = Arc::new(StubProvider::new("workbuddy", &[200], None));
             let registry = registry(
                 vec![mapping(
                     "alias",
-                    vec![target("p1", "m1"), target("p2", "m2")],
+                    vec![target("traework", "m1"), target("workbuddy", "m2")],
                 )],
                 vec![p1, p2.clone()],
             );
@@ -472,12 +483,12 @@ mod tests {
 
     #[tokio::test]
     async fn does_not_fail_over_on_4xx() {
-        let p1 = Arc::new(StubProvider::new("p1", &[400], None));
-        let p2 = Arc::new(StubProvider::new("p2", &[200], None));
+        let p1 = Arc::new(StubProvider::new("traework", &[400], None));
+        let p2 = Arc::new(StubProvider::new("workbuddy", &[200], None));
         let registry = registry(
             vec![mapping(
                 "alias",
-                vec![target("p1", "m1"), target("p2", "m2")],
+                vec![target("traework", "m1"), target("workbuddy", "m2")],
             )],
             vec![p1, p2.clone()],
         );
@@ -490,12 +501,12 @@ mod tests {
 
     #[tokio::test]
     async fn returns_last_response_when_all_targets_fail() {
-        let p1 = Arc::new(StubProvider::new("p1", &[503], None));
-        let p2 = Arc::new(StubProvider::new("p2", &[429], None));
+        let p1 = Arc::new(StubProvider::new("traework", &[503], None));
+        let p2 = Arc::new(StubProvider::new("workbuddy", &[429], None));
         let registry = registry(
             vec![mapping(
                 "alias",
-                vec![target("p1", "m1"), target("p2", "m2")],
+                vec![target("traework", "m1"), target("workbuddy", "m2")],
             )],
             vec![p1, p2],
         );
@@ -507,11 +518,11 @@ mod tests {
 
     #[tokio::test]
     async fn skips_unreachable_targets() {
-        let p2 = Arc::new(StubProvider::new("p2", &[200], None));
+        let p2 = Arc::new(StubProvider::new("workbuddy", &[200], None));
         let registry = registry(
             vec![mapping(
                 "alias",
-                vec![target("gone", "m1"), target("p2", "m2")],
+                vec![target("gone", "m1"), target("workbuddy", "m2")],
             )],
             vec![p2.clone()],
         );
@@ -524,15 +535,15 @@ mod tests {
 
     #[tokio::test]
     async fn legacy_provider_model_mapping_still_resolves() {
-        let p1 = Arc::new(StubProvider::new("p1", &[200], None));
+        let p1 = Arc::new(StubProvider::new("traework", &[200], None));
         // Legacy shape: provider/model fields, no targets — as written by
         // older builds and still accepted from disk.
         let json = serde_json::json!({
-            "alias": "alias", "provider": "p1", "model": "m1", "enabled": true
+            "alias": "alias", "provider": "traework", "model": "m1", "enabled": true
         });
         let parsed: ModelMapping = serde_json::from_value(json).unwrap();
         assert_eq!(parsed.targets().len(), 1);
-        assert_eq!(parsed.targets()[0].provider, "p1");
+        assert_eq!(parsed.targets()[0].provider, "traework");
 
         let registry = registry(vec![parsed], vec![p1.clone()]);
         let res = registry
@@ -544,14 +555,14 @@ mod tests {
 
     #[tokio::test]
     async fn explicit_provider_model_routing_unchanged() {
-        let p1 = Arc::new(StubProvider::new("p1", &[200], None));
-        let p2 = Arc::new(StubProvider::new("p2", &[200], None));
+        let p1 = Arc::new(StubProvider::new("traework", &[200], None));
+        let p2 = Arc::new(StubProvider::new("workbuddy", &[200], None));
         let registry = registry(
-            vec![mapping("alias", vec![target("p1", "m1")])],
+            vec![mapping("alias", vec![target("traework", "m1")])],
             vec![p1.clone(), p2.clone()],
         );
         let res = registry
-            .chat_completions(serde_json::json!({ "model": "p2/direct" }), &ctx())
+            .chat_completions(serde_json::json!({ "model": "workbuddy/direct" }), &ctx())
             .await;
         assert_eq!(res.status(), 200);
         assert!(p1.calls.lock().unwrap().is_empty());
@@ -560,12 +571,12 @@ mod tests {
 
     #[tokio::test]
     async fn list_models_hides_every_mapped_target() {
-        let p1 = Arc::new(StubProvider::new("p1", &[200], Some("m1".into())));
-        let p2 = Arc::new(StubProvider::new("p2", &[200], Some("m2".into())));
+        let p1 = Arc::new(StubProvider::new("traework", &[200], Some("m1".into())));
+        let p2 = Arc::new(StubProvider::new("workbuddy", &[200], Some("m2".into())));
         let registry = registry(
             vec![mapping(
                 "alias",
-                vec![target("p1", "m1"), target("p2", "m2")],
+                vec![target("traework", "m1"), target("workbuddy", "m2")],
             )],
             vec![p1, p2],
         );
@@ -576,7 +587,7 @@ mod tests {
             .map(|m| m.id)
             .collect();
         assert!(ids.contains(&"alias".to_string()));
-        assert!(!ids.contains(&"p1/m1".to_string()));
-        assert!(!ids.contains(&"p2/m2".to_string()));
+        assert!(!ids.contains(&"traework/m1".to_string()));
+        assert!(!ids.contains(&"workbuddy/m2".to_string()));
     }
 }

@@ -4,7 +4,7 @@
 use gateway_core::GatewayStatusSnapshot;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
-    ActiveTheme, Sizable, StyledExt, Theme, ThemeMode,
+    ActiveTheme, Disableable, Sizable, StyledExt, Theme, ThemeMode,
     button::{Button, ButtonVariants},
     h_flex,
     input::Input,
@@ -280,6 +280,7 @@ impl AppRoot {
             for provider in visible_providers {
                 let name = provider.name.clone();
                 let visible = !self.hidden_providers.contains(&name);
+                let live = Self::provider_live(&name);
                 let label = provider
                     .display_name
                     .clone()
@@ -287,6 +288,10 @@ impl AppRoot {
                 let icon = provider_logo(&provider.provider_type, 16., !provider.enabled, cx);
                 rows = rows.child(
                     h_flex()
+                        // Stateful — a stateless row's hover state only
+                        // repaints when something else (e.g. scroll)
+                        // invalidates the frame.
+                        .id(SharedString::from(format!("sidebar-vis-row-{name}")))
                         .h_7()
                         .w_full()
                         .items_center()
@@ -294,7 +299,7 @@ impl AppRoot {
                         .gap_2()
                         .px_1p5()
                         .rounded(px(6.))
-                        .hover(|this| this.bg(theme.list_hover))
+                        .when(live, |d| d.hover(|this| this.bg(theme.list_hover)))
                         .child(
                             h_flex()
                                 .min_w_0()
@@ -310,12 +315,20 @@ impl AppRoot {
                                             theme.muted_foreground
                                         })
                                         .truncate(),
-                                ),
+                                )
+                                .when(!live, |d| {
+                                    d.child(
+                                        Label::new(t(lang, "coming_soon"))
+                                            .text_xs()
+                                            .text_color(theme.muted_foreground),
+                                    )
+                                }),
                         )
                         .child(
                             Switch::new(SharedString::from(format!("sidebar-visible-{name}")))
                                 .small()
                                 .checked(visible)
+                                .disabled(!live)
                                 .accessibility_label(tf(
                                     lang,
                                     "acc_show_provider",

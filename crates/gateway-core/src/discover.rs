@@ -40,9 +40,19 @@ pub fn discover_capable(provider: &str) -> bool {
     )
 }
 
+/// Providers where the scan is actually live — tracks provider liveness, so
+/// the other `discover_capable` providers show a "coming soon" placeholder
+/// and scans short-circuit.
+pub fn discover_live(provider: &str) -> bool {
+    crate::provider::provider_live(provider)
+}
+
 /// `scan*Accounts` — external scan, then flag `existing`/`updatable` against
 /// the managed accounts dir via per-provider identity keys.
 pub fn scan_provider_accounts(store: &ConfigStore, provider: &str) -> Vec<ScanCandidate> {
+    if !discover_live(provider) {
+        return Vec::new();
+    }
     let scanned = match provider {
         "kiro" => scan_kiro(),
         "trae" => scan_trae(),

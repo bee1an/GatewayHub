@@ -25,6 +25,15 @@ pub const PROVIDERS: &[&str] = &[
 /// Providers that have no account gateway yet (reserved slot).
 pub const PLACEHOLDER_PROVIDERS: &[&str] = &["gemini"];
 
+/// Providers actually open for use — the rest of `PROVIDERS` still renders
+/// in the UI as a coming-soon placeholder, gets built `enabled = false`,
+/// and `resolve_targets` refuses to route traffic to them.
+pub const LIVE_PROVIDERS: &[&str] = &["traework", "workbuddy"];
+
+pub fn provider_live(name: &str) -> bool {
+    LIVE_PROVIDERS.contains(&name)
+}
+
 /// Providers that can route upstream traffic through `server.proxyUrl`.
 pub const PROXY_CAPABLE: &[&str] = &[
     "kiro",

@@ -89,6 +89,54 @@ impl AppRoot {
         let theme = cx.theme().clone();
         let lang = self.lang;
         let status = snapshot.providers.iter().find(|p| p.name == provider);
+
+        // Coming-soon providers keep the page reachable from the sidebar
+        // (the row stays openable) but the whole management surface is a
+        // placeholder — no toggles, no accounts, no add-account.
+        if !Self::provider_live(provider) {
+            let provider_type = status
+                .map(|p| p.provider_type.as_str())
+                .unwrap_or_default();
+            return v_flex()
+                .w_full()
+                .child(
+                    h_flex()
+                        .w_full()
+                        .items_center()
+                        .gap_3()
+                        .pt_5()
+                        .pb_4()
+                        .border_b_1()
+                        .border_color(theme.border)
+                        .child(
+                            Button::new("back")
+                                .ghost()
+                                .small()
+                                .icon(IconName::ArrowLeft)
+                                .tooltip(t(lang, "back"))
+                                .on_click(cx.listener(|this, _, _w, cx| {
+                                    this.detail = None;
+                                    cx.notify();
+                                })),
+                        )
+                        .child(provider_logo(provider_type, 32., true, cx))
+                        .child(
+                            Label::new(provider.to_string())
+                                .text_lg()
+                                .font_semibold()
+                                .text_color(theme.foreground),
+                        ),
+                )
+                .child(
+                    v_flex().w_full().py_20().items_center().child(
+                        Label::new(t(lang, "coming_soon"))
+                            .text_lg()
+                            .text_color(theme.muted_foreground),
+                    ),
+                )
+                .into_any_element();
+        }
+
         let provider_name = provider.to_string();
         // Accounts come from the cache — scanning the account dir on every
         // render was the source of detail-page jank. First open loads async
@@ -699,7 +747,8 @@ impl AppRoot {
 
     /// "Add account" — providers get whichever extra tabs they support next to
     /// paste-JSON: CLI detect/login (kiro/qoder) and the local-credential
-    /// Discover scan (kiro/codex/trae/traework/workbuddy/windsurf).
+    /// Discover scan (live for traework/workbuddy; kiro/trae/windsurf show a
+    /// coming-soon placeholder).
     fn open_add_account_overlay(&mut self, provider: &str, cx: &mut Context<Self>) {
         let cli = Self::cli_capable(provider);
         let discover = Self::discover_capable(provider);
@@ -1149,7 +1198,7 @@ fn add_account_body(provider: &str, root: &AppRoot, cx: &mut Context<AppRoot>) -
         }
         AcctPane::Discover => {
             return body
-                .child(discover_overlay_body(root, cx))
+                .child(discover_overlay_body(provider, root, cx))
                 .into_any_element();
         }
         AcctPane::Cli => {}
@@ -1380,12 +1429,23 @@ fn cli_login_progress(provider: &str, root: &AppRoot, cx: &mut Context<AppRoot>)
 }
 
 /// Discover pane — candidate list with checkboxes; `existing && !updatable`
-/// rows are dimmed and locked, matching the Electron dialog.
-fn discover_overlay_body(root: &AppRoot, cx: &mut Context<AppRoot>) -> AnyElement {
+/// rows are dimmed and locked, matching the Electron dialog. Providers that
+/// aren't live yet get a coming-soon placeholder.
+fn discover_overlay_body(
+    provider: &str,
+    root: &AppRoot,
+    cx: &mut Context<AppRoot>,
+) -> AnyElement {
     let theme = cx.theme().clone();
     let lang = root.lang;
     let root_entity = cx.entity();
 
+    if !AppRoot::discover_live(provider) {
+        return Label::new(t(lang, "coming_soon"))
+            .text_xs()
+            .text_color(theme.muted_foreground)
+            .into_any_element();
+    }
     if root.discover_loading {
         return Label::new(t(lang, "discover_scanning"))
             .text_xs()
@@ -1526,7 +1586,7 @@ fn add_account_footer(root: &AppRoot, cx: &mut Context<AppRoot>) -> AnyElement {
                 .label(t(lang, "cancel"))
                 .on_click(cx.listener(|this, _, _w, cx| this.dismiss_overlay(cx))),
         )
-        .when(pane == AcctPane::Discover, |d| {
+        .when(pane == AcctPane::Discover && AppRoot::discover_live(&provider), |d| {
             d.child(
                 Button::new("discover-import")
                     .primary()

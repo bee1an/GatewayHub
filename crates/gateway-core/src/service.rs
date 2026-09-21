@@ -103,7 +103,13 @@ impl GatewayService {
         let global_proxy = cfg.server.proxy_url.clone();
 
         for name in PROVIDERS {
-            let pcfg = provider::provider_config(&cfg, name);
+            let mut pcfg = provider::provider_config(&cfg, name);
+            if !provider::provider_live(name) {
+                // Coming-soon providers stay listed but must report disabled —
+                // keeps every `enabled`-driven surface (sidebar dim, dashboard
+                // counts) consistent without rewriting the user's config.
+                pcfg.enabled = false;
+            }
             let pstate = state
                 .read()
                 .ok()

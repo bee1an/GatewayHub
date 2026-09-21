@@ -1238,10 +1238,24 @@ impl AppRoot {
         gateway_core::discover::discover_capable(provider)
     }
 
+    /// Whether the scan is live for the provider (vs. coming-soon placeholder).
+    pub(crate) fn discover_live(provider: &str) -> bool {
+        gateway_core::discover::discover_live(provider)
+    }
+
+    /// Whether the provider itself is open for use — non-live providers are
+    /// listed everywhere as coming-soon placeholders.
+    pub(crate) fn provider_live(provider: &str) -> bool {
+        gateway_core::provider::provider_live(provider)
+    }
+
     /// Scan once per overlay open — fs/sqlite reads stay off the UI thread.
     /// Default-selects everything importable (`!existing || updatable`), same
     /// as the Electron dialog.
     fn start_discover_scan(&mut self, provider: &str, cx: &mut Context<Self>) {
+        if !Self::discover_live(provider) {
+            return;
+        }
         self.discover_loading = true;
         self.discover_candidates.clear();
         self.discover_selected.clear();
@@ -2507,10 +2521,15 @@ impl Render for AppRoot {
         }
         // All real providers stay in the rail — a disabled one is dimmed
         // but still reachable (it must stay openable to be re-enabled).
+        // Coming-soon providers never enter the rail at all.
         let visible_providers: Vec<_> = snapshot
             .providers
             .iter()
-            .filter(|p| p.status != "placeholder" && !self.hidden_providers.contains(&p.name))
+            .filter(|p| {
+                Self::provider_live(&p.name)
+                    && p.status != "placeholder"
+                    && !self.hidden_providers.contains(&p.name)
+            })
             .collect();
         for p in &visible_providers {
             let active = self.detail.as_deref() == Some(p.name.as_str());

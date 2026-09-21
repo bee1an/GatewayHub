@@ -348,12 +348,8 @@ impl AppRoot {
                         .size_full()
                         .overflow_y_scroll()
                         .track_scroll(&self.pg_scroll)
-                        // Clicking blank space releases input focus — the
-                        // textarea itself stop_propagation's, so this only
-                        // fires outside focusable controls.
-                        .on_mouse_down(MouseButton::Left, |_, window, cx| {
-                            window.blur(cx);
-                        })
+                        // Blank clicks unfocus the composer via the app
+                        // surface's track_focus — no local blur handler.
                         .child(log),
                 ),
             )

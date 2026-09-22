@@ -39,7 +39,9 @@ pub(crate) fn apply_brand_tokens(cfg: &mut ThemeConfig, dark: bool) {
         c.list = Some("#00000000".into());
         c.list_head = Some("#22211d".into());
         c.list_even = Some("#1e1d1a".into());
-        c.list_hover = Some("#ffffff0a".into());
+        // Row and navigation hover must remain quiet, but still be visible on
+        // the charcoal surfaces used throughout the app.
+        c.list_hover = Some("#ffffff12".into());
         c.list_active = Some("#c0853236".into());
         c.list_active_border = Some("#35342f".into());
         c.accent = Some("#ffffff0d".into());
@@ -79,7 +81,7 @@ pub(crate) fn apply_brand_tokens(cfg: &mut ThemeConfig, dark: bool) {
         c.table_head_foreground = Some(secondary_text.into());
         c.table_row_border = Some("#2b2a25".into());
         c.table_even = Some("#1e1d1a".into());
-        c.table_hover = Some("#ffffff0a".into());
+        c.table_hover = Some("#ffffff12".into());
         c.table_active = Some("#c0853236".into());
         c.table_active_border = Some("#35342f".into());
         c.table_foot = Some("#22211d".into());
@@ -144,7 +146,9 @@ pub(crate) fn apply_brand_tokens(cfg: &mut ThemeConfig, dark: bool) {
         c.list = Some("#00000000".into());
         c.list_head = Some("#e9e9e5".into());
         c.list_even = Some("#fbfbfa".into());
-        c.list_hover = Some("#00000008".into());
+        // The previous 3% tint was effectively invisible on warm light
+        // surfaces, especially for full-row hit targets.
+        c.list_hover = Some("#0000000d".into());
         c.list_active = Some("#a8722a30".into());
         c.list_active_border = Some("#00000014".into());
         c.accent = Some("#00000008".into());
@@ -184,7 +188,7 @@ pub(crate) fn apply_brand_tokens(cfg: &mut ThemeConfig, dark: bool) {
         c.table_head_foreground = Some(secondary_text.into());
         c.table_row_border = Some("#00000014".into());
         c.table_even = Some("#fbfbfa".into());
-        c.table_hover = Some("#00000008".into());
+        c.table_hover = Some("#0000000d".into());
         c.table_active = Some("#a8722a30".into());
         c.table_active_border = Some("#00000014".into());
         c.table_foot = Some("#e9e9e5".into());

@@ -10,7 +10,7 @@ use gpui_kit::component::{
     h_flex,
     input::Textarea,
     label::Label,
-    scroll::ScrollableElement,
+    message_scroller::MessageScroller,
     searchable_list::SearchableVec,
     select::Select,
     spinner::Spinner,
@@ -20,7 +20,7 @@ use gpui_kit::component::{
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
 use crate::root::{
     AppRoot, FIELD_W_LG, FIELD_W_MD, ICON_XL, MENU_W_LG, MENU_W_MD, MONO, PANE_MIN_H, PgApiType,
@@ -250,32 +250,49 @@ impl AppRoot {
             );
 
         // ---- messages ----
-        let mut log = v_flex().id("pg-log").gap_3().p_4();
-        if self.pg_msgs.is_empty() {
-            log = log.child(
-                v_flex()
-                    .items_center()
-                    .justify_center()
-                    .py_8()
-                    .gap_3()
-                    .child(
-                        Icon::new(IconName::Bot)
-                            .size(ICON_XL)
-                            .text_color(theme.muted_foreground),
-                    )
-                    .child(
-                        div().max_w(rems(26.)).child(
-                            Label::new(t(lang, "pg_empty"))
-                                .text_sm()
-                                .text_color(theme.muted_foreground)
-                                .text_center(),
+        let transcript = if self.pg_msgs.is_empty() {
+            div()
+                .size_full()
+                .child(
+                    v_flex()
+                        .size_full()
+                        .items_center()
+                        .justify_center()
+                        .gap_3()
+                        .child(
+                            Icon::new(IconName::Bot)
+                                .size(ICON_XL)
+                                .text_color(theme.muted_foreground),
+                        )
+                        .child(
+                            div().max_w(rems(26.)).child(
+                                Label::new(t(lang, "pg_empty"))
+                                    .text_sm()
+                                    .text_color(theme.muted_foreground)
+                                    .text_center(),
+                            ),
                         ),
-                    ),
-            );
-        }
-        for m in &self.pg_msgs {
-            log = log.child(pg_message(m, lang, cx));
-        }
+                )
+                .into_any_element()
+        } else {
+            let messages = self.pg_msgs.clone();
+            let root = cx.entity().downgrade();
+            MessageScroller::new(
+                "pg-log",
+                self.pg_scroller.clone(),
+                move |index, _window, app| {
+                    messages
+                        .get(index)
+                        .map(|message| pg_message(message, lang, root.clone(), app))
+                        .unwrap_or_else(|| div().into_any_element())
+                },
+            )
+            .with_jump_button_label(t(lang, "pg_jump_latest"))
+            .with_bottom_fade(theme.group_box)
+            .with_list_style(StyleRefinement::default().px_4().py_4())
+            .with_row_style(StyleRefinement::default().pb_3())
+            .into_any_element()
+        };
 
         // ---- composer ----
         let composer = card(cx).p_3().child(
@@ -353,17 +370,7 @@ impl AppRoot {
                     .min_h(PANE_MIN_H)
                     .overflow_hidden()
                     .relative()
-                    .child(
-                        div()
-                            .id("pg-scroll")
-                            .size_full()
-                            .overflow_y_scroll()
-                            .track_scroll(&self.pg_scroll)
-                            // Blank clicks unfocus the composer via the app
-                            // surface's track_focus — no local blur handler.
-                            .child(log),
-                    )
-                    .vertical_scrollbar(&self.pg_scroll),
+                    .child(transcript),
             )
             .child(composer)
             .into_any_element()
@@ -372,7 +379,12 @@ impl AppRoot {
 
 /// One chat bubble: user = accent block; assistant = markdown card with
 /// pending dots, error + retry, and a meta line for finished replies.
-fn pg_message(m: &PgMsg, lang: crate::root::Lang, cx: &mut Context<AppRoot>) -> AnyElement {
+fn pg_message(
+    m: &PgMsg,
+    lang: crate::root::Lang,
+    root: WeakEntity<AppRoot>,
+    cx: &mut App,
+) -> AnyElement {
     let theme = cx.theme().clone();
     match m.role {
         PgRole::User => div()
@@ -426,9 +438,9 @@ fn pg_message(m: &PgMsg, lang: crate::root::Lang, cx: &mut Context<AppRoot>) -> 
                             .xsmall()
                             .label(t(lang, "retry"))
                             .icon(IconName::RotateCw)
-                            .on_click(cx.listener(move |this, _, _w, cx| {
-                                this.pg_retry(id, cx);
-                            })),
+                            .on_click(move |_, _, cx| {
+                                let _ = root.update(cx, |this, cx| this.pg_retry(id, cx));
+                            }),
                     );
             } else {
                 body = body.child(
@@ -484,7 +496,7 @@ impl AppRoot {
     pub(crate) fn pg_send_request(&mut self, cx: &mut Context<Self>) {
         let aid = self.pg_next_msg;
         self.pg_next_msg += 1;
-        self.pg_msgs.push(PgMsg {
+        Arc::make_mut(&mut self.pg_msgs).push(PgMsg {
             id: aid,
             role: PgRole::Assistant,
             content: String::new(),
@@ -492,8 +504,8 @@ impl AppRoot {
             error: None,
             meta: None,
         });
+        self.pg_sync_scroller(cx);
         self.pg_pending = true;
-        self.pg_scroll.scroll_to_bottom();
 
         let model = self
             .pg_model_sel
@@ -773,7 +785,7 @@ impl AppRoot {
         }
         let id = self.pg_next_msg;
         self.pg_next_msg += 1;
-        self.pg_msgs.push(PgMsg {
+        Arc::make_mut(&mut self.pg_msgs).push(PgMsg {
             id,
             role: PgRole::User,
             content: text,
@@ -781,6 +793,7 @@ impl AppRoot {
             error: None,
             meta: None,
         });
+        self.pg_sync_scroller(cx);
         // `set_value` needs a Window the Enter subscription doesn't have —
         // flag it, render clears at the top.
         self.pg_clear_input = true;
@@ -794,7 +807,8 @@ impl AppRoot {
             return;
         }
         if let Some(ix) = self.pg_msgs.iter().position(|m| m.id == id) {
-            self.pg_msgs.truncate(ix);
+            Arc::make_mut(&mut self.pg_msgs).truncate(ix);
+            self.pg_sync_scroller(cx);
         }
         self.pg_send_request(cx);
     }
@@ -808,19 +822,30 @@ impl AppRoot {
 
     pub(crate) fn pg_clear(&mut self, cx: &mut Context<Self>) {
         self.pg_stop(cx);
-        self.pg_msgs.clear();
+        Arc::make_mut(&mut self.pg_msgs).clear();
+        self.pg_sync_scroller(cx);
         cx.notify();
     }
 
     pub(crate) fn pg_apply_event(&mut self, aid: u64, ev: PgEvent, cx: &mut Context<Self>) {
+        let mut changed_index = None;
         match ev {
             PgEvent::Delta(t) => {
-                if let Some(m) = self.pg_msgs.iter_mut().find(|m| m.id == aid) {
+                if let Some((index, m)) = Arc::make_mut(&mut self.pg_msgs)
+                    .iter_mut()
+                    .enumerate()
+                    .find(|(_, m)| m.id == aid)
+                {
                     m.content.push_str(&t);
+                    changed_index = Some(index);
                 }
             }
             PgEvent::Full { text, meta } => {
-                if let Some(m) = self.pg_msgs.iter_mut().find(|m| m.id == aid) {
+                if let Some((index, m)) = Arc::make_mut(&mut self.pg_msgs)
+                    .iter_mut()
+                    .enumerate()
+                    .find(|(_, m)| m.id == aid)
+                {
                     m.content = if text.is_empty() {
                         t(self.lang, "pg_response_empty").to_string()
                     } else {
@@ -828,29 +853,60 @@ impl AppRoot {
                     };
                     m.meta = meta;
                     m.pending = false;
+                    changed_index = Some(index);
                 }
                 self.pg_pending = false;
                 self.pg_cancel = None;
             }
             PgEvent::Done { meta } => {
-                if let Some(m) = self.pg_msgs.iter_mut().find(|m| m.id == aid) {
+                if let Some((index, m)) = Arc::make_mut(&mut self.pg_msgs)
+                    .iter_mut()
+                    .enumerate()
+                    .find(|(_, m)| m.id == aid)
+                {
                     m.meta = meta;
                     m.pending = false;
+                    changed_index = Some(index);
                 }
                 self.pg_pending = false;
                 self.pg_cancel = None;
             }
             PgEvent::Failed(err) => {
-                if let Some(m) = self.pg_msgs.iter_mut().find(|m| m.id == aid) {
+                if let Some((index, m)) = Arc::make_mut(&mut self.pg_msgs)
+                    .iter_mut()
+                    .enumerate()
+                    .find(|(_, m)| m.id == aid)
+                {
                     m.error = Some(err);
                     m.pending = false;
+                    changed_index = Some(index);
                 }
                 self.pg_pending = false;
                 self.pg_cancel = None;
             }
         }
-        self.pg_scroll.scroll_to_bottom();
+        if let Some(index) = changed_index {
+            self.pg_scroller.update(cx, |state, cx| {
+                state.remeasure_items(index..index + 1, cx);
+            });
+        }
         cx.notify();
+    }
+
+    /// Keep the virtual transcript row count in sync without rebuilding its
+    /// scroll state. Appends preserve tail-following; removals reset to the
+    /// remaining conversation because retry/clear intentionally change the
+    /// transcript's identity.
+    fn pg_sync_scroller(&mut self, cx: &mut Context<Self>) {
+        let count = self.pg_msgs.len();
+        self.pg_scroller.update(cx, |state, cx| {
+            let previous = state.item_count();
+            if count > previous {
+                state.append(count - previous, cx);
+            } else if count < previous {
+                state.reset(count, cx);
+            }
+        });
     }
 }
 

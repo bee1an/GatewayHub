@@ -10,7 +10,7 @@ use gateway_core::ProviderStatus;
 
 use gpui_kit::component::{
     ActiveTheme, Icon, IconName, Selectable, Sizable, StyledExt,
-    button::{Button, ButtonGroup},
+    button::{Button, ButtonCustomVariant, ButtonVariants, Toggle, ToggleVariants},
     h_flex,
     label::Label,
     scroll::Scrollbar,
@@ -284,48 +284,74 @@ pub(crate) fn hairline(cx: &App) -> gpui_kit::Div {
     div().h_px().w_full().bg(cx.theme().border)
 }
 
-/// Segmented control — the system's `ButtonGroup` in compact mode, so each
-/// segment is a real button: keyboard-reachable, focus-visible, and exposing
-/// its pressed state to accessibility clients. Replaces the former hand-
-/// painted div pills which had no keyboard path at all.
+/// Segmented control with GatewayHub's original recessed-track treatment.
+///
+/// This deliberately does not use `ButtonGroup`: that component joins the
+/// child borders and paints its own selected state, while this app's control
+/// uses separated rounded pills and the product primary color. The children
+/// are still GPUI Kit `Button`s, so keyboard/focus/accessibility behavior is
+/// provided by the library without giving up the established visuals.
 pub(crate) fn toggle_filter(
     id_prefix: &'static str,
     items: Vec<(SharedString, bool)>,
     on_pick: impl Fn(usize, &mut Window, &mut App) + 'static,
-    _cx: &App,
-) -> gpui_kit::component::button::ButtonGroup {
+    cx: &App,
+) -> gpui_kit::Div {
     let on_pick = Rc::new(on_pick);
-    let theme = _cx.theme().clone();
-    let mut group = ButtonGroup::new(id_prefix).compact().small();
-    for (ix, (label, selected)) in items.into_iter().enumerate() {
-        // Keep every segment on the Default variant — a different variant
-        // would also swap the border color and make the picked segment look
-        // wider than its neighbors. The selected fill comes from an explicit
-        // `bg`/`text_color`, which `refine_style` layers *above* the selected
-        // style, so the segment reads as the filled primary slot without
-        // touching its border.
-        let button = Button::new(SharedString::from(format!("{id_prefix}-{ix}")))
-            .label(label)
-            .selected(selected);
-        group = group.child(if selected {
-            button
-                .bg(theme.button_primary)
-                .text_color(theme.button_primary_foreground)
-        } else {
-            button
-        });
-    }
-    group
-        .on_click(move |clicked, window, cx| {
-            if let Some(&ix) = clicked.first() {
-                on_pick(ix, window, cx);
-            }
-        })
-        // Recessed track: the accent fill makes the group read as one slotted
-        // control instead of a row of detached buttons.
-        .bg(theme.accent)
-        .rounded(theme.radius)
+    let theme = cx.theme().clone();
+    let mut track = h_flex()
+        .flex_none()
         .p_0p5()
+        .gap_0p5()
+        .rounded(theme.radius)
+        .bg(theme.accent);
+
+    for (ix, (label, selected)) in items.into_iter().enumerate() {
+        let on_pick = on_pick.clone();
+        let colors = if selected {
+            ButtonCustomVariant::new(cx)
+                .color(theme.button_primary)
+                .foreground(theme.button_primary_foreground)
+                .hover(theme.button_primary)
+                .active(theme.button_primary)
+                .shadow(true)
+        } else {
+            ButtonCustomVariant::new(cx)
+                .color(theme.transparent)
+                .foreground(theme.foreground)
+                .hover(theme.list_hover)
+                .active(theme.list_active)
+        };
+        let button = Button::new(SharedString::from(format!("{id_prefix}-{ix}")))
+            .custom(colors)
+            .small()
+            .label(label)
+            .toggled(selected)
+            .selected(selected)
+            .h_6()
+            .px_3()
+            .rounded(theme.radius)
+            .text_sm()
+            .when(selected, |button| {
+                button
+                    .font_medium()
+                    .shadow_sm()
+                    // `Custom` intentionally softens its normal fill. Replay
+                    // the exact product token for the controlled selected
+                    // state so dark/light themes match the original control.
+                    .bg(theme.button_primary)
+                    .text_color(theme.button_primary_foreground)
+            })
+            .when(!selected, |button| {
+                button
+                    .cursor_pointer()
+                    .bg(theme.transparent)
+                    .text_color(theme.foreground)
+            })
+            .on_click(move |_, window, cx| on_pick(ix, window, cx));
+        track = track.child(button);
+    }
+    track
 }
 
 /// Compact toggle chip — a real focusable control (focus ring on keyboard
@@ -336,36 +362,31 @@ pub(crate) fn toggle_chip(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     selected: bool,
-    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    cx: &App,
-) -> gpui_kit::Stateful<gpui_kit::Div> {
-    let theme = cx.theme().clone();
-    div()
-        .id(id)
-        .px_2p5()
+    on_click: impl Fn(&bool, &mut Window, &mut App) + 'static,
+    _cx: &App,
+) -> Toggle {
+    let theme = _cx.theme().clone();
+    Toggle::new(id)
+        .small()
+        .outline()
+        .label(label)
+        .checked(selected)
         .h_6()
-        .flex()
-        .items_center()
-        .gap_1()
+        .px_2p5()
         .rounded(theme.radius)
-        .border_1()
-        .cursor_pointer()
-        .focusable()
-        .focus_visible(|style| style.border_color(theme.ring))
-        .when(selected, |d| {
-            d.bg(theme.button_primary)
+        .text_xs()
+        .when(selected, |toggle| {
+            toggle
+                .bg(theme.button_primary)
                 .border_color(theme.button_primary)
+                .text_color(theme.button_primary_foreground)
         })
-        .when(!selected, |d| {
-            d.bg(theme.group_box)
+        .when(!selected, |toggle| {
+            toggle
+                .bg(theme.group_box)
                 .border_color(theme.border)
-                .hover(|d| d.bg(theme.list_hover))
+                .text_color(theme.muted_foreground)
         })
-        .child(Label::new(label.into()).text_xs().text_color(if selected {
-            theme.button_primary_foreground
-        } else {
-            theme.muted_foreground
-        }))
         .on_click(on_click)
 }
 

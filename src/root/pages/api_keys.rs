@@ -295,9 +295,11 @@ impl AppRoot {
                                 scopes.contains(p.as_str()),
                                 cx.listener({
                                     let p = p2;
-                                    move |this, _, _w, cx| {
-                                        if !this.key_scopes.remove(&p) {
+                                    move |this, checked, _w, cx| {
+                                        if *checked {
                                             this.key_scopes.insert(p.clone());
+                                        } else {
+                                            this.key_scopes.remove(&p);
                                         }
                                         cx.notify();
                                     }

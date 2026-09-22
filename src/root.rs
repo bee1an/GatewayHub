@@ -38,8 +38,8 @@ pub(crate) use chrome::{
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
-    ActiveTheme, Icon, Sizable, Size, ThemeMode,
-    button::{Button, ButtonVariants},
+    ActiveTheme, Disableable, Icon, Sizable, Size, ThemeMode,
+    button::{Button, ButtonCustomVariant, ButtonVariants},
     h_flex,
     input::{InputEvent, InputState, TextareaState},
     label::Label,
@@ -48,7 +48,6 @@ use gpui_kit::component::{
     searchable_list::{SearchableListItem, SearchableVec},
     select::{SelectEvent, SelectState},
     spinner::Spinner,
-    tooltip::Tooltip,
     v_flex,
 };
 use gpui_kit::prelude::*;
@@ -718,32 +717,33 @@ impl Render for AppRoot {
         } else {
             theme.danger.opacity(0.10)
         };
+        let server_button_variant = ButtonCustomVariant::new(cx)
+            .color(server_bg)
+            .foreground(theme.muted_foreground)
+            .hover(theme.sidebar_accent)
+            .active(theme.sidebar_accent);
         let server_control = if collapsed {
-            div()
-                .id("rail-server")
+            Button::new("rail-server")
+                .custom(server_button_variant)
+                .small()
                 .size_6()
-                .flex()
-                .items_center()
-                .justify_center()
+                .p_0()
                 .rounded(theme.radius)
-                .cursor_pointer()
                 .bg(server_bg)
-                .hover(|d| d.bg(theme.sidebar_accent))
-                .tooltip(move |window, cx| Tooltip::new(server_tip.clone()).build(window, cx))
+                .tooltip(server_tip.clone())
+                .disabled(server_pending)
                 .on_click(cx.listener(|this, _, _w, cx| this.toggle_server(cx)))
                 .child(server_indicator())
         } else {
-            div()
-                .id("rail-server")
+            Button::new("rail-server")
+                .custom(server_button_variant)
+                .small()
                 .h_6()
                 .px_2()
-                .flex()
-                .items_center()
                 .gap_1p5()
                 .rounded(theme.radius)
-                .cursor_pointer()
                 .bg(server_bg)
-                .hover(|d| d.bg(theme.sidebar_accent))
+                .disabled(server_pending)
                 .on_click(cx.listener(|this, _, _w, cx| this.toggle_server(cx)))
                 .child(server_indicator())
                 .child(

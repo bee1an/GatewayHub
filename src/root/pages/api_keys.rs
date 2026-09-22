@@ -100,7 +100,7 @@ impl AppRoot {
                     .child(
                         Button::new(SharedString::from(format!("delkey-{}", k.id)))
                             .ghost()
-                            .xsmall()
+                            .small()
                             .danger()
                             .label(t(lang, "revoke"))
                             .on_click(cx.listener(move |this, _e: &ClickEvent, _w, cx| {
@@ -163,7 +163,7 @@ impl AppRoot {
                     .child(
                         Button::new("copy-key")
                             .outline()
-                            .xsmall()
+                            .small()
                             .label(t(lang, if copied { "copied" } else { "copy" }))
                             .icon(if copied {
                                 IconName::Check
@@ -190,7 +190,7 @@ impl AppRoot {
                     .child(
                         Button::new("dismiss-key")
                             .ghost()
-                            .xsmall()
+                            .small()
                             .label(t(lang, "dismiss"))
                             .on_click(cx.listener(|this, _, _w, cx| {
                                 this.new_key = None;
@@ -218,7 +218,6 @@ impl AppRoot {
                         Some(
                             Button::new("gen-key")
                                 .primary()
-                                .small()
                                 .label(t(lang, "generate"))
                                 .icon(IconName::Plus)
                                 .on_click(cx.listener(|this, _e: &ClickEvent, _w, cx| {
@@ -357,7 +356,7 @@ impl AppRoot {
                                                 )
                                                 .child(
                                                     Switch::new("scope-all")
-                                                        .xsmall()
+                                                        .small()
                                                         .checked(scope_all)
                                                         .on_change(cx.listener(
                                                             |this, checked, _w, cx| {
@@ -379,7 +378,6 @@ impl AppRoot {
                         .child(
                             Button::new("gen-cancel")
                                 .outline()
-                                .small()
                                 .label(t(lang, "cancel"))
                                 .on_click(cx.listener(|this, _, _w, cx| {
                                     this.dismiss_overlay(cx);
@@ -388,7 +386,6 @@ impl AppRoot {
                         .child(
                             Button::new("gen-ok")
                                 .primary()
-                                .small()
                                 .label(t(lang, "generate"))
                                 .on_click(cx.listener(|this, _, w, cx| {
                                     this.add_api_key(w, cx);

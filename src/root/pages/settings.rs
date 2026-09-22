@@ -347,7 +347,7 @@ impl AppRoot {
         let show_all = (!self.hidden_providers.is_empty()).then(|| {
             Button::new("sidebar-show-all")
                 .ghost()
-                .xsmall()
+                .small()
                 .label(t(lang, "show_all"))
                 .on_click(cx.listener(|this, _, _window, cx| {
                     this.show_all_sidebar_providers(cx);

@@ -232,7 +232,7 @@ impl AppRoot {
                     .child(
                         Button::new("overlay-close")
                             .ghost()
-                            .xsmall()
+                            .small()
                             .icon(IconName::Close)
                             .tooltip(t(lang, "close"))
                             .accessibility_label(t(lang, "close"))
@@ -276,7 +276,6 @@ impl AppRoot {
                             d.child(
                                 Button::new("overlay-cancel")
                                     .outline()
-                                    .small()
                                     .label(label)
                                     .on_click(cx.listener(|this, _, _w, cx| {
                                         this.dismiss_overlay(cx);
@@ -287,7 +286,6 @@ impl AppRoot {
                             d.child(
                                 Button::new("overlay-ok")
                                     .with_variant(req.ok_variant)
-                                    .small()
                                     .label(label)
                                     .on_click(cx.listener(move |this, _, _w, cx| {
                                         if let Some(ok) = &on_ok {

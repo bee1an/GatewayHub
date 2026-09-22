@@ -57,7 +57,6 @@ impl AppRoot {
                         .child(
                             Button::new("import-cancel")
                                 .outline()
-                                .small()
                                 .label(t(lang, "cancel"))
                                 .on_click(cx.listener(|this, _, _w, cx| {
                                     this.dismiss_overlay(cx);
@@ -66,7 +65,6 @@ impl AppRoot {
                         .child(
                             Button::new("import-ok")
                                 .primary()
-                                .small()
                                 .label(t(lang, "import"))
                                 .on_click(cx.listener({
                                     let p = p.clone();
@@ -220,7 +218,7 @@ impl AppRoot {
                     top = top.child(div().flex_1()).child(
                         Button::new(SharedString::from(format!("dlg-test-{key}")))
                             .outline()
-                            .xsmall()
+                            .small()
                             .label(t(lang, "test"))
                             .loading(testing)
                             .on_click(cx.listener({
@@ -316,7 +314,7 @@ impl AppRoot {
                                 .child(
                                     Button::new(SharedString::from(format!("dlg-checkin-{key}")))
                                         .ghost()
-                                        .xsmall()
+                                        .small()
                                         .label(t(
                                             lang,
                                             if checked {
@@ -424,7 +422,7 @@ impl AppRoot {
                                 .child(
                                     Button::new(SharedString::from(format!("dlg-models-{key}")))
                                         .ghost()
-                                        .xsmall()
+                                        .small()
                                         .icon(IconName::RotateCw)
                                         .tooltip(t(lang, "refresh_models"))
                                         .loading(refreshing)
@@ -788,7 +786,6 @@ fn add_account_footer(root: &AppRoot, cx: &mut Context<AppRoot>) -> AnyElement {
         .child(
             Button::new("cli-overlay-cancel")
                 .outline()
-                .small()
                 .label(t(lang, "cancel"))
                 .on_click(cx.listener(|this, _, _w, cx| this.dismiss_overlay(cx))),
         )
@@ -798,7 +795,6 @@ fn add_account_footer(root: &AppRoot, cx: &mut Context<AppRoot>) -> AnyElement {
                 d.child(
                     Button::new("discover-import")
                         .primary()
-                        .small()
                         .label(tf(
                             lang,
                             "discover_add",
@@ -820,7 +816,6 @@ fn add_account_footer(root: &AppRoot, cx: &mut Context<AppRoot>) -> AnyElement {
             d.child(
                 Button::new("cli-overlay-import")
                     .primary()
-                    .small()
                     .label(t(lang, "import"))
                     .on_click(cx.listener(move |this, _, w, cx| {
                         this.import_account(&provider, w, cx);

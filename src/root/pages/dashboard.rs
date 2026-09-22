@@ -99,7 +99,6 @@ impl AppRoot {
                     Button::new("dash-power")
                         .when(running, |button| button.danger())
                         .when(!running, |button| button.primary())
-                        .small()
                         .label(t(
                             lang,
                             if self.server_pending {
@@ -192,7 +191,7 @@ impl AppRoot {
                         Some(
                             Button::new("dash-view-logs")
                                 .ghost()
-                                .xsmall()
+                                .small()
                                 .label(t(lang, "view_all"))
                                 .on_click(cx.listener(|this, _, _window, cx| {
                                     this.page = Page::Logs;

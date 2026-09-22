@@ -550,7 +550,7 @@ impl AppRoot {
                             d.child(
                                 Button::new(SharedString::from(format!("checkin-{key}")))
                                     .ghost()
-                                    .xsmall()
+                                    .small()
                                     .icon(IconName::Calendar)
                                     .tooltip(t(lang, "checkin"))
                                     .loading(is_checkin)
@@ -583,7 +583,7 @@ impl AppRoot {
                                 .trigger(
                                     Button::new(SharedString::from(format!("acct-menu-{key}")))
                                         .ghost()
-                                        .xsmall()
+                                        .small()
                                         .icon(IconName::Ellipsis)
                                         .tooltip(t(lang, "actions")),
                                 )
@@ -663,7 +663,6 @@ impl AppRoot {
         let provider_name4 = provider_name.clone();
         let add_btn = Button::new("add-account")
             .outline()
-            .small()
             .icon(IconName::Plus)
             .label(t(lang, "add_account"))
             .on_click(cx.listener(move |this, _e: &ClickEvent, _w, cx| {

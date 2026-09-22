@@ -229,7 +229,7 @@ impl AppRoot {
                             .items_center()
                             .child(
                                 gpui_kit::component::switch::Switch::new("pg-stream")
-                                    .xsmall()
+                                    .small()
                                     .checked(self.pg_stream)
                                     .on_change(cx.listener(|this, v, _w, cx| {
                                         this.pg_stream = *v;
@@ -338,7 +338,6 @@ impl AppRoot {
                             d.child(
                                 Button::new("pg-stop")
                                     .outline()
-                                    .small()
                                     .label(t(lang, "stop"))
                                     .icon(IconName::Close)
                                     .on_click(cx.listener(|this, _, _w, cx| this.pg_stop(cx))),
@@ -347,7 +346,6 @@ impl AppRoot {
                         .child(
                             Button::new("pg-send")
                                 .primary()
-                                .small()
                                 .label(t(lang, "send"))
                                 .icon(IconName::ArrowRight)
                                 .loading(self.pg_pending)
@@ -435,7 +433,7 @@ fn pg_message(
                     .child(
                         Button::new(SharedString::from(format!("pg-retry-{id}")))
                             .ghost()
-                            .xsmall()
+                            .small()
                             .label(t(lang, "retry"))
                             .icon(IconName::RotateCw)
                             .on_click(move |_, _, cx| {

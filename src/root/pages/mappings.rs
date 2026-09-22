@@ -72,7 +72,6 @@ impl AppRoot {
                         .child(
                             Button::new("map-cancel")
                                 .outline()
-                                .small()
                                 .label(t(lang, "cancel"))
                                 .on_click(cx.listener(|this, _, _w, cx| {
                                     this.dismiss_overlay(cx);
@@ -81,7 +80,6 @@ impl AppRoot {
                         .child(
                             Button::new("map-save")
                                 .primary()
-                                .small()
                                 .label(t(lang, "save"))
                                 .on_click(cx.listener(|this, _, _w, cx| {
                                     this.save_mapping_overlay(cx);
@@ -165,7 +163,7 @@ impl AppRoot {
                             .child(
                                 Button::new(SharedString::from(format!("maptog-{ix}")))
                                     .ghost()
-                                    .xsmall()
+                                    .small()
                                     .label(t(lang, if m.enabled { "disable" } else { "enable" }))
                                     .on_click(cx.listener(move |this, _, _w, cx| {
                                         this.toggle_mapping(ix, cx);
@@ -174,7 +172,7 @@ impl AppRoot {
                             .child(
                                 Button::new(SharedString::from(format!("mapdel-{ix}")))
                                     .ghost()
-                                    .xsmall()
+                                    .small()
                                     .danger()
                                     .label(t(lang, "delete"))
                                     .on_click(cx.listener(move |this, _e: &ClickEvent, _w, cx| {
@@ -224,7 +222,6 @@ impl AppRoot {
                         Some(
                             Button::new("add-mapping")
                                 .outline()
-                                .small()
                                 .icon(IconName::Plus)
                                 .label(t(lang, "add_mapping"))
                                 .on_click(cx.listener(|this, _e: &ClickEvent, w, cx| {
@@ -277,8 +274,10 @@ fn mapping_overlay_body(
                 .child(
                     Button::new(SharedString::from(format!("map-row-del-{ix}")))
                         .ghost()
-                        .xsmall()
+                        .small()
                         .icon(IconName::Close)
+                        .tooltip(t(lang, "delete"))
+                        .accessibility_label(t(lang, "delete"))
                         // Keep at least one row — a mapping with zero targets
                         // would be rejected on save anyway.
                         .disabled(row_count <= 1)
